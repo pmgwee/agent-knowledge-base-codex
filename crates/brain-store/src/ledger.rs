@@ -2,8 +2,8 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 use brain_domain::{
-    CaptureGapRecord, EventBatch, EventType, NormalizedEvent, ProjectId, QuarantinedRecord,
-    SchemaDriftRecord, SourceCursor, WorktreeId,
+    CaptureGapRecord, EventBatch, EventType, Harness, NormalizedEvent, ProjectId,
+    QuarantinedRecord, SchemaDriftRecord, SourceCursor, WorktreeId,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
@@ -27,9 +27,13 @@ pub struct StoredEvent {
     pub event_id: uuid::Uuid,
     pub project_id: ProjectId,
     pub worktree_id: WorktreeId,
+    pub task_id: Option<uuid::Uuid>,
+    pub harness: Harness,
     pub native_session_id: String,
     pub event_type: EventType,
     pub occurred_at: time::OffsetDateTime,
+    pub observed_at: time::OffsetDateTime,
+    pub source_locator: String,
     pub source_offset: i64,
     pub git_head: Option<String>,
     pub git_branch: Option<String>,
@@ -281,9 +285,9 @@ impl EventLedger {
         let bounded_limit = i64::try_from(limit.min(500))?;
         let mut statement = self.connection.prepare(
             r#"
-            SELECT event_id, worktree_id, native_session_id, event_type,
-                   occurred_at_ns, source_offset, git_head, git_branch,
-                   payload_json, raw_json
+            SELECT event_id, worktree_id, task_id, harness, native_session_id, event_type,
+                   occurred_at_ns, observed_at_ns, source_locator, source_offset,
+                   git_head, git_branch, payload_json, raw_json
             FROM events
             WHERE project_id = ?1
             ORDER BY occurred_at_ns DESC, observed_at_ns DESC, source_offset DESC
@@ -295,14 +299,18 @@ impl EventLedger {
                 Ok(RawStoredEvent {
                     event_id: row.get(0)?,
                     worktree_id: row.get(1)?,
-                    native_session_id: row.get(2)?,
-                    event_type: row.get(3)?,
-                    occurred_at_ns: row.get(4)?,
-                    source_offset: row.get(5)?,
-                    git_head: row.get(6)?,
-                    git_branch: row.get(7)?,
-                    payload_json: row.get(8)?,
-                    raw_json: row.get(9)?,
+                    task_id: row.get(2)?,
+                    harness: row.get(3)?,
+                    native_session_id: row.get(4)?,
+                    event_type: row.get(5)?,
+                    occurred_at_ns: row.get(6)?,
+                    observed_at_ns: row.get(7)?,
+                    source_locator: row.get(8)?,
+                    source_offset: row.get(9)?,
+                    git_head: row.get(10)?,
+                    git_branch: row.get(11)?,
+                    payload_json: row.get(12)?,
+                    raw_json: row.get(13)?,
                 })
             })?;
         let mut events = Vec::new();
@@ -336,9 +344,9 @@ impl EventLedger {
         };
         let mut statement = self.connection.prepare(
             r#"
-            SELECT event_id, worktree_id, native_session_id, event_type,
-                   occurred_at_ns, source_offset, git_head, git_branch,
-                   payload_json, raw_json
+            SELECT event_id, worktree_id, task_id, harness, native_session_id, event_type,
+                   occurred_at_ns, observed_at_ns, source_locator, source_offset,
+                   git_head, git_branch, payload_json, raw_json
             FROM events
             WHERE project_id = ?1 AND rowid BETWEEN ?2 AND ?3
             ORDER BY rowid ASC
@@ -350,14 +358,18 @@ impl EventLedger {
                 Ok(RawStoredEvent {
                     event_id: row.get(0)?,
                     worktree_id: row.get(1)?,
-                    native_session_id: row.get(2)?,
-                    event_type: row.get(3)?,
-                    occurred_at_ns: row.get(4)?,
-                    source_offset: row.get(5)?,
-                    git_head: row.get(6)?,
-                    git_branch: row.get(7)?,
-                    payload_json: row.get(8)?,
-                    raw_json: row.get(9)?,
+                    task_id: row.get(2)?,
+                    harness: row.get(3)?,
+                    native_session_id: row.get(4)?,
+                    event_type: row.get(5)?,
+                    occurred_at_ns: row.get(6)?,
+                    observed_at_ns: row.get(7)?,
+                    source_locator: row.get(8)?,
+                    source_offset: row.get(9)?,
+                    git_head: row.get(10)?,
+                    git_branch: row.get(11)?,
+                    payload_json: row.get(12)?,
+                    raw_json: row.get(13)?,
                 })
             },
         )?;
@@ -421,9 +433,13 @@ fn parse_schema_drift_record(raw: RawSchemaDrift) -> Result<SchemaDriftRecord> {
 struct RawStoredEvent {
     event_id: String,
     worktree_id: String,
+    task_id: Option<String>,
+    harness: String,
     native_session_id: String,
     event_type: String,
     occurred_at_ns: i64,
+    observed_at_ns: i64,
+    source_locator: String,
     source_offset: i64,
     git_head: Option<String>,
     git_branch: Option<String>,
@@ -437,12 +453,28 @@ impl RawStoredEvent {
             event_id: uuid::Uuid::parse_str(&self.event_id).ok()?,
             project_id,
             worktree_id: WorktreeId(uuid::Uuid::parse_str(&self.worktree_id).ok()?),
+            task_id: self
+                .task_id
+                .map(|value| uuid::Uuid::parse_str(&value))
+                .transpose()
+                .ok()?,
+            harness: match self.harness.as_str() {
+                "claude-code" => Harness::ClaudeCode,
+                "codex" => Harness::Codex,
+                "hermes" => Harness::Hermes,
+                other => Harness::Other(other.to_owned()),
+            },
             native_session_id: self.native_session_id,
             event_type: EventType::from_name(&self.event_type)?,
             occurred_at: time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(
                 self.occurred_at_ns,
             ))
             .ok()?,
+            observed_at: time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(
+                self.observed_at_ns,
+            ))
+            .ok()?,
+            source_locator: self.source_locator,
             source_offset: self.source_offset,
             git_head: self.git_head,
             git_branch: self.git_branch,

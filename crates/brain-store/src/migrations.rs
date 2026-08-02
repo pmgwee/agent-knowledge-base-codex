@@ -186,6 +186,88 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             PRIMARY KEY(job_id, category, token_hash)
         );
 
+        CREATE VIRTUAL TABLE IF NOT EXISTS event_search USING fts5(
+            scope_token,
+            content,
+            path,
+            task_label,
+            aliases,
+            content=''
+        );
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS memory_search USING fts5(
+            scope_token,
+            title,
+            content,
+            path,
+            task_label,
+            aliases,
+            content=''
+        );
+
+        CREATE TRIGGER IF NOT EXISTS event_search_after_insert
+        AFTER INSERT ON events BEGIN
+            INSERT INTO event_search(
+                rowid, scope_token, content, path, task_label, aliases
+            ) VALUES (
+                new.rowid,
+                'p' || replace(new.project_id, '-', ''),
+                new.event_type || ' ' || new.payload_json,
+                new.source_locator || ' ' ||
+                    coalesce(json_extract(new.payload_json, '$.path'), '') || ' ' ||
+                    coalesce(json_extract(new.payload_json, '$.file_path'), ''),
+                coalesce(new.task_id, ''),
+                new.native_session_id || ' ' || coalesce(new.native_turn_id, '') || ' ' ||
+                    coalesce(new.git_head, '') || ' ' || coalesce(new.git_branch, '')
+            );
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS memory_search_after_insert
+        AFTER INSERT ON memory_versions BEGIN
+            INSERT INTO memory_search(
+                rowid, scope_token, title, content, path, task_label, aliases
+            ) VALUES (
+                new.rowid,
+                'p' || replace(
+                    (SELECT project_id FROM memory_records WHERE memory_id = new.memory_id),
+                    '-', ''
+                ),
+                new.title,
+                new.content,
+                (SELECT projection_path FROM memory_records WHERE memory_id = new.memory_id),
+                coalesce(new.task_id, ''),
+                new.memory_id || ' ' || new.version_id || ' ' ||
+                    (SELECT kind FROM memory_records WHERE memory_id = new.memory_id)
+            );
+        END;
+
+        INSERT INTO event_search(rowid, scope_token, content, path, task_label, aliases)
+        SELECT
+            e.rowid,
+            'p' || replace(e.project_id, '-', ''),
+            e.event_type || ' ' || e.payload_json,
+            e.source_locator || ' ' ||
+                coalesce(json_extract(e.payload_json, '$.path'), '') || ' ' ||
+                coalesce(json_extract(e.payload_json, '$.file_path'), ''),
+            coalesce(e.task_id, ''),
+            e.native_session_id || ' ' || coalesce(e.native_turn_id, '') || ' ' ||
+                coalesce(e.git_head, '') || ' ' || coalesce(e.git_branch, '')
+        FROM events e
+        WHERE NOT EXISTS (SELECT 1 FROM event_search WHERE rowid = e.rowid);
+
+        INSERT INTO memory_search(rowid, scope_token, title, content, path, task_label, aliases)
+        SELECT
+            v.rowid,
+            'p' || replace(r.project_id, '-', ''),
+            v.title,
+            v.content,
+            r.projection_path,
+            coalesce(v.task_id, ''),
+            v.memory_id || ' ' || v.version_id || ' ' || r.kind
+        FROM memory_versions v
+        JOIN memory_records r ON r.memory_id = v.memory_id
+        WHERE NOT EXISTS (SELECT 1 FROM memory_search WHERE rowid = v.rowid);
+
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (1, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
@@ -194,6 +276,8 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             VALUES (3, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (4, datetime('now'));
+        INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+            VALUES (5, datetime('now'));
         "#,
     )?;
     Ok(())
