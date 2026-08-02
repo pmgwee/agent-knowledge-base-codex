@@ -1,0 +1,6 @@
+/target/
+/.worktrees/
+*.pdb
+*.log
+.idea/
+.vscode/
