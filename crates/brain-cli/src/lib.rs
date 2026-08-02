@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod benchmark;
 mod diagnose;
 mod install_hooks;
 mod rebuild;
@@ -22,3 +23,6 @@ pub use status::{BrainStatus, HermesStatus, read_hermes_status, read_status};
 pub use task::TaskCommands;
 
 mod task;
+pub use benchmark::{
+    BenchmarkProfile, BenchmarkReport, CorpusHashes, benchmark_corpus, corpus_hashes,
+};

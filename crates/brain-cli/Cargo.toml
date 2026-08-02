@@ -43,3 +43,15 @@ path = "../../tests/e2e/multi_agent_handoff.rs"
 [[test]]
 name = "multi_project_isolation"
 path = "../../tests/e2e/multi_project_isolation.rs"
+
+[[test]]
+name = "primary"
+path = "../../tests/scale/primary.rs"
+
+[[test]]
+name = "memory_quality"
+path = "../../tests/scale/memory_quality.rs"
+
+[[test]]
+name = "stress"
+path = "../../tests/scale/stress.rs"

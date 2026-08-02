@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use brain_cli::{
-    AgentSourceOptions, RegisterOptions, TaskCommands, install_claude_hooks, install_codex_hooks,
-    read_diagnostics, read_hermes_status, read_status, rebuild_basic_memory, rebuild_markdown,
-    register_project_with_sources, uninstall_claude_hooks, uninstall_codex_hooks,
-    verify_projections,
+    AgentSourceOptions, BenchmarkProfile, RegisterOptions, TaskCommands, benchmark_corpus,
+    install_claude_hooks, install_codex_hooks, read_diagnostics, read_hermes_status, read_status,
+    rebuild_basic_memory, rebuild_markdown, register_project_with_sources, uninstall_claude_hooks,
+    uninstall_codex_hooks, verify_projections,
 };
 use brain_coordination::{ClaimKind, PathClaimInput, SessionIdentity};
 use brain_domain::{BrainConfig, Harness, ProjectId};
@@ -145,6 +145,14 @@ enum Command {
         #[command(subcommand)]
         action: UpgradeCommand,
     },
+    Benchmark {
+        #[arg(long, value_enum, default_value_t = CliBenchmarkProfile::Smoke)]
+        profile: CliBenchmarkProfile,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -166,6 +174,13 @@ enum UpgradeCommand {
         #[arg(long)]
         destination: PathBuf,
     },
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliBenchmarkProfile {
+    Smoke,
+    Primary,
+    Stress,
 }
 
 #[derive(Subcommand)]
@@ -766,6 +781,17 @@ fn main() -> Result<()> {
                 UpgradeManager::stage(&brain_home, destination, time::OffsetDateTime::now_utc())?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
+        Command::Benchmark {
+            profile,
+            output,
+            seed,
+        } => {
+            let report = benchmark_corpus(output, profile.into(), seed)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if !report.passed {
+                anyhow::bail!("benchmark gates failed: {}", report.failures.join("; "));
+            }
+        }
     }
     Ok(())
 }
@@ -788,6 +814,16 @@ impl From<CliClaimKind> for ClaimKind {
             CliClaimKind::Directory => Self::Directory,
             CliClaimKind::Glob => Self::Glob,
             CliClaimKind::Symbol => Self::Symbol,
+        }
+    }
+}
+
+impl From<CliBenchmarkProfile> for BenchmarkProfile {
+    fn from(value: CliBenchmarkProfile) -> Self {
+        match value {
+            CliBenchmarkProfile::Smoke => Self::Smoke,
+            CliBenchmarkProfile::Primary => Self::Primary,
+            CliBenchmarkProfile::Stress => Self::Stress,
         }
     }
 }
