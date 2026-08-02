@@ -7,3 +7,18 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+brain-domain = { path = "../brain-domain" }
+clap.workspace = true
+serde_json.workspace = true
+time.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+uuid.workspace = true
+
+[[bin]]
+name = "brain-hook"
+path = "src/main.rs"

@@ -12,11 +12,13 @@ brain-domain = { path = "../brain-domain" }
 brain-store = { path = "../brain-store" }
 notify.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+brain-hook = { path = "../brain-hook" }
 tempfile.workspace = true
 uuid.workspace = true
