@@ -2,6 +2,7 @@
 
 mod lease;
 mod task;
+mod worktree;
 
 use std::path::Path;
 
@@ -11,6 +12,7 @@ use rusqlite::Connection;
 
 pub use lease::{CoordinationEvent, LeaseError, SessionIdentity, WriterLease};
 pub use task::{TaskRecord, TaskStatus};
+pub use worktree::{CloseTaskReport, TaskWorktreeManager, WorktreeInfo};
 
 pub const DEFAULT_LEASE_DURATION: time::Duration = time::Duration::minutes(30);
 pub const RENEWAL_INTERVAL: time::Duration = time::Duration::minutes(5);

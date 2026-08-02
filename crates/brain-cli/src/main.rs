@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use brain_cli::{
-    AgentSourceOptions, RegisterOptions, install_claude_hooks, install_codex_hooks,
+    AgentSourceOptions, RegisterOptions, TaskCommands, install_claude_hooks, install_codex_hooks,
     read_diagnostics, read_hermes_status, read_status, rebuild_basic_memory, rebuild_markdown,
     register_project_with_sources, uninstall_claude_hooks, uninstall_codex_hooks,
     verify_projections,
@@ -101,6 +101,10 @@ enum Command {
         #[arg(long)]
         max_tokens: Option<usize>,
     },
+    Task {
+        #[command(subcommand)]
+        action: TaskCommand,
+    },
     Diagnose {
         #[arg(long)]
         project: Option<String>,
@@ -132,6 +136,32 @@ enum VerifyCommand {
     Projections {
         #[arg(long)]
         project: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum TaskCommand {
+    Create {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        base: Option<String>,
+        #[arg(long)]
+        worktree_parent: Option<PathBuf>,
+    },
+    List {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        include_closed: bool,
+    },
+    Close {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        task: uuid::Uuid,
     },
 }
 
@@ -350,6 +380,35 @@ fn main() -> Result<()> {
                     max_tokens,
                 })?;
             println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::Task {
+            action:
+                TaskCommand::Create {
+                    project,
+                    title,
+                    base,
+                    worktree_parent,
+                },
+        } => {
+            let result = TaskCommands::open(&brain_home, &project, worktree_parent)?
+                .create(&title, base.as_deref())?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::Task {
+            action:
+                TaskCommand::List {
+                    project,
+                    include_closed,
+                },
+        } => {
+            let result = TaskCommands::open(&brain_home, &project, None)?.list(include_closed)?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::Task {
+            action: TaskCommand::Close { project, task },
+        } => {
+            let result = TaskCommands::open(&brain_home, &project, None)?.close(task)?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
         }
         Command::Diagnose { project } => {
             let project = project.as_deref().map(parse_project_id).transpose()?;

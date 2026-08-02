@@ -19,3 +19,6 @@ pub use register::{
     register_project_with_sources,
 };
 pub use status::{BrainStatus, HermesStatus, read_hermes_status, read_status};
+pub use task::TaskCommands;
+
+mod task;

@@ -127,6 +127,11 @@ impl ProjectRegistry {
             .iter_mut()
             .find(|project| project.project_id == project_id)
             .with_context(|| format!("project {} is not registered", project_id.0))?;
+        if (project.git_common_dir.is_some() || identity.git_common_dir.is_some())
+            && project.project_key != identity.project_key
+        {
+            bail!("path belongs to a different project identity");
+        }
         if !project.aliases.contains(&alias) {
             project.aliases.push(alias);
         }

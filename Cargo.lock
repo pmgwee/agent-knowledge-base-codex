@@ -159,6 +159,7 @@ dependencies = [
  "atomicwrites",
  "brain-adapters",
  "brain-context",
+ "brain-coordination",
  "brain-domain",
  "brain-hook",
  "brain-service",
