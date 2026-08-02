@@ -194,6 +194,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "brain-coordination"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "brain-domain",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "brain-domain"
 version = "0.1.0"
 dependencies = [
