@@ -263,6 +263,7 @@ dependencies = [
  "async-trait",
  "brain-adapters",
  "brain-context",
+ "brain-coordination",
  "brain-domain",
  "brain-hook",
  "brain-store",

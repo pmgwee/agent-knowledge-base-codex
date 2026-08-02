@@ -3,13 +3,16 @@ use brain_service::BrainQueryService;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-const TOOL_NAMES: [&str; 6] = [
+const TOOL_NAMES: [&str; 9] = [
     "brain_search",
     "brain_timeline",
     "brain_checkpoint",
     "brain_evidence",
     "brain_correct",
     "brain_status",
+    "brain_claim",
+    "brain_claims",
+    "brain_release_claim",
 ];
 
 pub struct BrainTools {
@@ -124,6 +127,56 @@ impl BrainTools {
                 true,
                 true,
             ),
+            tool(
+                "brain_claim",
+                "Claim repository-relative paths or symbols and return overlap warnings from other active tasks.",
+                object_schema(
+                    json!({
+                        "project": string("Registered project UUID or exact path alias."),
+                        "task_id": string("Active coordination task UUID."),
+                        "claims": {
+                            "type": "array", "minItems": 1, "maxItems": 100,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "kind": {"type": "string", "enum": ["file", "directory", "glob", "symbol"]},
+                                    "value": string("Repository-relative path or conservative glob."),
+                                    "symbol": string("Required symbol name for symbol claims.")
+                                },
+                                "required": ["kind", "value"],
+                                "additionalProperties": false
+                            }
+                        }
+                    }),
+                    &["project", "task_id", "claims"],
+                ),
+                false,
+                false,
+            ),
+            tool(
+                "brain_claims",
+                "List active project-scoped path and symbol claims.",
+                object_schema(
+                    json!({"project": string("Registered project UUID or exact path alias.")}),
+                    &["project"],
+                ),
+                true,
+                true,
+            ),
+            tool(
+                "brain_release_claim",
+                "Release one path claim owned by a coordination task.",
+                object_schema(
+                    json!({
+                        "project": string("Registered project UUID or exact path alias."),
+                        "task_id": string("Owning task UUID."),
+                        "claim_id": string("Claim UUID to release.")
+                    }),
+                    &["project", "task_id", "claim_id"],
+                ),
+                false,
+                true,
+            ),
         ]
     }
 
@@ -135,6 +188,9 @@ impl BrainTools {
             "brain_evidence" => serialize(self.service.evidence(parse(arguments)?)),
             "brain_correct" => serialize(self.service.correct(parse(arguments)?)),
             "brain_status" => serialize(self.service.status(parse(arguments)?)),
+            "brain_claim" => serialize(self.service.claim(parse(arguments)?)),
+            "brain_claims" => serialize(self.service.claims(parse(arguments)?)),
+            "brain_release_claim" => serialize(self.service.release_claim(parse(arguments)?)),
             _ => bail!("unknown tool {name}"),
         }
     }

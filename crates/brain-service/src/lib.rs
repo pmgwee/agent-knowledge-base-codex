@@ -27,9 +27,10 @@ pub use note_watcher::{
 };
 pub use pipe::HookPipeServer;
 pub use query_api::{
-    BrainCheckpointRequest, BrainCheckpointResponse, BrainCitation, BrainCorrectionRequest,
+    BrainCheckpointRequest, BrainCheckpointResponse, BrainCitation, BrainClaimRequest,
+    BrainClaimResponse, BrainClaimsRequest, BrainClaimsResponse, BrainCorrectionRequest,
     BrainCorrectionResponse, BrainEvidenceRequest, BrainEvidenceResponse, BrainItemsResponse,
-    BrainQueryService, BrainResultItem, BrainSearchRequest, BrainStatusRequest,
-    BrainStatusResponse, BrainTimelineRequest, SourceSelector, TimelineWindow,
+    BrainQueryService, BrainReleaseClaimRequest, BrainResultItem, BrainSearchRequest,
+    BrainStatusRequest, BrainStatusResponse, BrainTimelineRequest, SourceSelector, TimelineWindow,
 };
 pub use runtime::{build_capture_bindings, build_hook_bindings};

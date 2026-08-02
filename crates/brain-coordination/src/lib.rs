@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod claims;
 mod lease;
 mod task;
 mod worktree;
@@ -123,3 +124,6 @@ pub(crate) fn from_ns(value: i64) -> Result<time::OffsetDateTime> {
         i128::from(value),
     )?)
 }
+pub use claims::{
+    ClaimKind, ClaimResult, ClaimWarning, Overlap, PathClaim, PathClaimInput, overlap,
+};

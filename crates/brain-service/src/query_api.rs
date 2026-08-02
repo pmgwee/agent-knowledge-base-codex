@@ -5,6 +5,7 @@ use brain_context::{
     CompiledContext, ContextCompiler, ContextQuery, LiveState, RankedCandidate, RetrievalEngine,
     RetrievalQuery,
 };
+use brain_coordination::{ClaimResult, CoordinationStore, PathClaim, PathClaimInput};
 use brain_domain::{
     Authority, EventBatch, EventType, Harness, MemoryKind, MemoryRecord, MemoryScope, MemoryStatus,
     NormalizedEvent, ProjectId, ProjectRegistry, SourceCursor,
@@ -94,6 +95,37 @@ pub struct BrainCorrectionRequest {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct BrainStatusRequest {
     pub project: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainClaimRequest {
+    pub project: String,
+    pub task_id: uuid::Uuid,
+    pub claims: Vec<PathClaimInput>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainClaimsRequest {
+    pub project: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainReleaseClaimRequest {
+    pub project: String,
+    pub task_id: uuid::Uuid,
+    pub claim_id: uuid::Uuid,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainClaimsResponse {
+    pub project_id: ProjectId,
+    pub claims: Vec<PathClaim>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainClaimResponse {
+    pub project_id: ProjectId,
+    pub results: Vec<ClaimResult>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -484,6 +516,42 @@ impl BrainQueryService {
             latest_event_at: ledger.latest_event_at()?.map(format_timestamp),
             canonical_retrieval: "sqlite_fts5_available".to_owned(),
             optional_providers: "not_required_for_canonical_retrieval".to_owned(),
+        })
+    }
+
+    pub fn claim(&self, request: BrainClaimRequest) -> Result<BrainClaimResponse> {
+        let project = self.project(&request.project)?.clone();
+        let mut store = CoordinationStore::open(&project.ledger_path, project.project_id)?;
+        Ok(BrainClaimResponse {
+            project_id: project.project_id,
+            results: store.claim_paths(
+                request.task_id,
+                request.claims,
+                time::OffsetDateTime::now_utc(),
+            )?,
+        })
+    }
+
+    pub fn claims(&self, request: BrainClaimsRequest) -> Result<BrainClaimsResponse> {
+        let project = self.project(&request.project)?;
+        Ok(BrainClaimsResponse {
+            project_id: project.project_id,
+            claims: CoordinationStore::open(&project.ledger_path, project.project_id)?
+                .active_claims()?,
+        })
+    }
+
+    pub fn release_claim(&self, request: BrainReleaseClaimRequest) -> Result<BrainClaimsResponse> {
+        let project = self.project(&request.project)?.clone();
+        let mut store = CoordinationStore::open(&project.ledger_path, project.project_id)?;
+        store.release_claim(
+            request.claim_id,
+            request.task_id,
+            time::OffsetDateTime::now_utc(),
+        )?;
+        Ok(BrainClaimsResponse {
+            project_id: project.project_id,
+            claims: store.active_claims()?,
         })
     }
 

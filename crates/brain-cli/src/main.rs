@@ -7,10 +7,12 @@ use brain_cli::{
     register_project_with_sources, uninstall_claude_hooks, uninstall_codex_hooks,
     verify_projections,
 };
+use brain_coordination::{ClaimKind, PathClaimInput};
 use brain_domain::{BrainConfig, ProjectId};
 use brain_service::{
-    BrainCheckpointRequest, BrainQueryService, BrainSearchRequest, BrainTimelineRequest,
-    SourceSelector, TimelineWindow,
+    BrainCheckpointRequest, BrainClaimRequest, BrainClaimsRequest, BrainQueryService,
+    BrainReleaseClaimRequest, BrainSearchRequest, BrainTimelineRequest, SourceSelector,
+    TimelineWindow,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -163,6 +165,30 @@ enum TaskCommand {
         #[arg(long)]
         task: uuid::Uuid,
     },
+    Claim {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        task: uuid::Uuid,
+        #[arg(long, value_enum)]
+        kind: CliClaimKind,
+        #[arg(long)]
+        value: String,
+        #[arg(long)]
+        symbol: Option<String>,
+    },
+    Claims {
+        #[arg(long)]
+        project: String,
+    },
+    ReleaseClaim {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        task: uuid::Uuid,
+        #[arg(long)]
+        claim: uuid::Uuid,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -183,6 +209,14 @@ enum CliTimelineWindow {
     Week,
     Month,
     Custom,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum CliClaimKind {
+    File,
+    Directory,
+    Glob,
+    Symbol,
 }
 
 fn main() -> Result<()> {
@@ -410,6 +444,50 @@ fn main() -> Result<()> {
             let result = TaskCommands::open(&brain_home, &project, None)?.close(task)?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
+        Command::Task {
+            action:
+                TaskCommand::Claim {
+                    project,
+                    task,
+                    kind,
+                    value,
+                    symbol,
+                },
+        } => {
+            let result = BrainQueryService::open(&brain_home)?.claim(BrainClaimRequest {
+                project,
+                task_id: task,
+                claims: vec![PathClaimInput {
+                    kind: kind.into(),
+                    value,
+                    symbol,
+                }],
+            })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::Task {
+            action: TaskCommand::Claims { project },
+        } => {
+            let result =
+                BrainQueryService::open(&brain_home)?.claims(BrainClaimsRequest { project })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::Task {
+            action:
+                TaskCommand::ReleaseClaim {
+                    project,
+                    task,
+                    claim,
+                },
+        } => {
+            let result =
+                BrainQueryService::open(&brain_home)?.release_claim(BrainReleaseClaimRequest {
+                    project,
+                    task_id: task,
+                    claim_id: claim,
+                })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
         Command::Diagnose { project } => {
             let project = project.as_deref().map(parse_project_id).transpose()?;
             let bundle = read_diagnostics(&brain_home, project)?;
@@ -447,6 +525,17 @@ impl From<CliTimelineWindow> for TimelineWindow {
             CliTimelineWindow::Week => Self::Week,
             CliTimelineWindow::Month => Self::Month,
             CliTimelineWindow::Custom => Self::Custom,
+        }
+    }
+}
+
+impl From<CliClaimKind> for ClaimKind {
+    fn from(value: CliClaimKind) -> Self {
+        match value {
+            CliClaimKind::File => Self::File,
+            CliClaimKind::Directory => Self::Directory,
+            CliClaimKind::Glob => Self::Glob,
+            CliClaimKind::Symbol => Self::Symbol,
         }
     }
 }
