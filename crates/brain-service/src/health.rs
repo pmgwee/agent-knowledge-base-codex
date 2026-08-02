@@ -28,7 +28,7 @@ impl ServiceHealth {
     }
 
     pub(crate) fn record_batch(&mut self, update: BatchHealthUpdate) {
-        if let Some(source) = self.sources.get_mut(&update.source_id) {
+        if let Some(source) = self.sources.get_mut(&update.source_key) {
             let now = time::OffsetDateTime::now_utc();
             source.last_cursor = update.cursor;
             source.captured_events += update.inserted;
@@ -99,6 +99,7 @@ impl ServiceHealth {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn register_source(
         &mut self,
+        source_key: String,
         source_id: String,
         source_path: PathBuf,
         project_id: ProjectId,
@@ -111,8 +112,9 @@ impl ServiceHealth {
         last_error: Option<String>,
     ) {
         self.sources.insert(
-            source_id,
+            source_key,
             SourceHealth {
+                source_id,
                 source_path,
                 project_id,
                 last_cursor,
@@ -146,7 +148,7 @@ impl ServiceHealth {
 }
 
 pub(crate) struct BatchHealthUpdate {
-    pub source_id: String,
+    pub source_key: String,
     pub project_id: ProjectId,
     pub cursor: SourceCursor,
     pub inserted: u64,
@@ -166,6 +168,7 @@ pub struct ProjectHealth {
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct SourceHealth {
+    pub source_id: String,
     pub source_path: PathBuf,
     pub project_id: ProjectId,
     pub last_cursor: SourceCursor,
@@ -180,4 +183,8 @@ pub struct SourceHealth {
     pub last_checked_at: Option<time::OffsetDateTime>,
     pub last_success_at: Option<time::OffsetDateTime>,
     pub last_error: Option<String>,
+}
+
+pub fn source_health_key(project_id: ProjectId, source_id: &str) -> String {
+    format!("{}:{source_id}", project_id.0)
 }

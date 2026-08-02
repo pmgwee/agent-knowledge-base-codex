@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use brain_adapters::{ClaudeAdapter, NormalizeContext, SourceDescriptor};
 use brain_domain::{ProjectId, WorktreeId};
-use brain_service::{CaptureBinding, CaptureSupervisor};
+use brain_service::{CaptureBinding, CaptureSupervisor, source_health_key};
 use time::format_description::well_known::Rfc3339;
 
 #[tokio::test]
@@ -38,7 +38,7 @@ async fn a_rotated_source_creates_a_visible_unresolved_capture_gap() {
     let initial_health = supervisor.health().expect("read initial health");
     let initial_source = initial_health
         .sources
-        .get(&source_id)
+        .get(&source_health_key(project_id, &source_id))
         .expect("initial source health");
     assert_eq!(initial_source.backlog_bytes, 0);
     assert!(initial_source.schema_fingerprint.is_some());
@@ -64,7 +64,10 @@ async fn a_rotated_source_creates_a_visible_unresolved_capture_gap() {
         .expect("capture replacement source");
 
     let health = supervisor.health().expect("read service health");
-    let source_health = health.sources.get(&source_id).expect("source health");
+    let source_health = health
+        .sources
+        .get(&source_health_key(project_id, &source_id))
+        .expect("source health");
     assert_eq!(source_health.capture_gaps, 1);
     assert_eq!(source_health.schema_fingerprint_changes, 1);
     assert!(source_health.last_cursor.byte_offset > 0);
@@ -75,7 +78,7 @@ async fn a_rotated_source_creates_a_visible_unresolved_capture_gap() {
     let restarted_health = restarted.health().expect("read restarted gap health");
     let restarted_source = restarted_health
         .sources
-        .get(&source_id)
+        .get(&source_health_key(project_id, &source_id))
         .expect("restarted source health");
     assert_eq!(restarted_source.capture_gaps, 1);
     assert!(!restarted_health.is_healthy());

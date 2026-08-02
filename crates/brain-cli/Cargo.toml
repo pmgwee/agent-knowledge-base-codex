@@ -34,3 +34,11 @@ path = "src/main.rs"
 [[test]]
 name = "claude_walking_skeleton"
 path = "../../tests/e2e/claude_walking_skeleton.rs"
+
+[[test]]
+name = "multi_agent_handoff"
+path = "../../tests/e2e/multi_agent_handoff.rs"
+
+[[test]]
+name = "multi_project_isolation"
+path = "../../tests/e2e/multi_project_isolation.rs"

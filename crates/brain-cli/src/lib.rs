@@ -10,5 +10,8 @@ pub use install_hooks::{
     HookInstallResult, install_claude_hooks, install_codex_hooks, uninstall_claude_hooks,
     uninstall_codex_hooks,
 };
-pub use register::{RegisterOptions, RegistrationResult, register_project};
+pub use register::{
+    AgentSourceOptions, RegisterOptions, RegistrationResult, register_project,
+    register_project_with_sources,
+};
 pub use status::{BrainStatus, HermesStatus, read_hermes_status, read_status};

@@ -99,6 +99,14 @@ impl EventLedger {
             .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?)
     }
 
+    pub fn event_count_by_harness(&self, harness: brain_domain::Harness) -> Result<u64> {
+        Ok(self.connection.query_row(
+            "SELECT COUNT(*) FROM events WHERE harness = ?1",
+            [harness.as_str()],
+            |row| row.get(0),
+        )?)
+    }
+
     pub fn latest_event_at(&self) -> Result<Option<time::OffsetDateTime>> {
         let timestamp =
             self.connection

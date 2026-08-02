@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use brain_cli::{
-    RegisterOptions, install_claude_hooks, install_codex_hooks, read_diagnostics,
-    read_hermes_status, read_status, register_project, uninstall_claude_hooks,
-    uninstall_codex_hooks,
+    AgentSourceOptions, RegisterOptions, install_claude_hooks, install_codex_hooks,
+    read_diagnostics, read_hermes_status, read_status, register_project_with_sources,
+    uninstall_claude_hooks, uninstall_codex_hooks,
 };
 use brain_context::{ContextCompiler, ContextQuery};
 use brain_domain::{BrainConfig, ProjectId};
@@ -29,6 +29,14 @@ enum Command {
         claude_projects_root: Option<PathBuf>,
         #[arg(long)]
         no_discover_claude: bool,
+        #[arg(long)]
+        codex_sessions_root: Option<PathBuf>,
+        #[arg(long)]
+        no_discover_codex: bool,
+        #[arg(long)]
+        hermes_db: Option<PathBuf>,
+        #[arg(long)]
+        no_hermes: bool,
     },
     Status {
         #[arg(long)]
@@ -87,19 +95,42 @@ fn main() -> Result<()> {
             path,
             claude_projects_root,
             no_discover_claude,
+            codex_sessions_root,
+            no_discover_codex,
+            hermes_db,
+            no_hermes,
         } => {
             let discovery_root = if no_discover_claude {
                 None
             } else {
                 claude_projects_root.or_else(default_claude_projects_root)
             };
-            let result = register_project(RegisterOptions {
-                brain_home,
-                project_path: path,
-                claude_projects_root: discovery_root,
-                explicit_claude_sources: Vec::new(),
-                pipe_name: None,
-            })?;
+            let codex_root = if no_discover_codex {
+                None
+            } else {
+                codex_sessions_root.or_else(default_codex_sessions_root)
+            };
+            let hermes_database = if no_hermes {
+                None
+            } else {
+                hermes_db.or_else(default_existing_hermes_database)
+            };
+            let result = register_project_with_sources(
+                RegisterOptions {
+                    brain_home,
+                    project_path: path,
+                    claude_projects_root: discovery_root,
+                    explicit_claude_sources: Vec::new(),
+                    pipe_name: None,
+                },
+                AgentSourceOptions {
+                    configure_codex: true,
+                    codex_sessions_root: codex_root,
+                    explicit_codex_sources: Vec::new(),
+                    configure_hermes: true,
+                    hermes_database,
+                },
+            )?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
         Command::Status {
@@ -197,17 +228,13 @@ fn main() -> Result<()> {
         } => {
             let project = parse_project_id(&project)?;
             let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
-            if config.project_id != project {
-                bail!(
-                    "project {} is not the configured service scope {}",
-                    project.0,
-                    config.project_id.0
-                );
-            }
-            let ledger = EventLedger::open(&config.ledger_path, project)?;
+            let project_config = config.project(Some(project))?;
+            let ledger = EventLedger::open(&project_config.ledger_path, project)?;
             let compiler = ContextCompiler::from_ledger(&ledger, project, 500)?;
-            let context =
-                compiler.compile(ContextQuery::for_worktree(project, config.worktree_id))?;
+            let context = compiler.compile(ContextQuery::for_worktree(
+                project,
+                project_config.worktree_id,
+            ))?;
             println!("{}", context.text);
         }
         Command::Diagnose { project } => {
@@ -230,6 +257,17 @@ fn default_claude_projects_root() -> Option<PathBuf> {
         .map(PathBuf::from)
         .map(|home| home.join(".claude").join("projects"))
         .filter(|path| path.is_dir())
+}
+
+fn default_codex_sessions_root() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .map(|home| home.join(".codex").join("sessions"))
+        .filter(|path| path.is_dir())
+}
+
+fn default_existing_hermes_database() -> Option<PathBuf> {
+    default_hermes_database().ok().filter(|path| path.is_file())
 }
 
 fn default_claude_settings() -> Result<PathBuf> {

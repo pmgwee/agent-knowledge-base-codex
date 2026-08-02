@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use brain_domain::{ProjectId, SchemaDriftRecord};
 use brain_service::ServiceLaunchConfig;
 use brain_store::EventLedger;
@@ -42,16 +42,8 @@ pub fn read_diagnostics(
     project: Option<ProjectId>,
 ) -> Result<DiagnosticBundle> {
     let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(brain_home))?;
-    if let Some(project) = project
-        && project != config.project_id
-    {
-        bail!(
-            "project {} is not the configured service scope {}",
-            project.0,
-            config.project_id.0
-        );
-    }
-    let ledger = EventLedger::open(&config.ledger_path, config.project_id)?;
+    let project = config.project(project)?;
+    let ledger = EventLedger::open(&project.ledger_path, project.project_id)?;
     let active_schema_drifts = ledger.active_schema_drift_count()?;
     let schema_drifts = ledger
         .schema_drifts()?
@@ -61,7 +53,7 @@ pub fn read_diagnostics(
     Ok(DiagnosticBundle {
         format_version: 1,
         generated_at: time::OffsetDateTime::now_utc(),
-        project_id: config.project_id,
+        project_id: project.project_id,
         persisted_events: ledger.event_count()?,
         active_schema_drifts,
         schema_drifts,

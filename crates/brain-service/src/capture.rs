@@ -8,7 +8,7 @@ use brain_domain::{CaptureGapRecord, EventBatch, ProjectId, QuarantinedRecord, S
 use brain_store::EventLedger;
 
 use crate::CaptureServiceConfig;
-use crate::health::{BatchHealthUpdate, ServiceHealth};
+use crate::health::{BatchHealthUpdate, ServiceHealth, source_health_key};
 
 pub struct CaptureBinding {
     pub adapter: Arc<dyn SourceAdapter>,
@@ -30,6 +30,10 @@ impl CaptureBinding {
             context,
             ledger_path: ledger_path.as_ref().to_path_buf(),
         }
+    }
+
+    fn source_key(&self) -> String {
+        source_health_key(self.context.project_id, &self.source.source_id)
     }
 }
 
@@ -55,8 +59,12 @@ impl CaptureSupervisor {
         let mut paths = HashMap::<PathBuf, ProjectId>::new();
         let mut source_ids = std::collections::HashSet::new();
         for binding in &bindings {
-            if !source_ids.insert(binding.source.source_id.clone()) {
-                bail!("duplicate source id {}", binding.source.source_id);
+            if !source_ids.insert((binding.context.project_id, binding.source.source_id.clone())) {
+                bail!(
+                    "duplicate source id {} for project {}",
+                    binding.source.source_id,
+                    binding.context.project_id.0
+                );
             }
             if let Some(other_project) = paths.get(&binding.ledger_path)
                 && *other_project != binding.context.project_id
@@ -112,6 +120,7 @@ impl CaptureSupervisor {
                 })
                 .or(fingerprint_error);
             health.register_source(
+                binding.source_key(),
                 binding.source.source_id.clone(),
                 binding.source.path.clone(),
                 binding.context.project_id,
@@ -126,12 +135,7 @@ impl CaptureSupervisor {
         }
         let source_locks = bindings
             .iter()
-            .map(|binding| {
-                (
-                    binding.source.source_id.clone(),
-                    tokio::sync::Mutex::new(()),
-                )
-            })
+            .map(|binding| (binding.source_key(), tokio::sync::Mutex::new(())))
             .collect();
         Ok(Self {
             bindings,
@@ -144,9 +148,10 @@ impl CaptureSupervisor {
 
     pub async fn capture_once(&self) -> Result<()> {
         for binding in &self.bindings {
+            let source_key = binding.source_key();
             let _source_guard = self
                 .source_locks
-                .get(&binding.source.source_id)
+                .get(&source_key)
                 .expect("every binding has a source lock")
                 .lock()
                 .await;
@@ -158,7 +163,7 @@ impl CaptureSupervisor {
             let fingerprint = match binding.adapter.fingerprint(&binding.source) {
                 Ok(fingerprint) => fingerprint,
                 Err(error) => {
-                    self.record_error(&binding.source.source_id, error.to_string())?;
+                    self.record_error(&source_key, error.to_string())?;
                     continue;
                 }
             };
@@ -166,7 +171,7 @@ impl CaptureSupervisor {
             self.health
                 .lock()
                 .map_err(|_| anyhow::anyhow!("service health lock is poisoned"))?
-                .record_fingerprint(&binding.source.source_id, fingerprint_value.clone());
+                .record_fingerprint(&source_key, fingerprint_value.clone());
             let active_drift = store
                 .lock()
                 .map_err(|_| anyhow::anyhow!("event ledger lock is poisoned"))?
@@ -183,10 +188,10 @@ impl CaptureSupervisor {
                     self.health
                         .lock()
                         .map_err(|_| anyhow::anyhow!("service health lock is poisoned"))?
-                        .record_schema_drift_resolved(&binding.source.source_id);
+                        .record_schema_drift_resolved(&source_key);
                 } else {
                     self.record_error(
-                        &binding.source.source_id,
+                        &source_key,
                         format!(
                             "schema drift [{}]: expected {}, observed {}",
                             active_drift.diagnostic_id,
@@ -200,7 +205,7 @@ impl CaptureSupervisor {
             let outcome = match binding.adapter.read_increment(&binding.source, &cursor) {
                 Ok(outcome) => outcome,
                 Err(error) => {
-                    self.record_error(&binding.source.source_id, error.to_string())?;
+                    self.record_error(&source_key, error.to_string())?;
                     continue;
                 }
             };
@@ -263,7 +268,7 @@ impl CaptureSupervisor {
                         .lock()
                         .map_err(|_| anyhow::anyhow!("service health lock is poisoned"))?
                         .record_batch(BatchHealthUpdate {
-                            source_id: binding.source.source_id.clone(),
+                            source_key: source_key.clone(),
                             project_id: binding.context.project_id,
                             cursor: next_cursor,
                             inserted: u64::try_from(result.inserted)?,
@@ -278,10 +283,7 @@ impl CaptureSupervisor {
                     self.health
                         .lock()
                         .map_err(|_| anyhow::anyhow!("service health lock is poisoned"))?
-                        .record_check(
-                            &binding.source.source_id,
-                            backlog_bytes(&binding.source.path, &cursor),
-                        );
+                        .record_check(&source_key, backlog_bytes(&binding.source.path, &cursor));
                 }
                 ReadOutcome::SchemaDrift(drift) => {
                     let record = SchemaDriftRecord {
@@ -303,7 +305,7 @@ impl CaptureSupervisor {
                         .lock()
                         .map_err(|_| anyhow::anyhow!("service health lock is poisoned"))?
                         .record_schema_drift(
-                            &binding.source.source_id,
+                            &source_key,
                             record.diagnostic_id,
                             format!(
                                 "schema drift [{}]: expected {}, observed {}",
@@ -317,7 +319,7 @@ impl CaptureSupervisor {
                     self.health
                         .lock()
                         .map_err(|_| anyhow::anyhow!("service health lock is poisoned"))?
-                        .record_error(&binding.source.source_id, unavailable.reason.clone());
+                        .record_error(&source_key, unavailable.reason.clone());
                 }
             }
         }

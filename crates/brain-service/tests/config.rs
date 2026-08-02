@@ -47,7 +47,9 @@ fn service_launch_config_loads_the_explicit_project_scope() {
 
     let config = ServiceLaunchConfig::load(&path).expect("load service config");
 
-    assert_eq!(config.project_id.0, project_id);
-    assert_eq!(config.worktree_id.0, worktree_id);
-    assert_eq!(config.claude_sources.len(), 1);
+    let project = config.project(None).expect("select migrated project");
+    assert_eq!(project.project_id.0, project_id);
+    assert_eq!(project.worktree_id.0, worktree_id);
+    assert_eq!(project.claude_sources.len(), 1);
+    assert_eq!(config.schema_version, 2);
 }

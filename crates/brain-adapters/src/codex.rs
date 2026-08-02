@@ -192,6 +192,7 @@ fn map_record(
                 &payload,
                 &[
                     "message",
+                    "summary",
                     "first_window_id",
                     "previous_window_id",
                     "window_id",

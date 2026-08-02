@@ -132,6 +132,12 @@ fn select_blocks(events: &[ContextEvidence], worktree_id: WorktreeId) -> Vec<Con
     push_latest_text_block(&mut blocks, events, "Last agent outcome", |event| {
         matches!(event.event_type, EventType::AgentResponded)
     });
+    push_latest_text_block(&mut blocks, events, "Current checkpoint", |event| {
+        matches!(
+            event.event_type,
+            EventType::CheckpointAuthored | EventType::SessionCompacted
+        )
+    });
 
     for event in events
         .iter()
@@ -228,6 +234,7 @@ fn collect_text(value: &serde_json::Value) -> Option<String> {
                 "text",
                 "content",
                 "message",
+                "summary",
                 "command",
                 "output",
                 "error",

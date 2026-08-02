@@ -6,7 +6,7 @@ use brain_adapters::{
     SourceAdapter, SourceDescriptor,
 };
 use brain_domain::{NormalizedEvent, ProjectId, SourceCursor, WorktreeId};
-use brain_service::{CaptureBinding, CaptureSupervisor};
+use brain_service::{CaptureBinding, CaptureSupervisor, source_health_key};
 use brain_store::EventLedger;
 
 struct DriftAdapter;
@@ -85,7 +85,7 @@ async fn drift_pauses_only_the_affected_source_and_survives_restart() {
     let health = supervisor.health().expect("read health");
     let drift_health = health
         .sources
-        .get(&drift_source.source_id)
+        .get(&source_health_key(project_id, &drift_source.source_id))
         .expect("drift health");
     assert!(
         drift_health
@@ -95,7 +95,7 @@ async fn drift_pauses_only_the_affected_source_and_survives_restart() {
     );
     let healthy_health = health
         .sources
-        .get(&healthy_source.source_id)
+        .get(&source_health_key(project_id, &healthy_source.source_id))
         .expect("healthy source health");
     assert!(healthy_health.last_error.is_none());
     assert!(healthy_health.last_cursor.byte_offset > 0);
@@ -123,7 +123,7 @@ async fn drift_pauses_only_the_affected_source_and_survives_restart() {
     let restarted_health = restarted.health().expect("read restarted health");
     let restarted_drift = restarted_health
         .sources
-        .get(&drift_source.source_id)
+        .get(&source_health_key(project_id, &drift_source.source_id))
         .expect("restarted drift health");
     assert!(restarted_drift.active_schema_drift.is_some());
     assert!(restarted_drift.last_error.is_some());
