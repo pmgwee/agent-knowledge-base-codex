@@ -186,6 +186,41 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             PRIMARY KEY(job_id, category, token_hash)
         );
 
+        CREATE TABLE IF NOT EXISTS note_imports (
+            project_id TEXT NOT NULL,
+            note_path TEXT NOT NULL,
+            content_hash BLOB NOT NULL CHECK(length(content_hash) = 32),
+            memory_id TEXT NOT NULL,
+            version_id TEXT NOT NULL,
+            imported_at_ns INTEGER NOT NULL,
+            PRIMARY KEY(project_id, note_path)
+        );
+
+        CREATE TABLE IF NOT EXISTS note_review_queue (
+            review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL,
+            note_path TEXT NOT NULL,
+            content_hash BLOB NOT NULL CHECK(length(content_hash) = 32),
+            reason TEXT NOT NULL,
+            observed_at_ns INTEGER NOT NULL,
+            resolved_at_ns INTEGER,
+            UNIQUE(project_id, note_path, content_hash)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_note_review_unresolved
+            ON note_review_queue(project_id, observed_at_ns DESC)
+            WHERE resolved_at_ns IS NULL;
+
+        CREATE TABLE IF NOT EXISTS global_preference_audit (
+            audit_id TEXT PRIMARY KEY NOT NULL,
+            note_path TEXT NOT NULL,
+            content_hash BLOB NOT NULL CHECK(length(content_hash) = 32),
+            preference_id TEXT NOT NULL,
+            version_id TEXT NOT NULL,
+            action TEXT NOT NULL CHECK(action = 'explicit_promotion'),
+            observed_at_ns INTEGER NOT NULL
+        );
+
         CREATE VIRTUAL TABLE IF NOT EXISTS event_search USING fts5(
             scope_token,
             content,
@@ -278,6 +313,8 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             VALUES (4, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (5, datetime('now'));
+        INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+            VALUES (6, datetime('now'));
         "#,
     )?;
     Ok(())

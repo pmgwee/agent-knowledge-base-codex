@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use brain_domain::{ProjectId, SchemaDriftRecord};
 use brain_service::ServiceLaunchConfig;
-use brain_store::EventLedger;
+use brain_store::{BASIC_MEMORY_PINNED_VERSION, EventLedger, MarkdownProjector};
 use sha2::{Digest, Sha256};
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -12,6 +12,11 @@ pub struct DiagnosticBundle {
     pub generated_at: time::OffsetDateTime,
     pub project_id: ProjectId,
     pub persisted_events: u64,
+    pub memory_records: u64,
+    pub memory_versions: u64,
+    pub pending_note_reviews: u64,
+    pub markdown_projection_valid: Option<bool>,
+    pub basic_memory_pinned_version: &'static str,
     pub active_schema_drifts: u64,
     pub schema_drifts: Vec<RedactedSchemaDrift>,
 }
@@ -41,7 +46,7 @@ pub fn read_diagnostics(
     brain_home: impl AsRef<Path>,
     project: Option<ProjectId>,
 ) -> Result<DiagnosticBundle> {
-    let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(brain_home))?;
+    let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(brain_home.as_ref()))?;
     let project = config.project(project)?;
     let ledger = EventLedger::open(&project.ledger_path, project.project_id)?;
     let active_schema_drifts = ledger.active_schema_drift_count()?;
@@ -50,11 +55,32 @@ pub fn read_diagnostics(
         .into_iter()
         .map(redact_drift)
         .collect();
+    let manifest_path = brain_home
+        .as_ref()
+        .join("vault")
+        .join("projects")
+        .join(project.project_id.0.to_string())
+        .join("generated")
+        .join("current.json");
+    let markdown_projection_valid = if manifest_path.is_file() {
+        Some(
+            MarkdownProjector::new(brain_home.as_ref().join("vault"))
+                .verify_project(project.project_id)
+                .is_ok_and(|report| report.valid),
+        )
+    } else {
+        None
+    };
     Ok(DiagnosticBundle {
         format_version: 1,
         generated_at: time::OffsetDateTime::now_utc(),
         project_id: project.project_id,
         persisted_events: ledger.event_count()?,
+        memory_records: ledger.memory_count()?,
+        memory_versions: ledger.memory_version_count()?,
+        pending_note_reviews: ledger.note_review_count()?,
+        markdown_projection_valid,
+        basic_memory_pinned_version: BASIC_MEMORY_PINNED_VERSION,
         active_schema_drifts,
         schema_drifts,
     })

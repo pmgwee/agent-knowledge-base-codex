@@ -164,6 +164,37 @@ impl EventLedger {
             .connection
             .query_row("SELECT COUNT(*) FROM memory_records", [], |row| row.get(0))?)
     }
+
+    pub fn memory_version_count(&self) -> Result<u64> {
+        Ok(self
+            .connection
+            .query_row("SELECT COUNT(*) FROM memory_versions", [], |row| row.get(0))?)
+    }
+
+    pub fn current_project_memories(&self) -> Result<Vec<MemoryRecord>> {
+        let mut statement = self.connection.prepare(
+            "SELECT memory_id FROM memory_records WHERE project_id = ?1 ORDER BY projection_path",
+        )?;
+        let rows = statement.query_map([self.project_scope.0.to_string()], |row| {
+            row.get::<_, String>(0)
+        })?;
+        let ids = rows
+            .map(|row| Ok(uuid::Uuid::parse_str(&row?)?))
+            .collect::<Result<Vec<_>>>()?;
+        let mut memories = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(memory) = self.current_memory(id)?
+                && !matches!(
+                    memory.status,
+                    MemoryStatus::Invalid | MemoryStatus::Superseded
+                )
+            {
+                memories.push(memory);
+            }
+        }
+        memories.sort_by_key(MemoryRecord::projection_path);
+        Ok(memories)
+    }
 }
 
 pub struct GlobalPreferenceStore {
@@ -198,6 +229,23 @@ impl GlobalPreferenceStore {
             memory.evidence_ids.is_empty() && memory.supersedes.is_empty(),
             "global preferences cannot link project evidence or project memory versions"
         );
+        let replay: Option<(String, String, String)> = self
+            .connection
+            .query_row(
+                "SELECT preference_id, title, content FROM global_preferences WHERE version_id = ?1",
+                [memory.version_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        if let Some((preference_id, title, content)) = replay {
+            ensure!(
+                preference_id == memory.id.to_string()
+                    && title == memory.title
+                    && content == memory.content,
+                "global preference version ID collision has different content"
+            );
+            return Ok(());
+        }
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -258,6 +306,151 @@ impl GlobalPreferenceStore {
         })?;
         rows.map(|row| row?.parse(preference_id)).collect()
     }
+
+    pub fn current_preferences(&self) -> Result<Vec<MemoryRecord>> {
+        let mut statement = self.connection.prepare(
+            "SELECT DISTINCT preference_id FROM global_preferences ORDER BY preference_id",
+        )?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        let ids = rows
+            .map(|row| Ok(uuid::Uuid::parse_str(&row?)?))
+            .collect::<Result<Vec<_>>>()?;
+        let mut preferences = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(preference) = self.versions(id)?.pop()
+                && !matches!(
+                    preference.status,
+                    MemoryStatus::Invalid | MemoryStatus::Superseded
+                )
+            {
+                preferences.push(preference);
+            }
+        }
+        Ok(preferences)
+    }
+
+    pub fn preference_count(&self) -> Result<u64> {
+        Ok(self.connection.query_row(
+            "SELECT COUNT(DISTINCT preference_id) FROM global_preferences",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
+    pub fn note_import_hash(&self, note_path: &str) -> Result<Option<[u8; 32]>> {
+        global_note_import_hash(&self.connection, note_path)
+    }
+
+    pub fn queue_note_review(
+        &mut self,
+        note_path: &str,
+        content_hash: [u8; 32],
+        reason: &str,
+        observed_at: time::OffsetDateTime,
+    ) -> Result<bool> {
+        Ok(self.connection.execute(
+            r#"
+            INSERT OR IGNORE INTO note_review_queue(
+                project_id, note_path, content_hash, reason, observed_at_ns, resolved_at_ns
+            ) VALUES ('global-preferences', ?1, ?2, ?3, ?4, NULL)
+            "#,
+            params![
+                note_path,
+                content_hash.as_slice(),
+                reason.chars().take(500).collect::<String>(),
+                timestamp_ns(observed_at)?,
+            ],
+        )? > 0)
+    }
+
+    pub fn record_note_promotion(
+        &mut self,
+        note_path: &str,
+        content_hash: [u8; 32],
+        preference_id: uuid::Uuid,
+        version_id: uuid::Uuid,
+        observed_at: time::OffsetDateTime,
+    ) -> Result<()> {
+        let transaction = self.connection.transaction()?;
+        transaction.execute(
+            r#"
+            INSERT INTO note_imports(
+                project_id, note_path, content_hash, memory_id, version_id, imported_at_ns
+            ) VALUES ('global-preferences', ?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(project_id, note_path) DO UPDATE SET
+                content_hash = excluded.content_hash,
+                memory_id = excluded.memory_id,
+                version_id = excluded.version_id,
+                imported_at_ns = excluded.imported_at_ns
+            "#,
+            params![
+                note_path,
+                content_hash.as_slice(),
+                preference_id.to_string(),
+                version_id.to_string(),
+                timestamp_ns(observed_at)?,
+            ],
+        )?;
+        transaction.execute(
+            r#"
+            INSERT OR IGNORE INTO global_preference_audit(
+                audit_id, note_path, content_hash, preference_id,
+                version_id, action, observed_at_ns
+            ) VALUES (?1, ?2, ?3, ?4, ?5, 'explicit_promotion', ?6)
+            "#,
+            params![
+                version_id.to_string(),
+                note_path,
+                content_hash.as_slice(),
+                preference_id.to_string(),
+                version_id.to_string(),
+                timestamp_ns(observed_at)?,
+            ],
+        )?;
+        transaction.execute(
+            r#"
+            UPDATE note_review_queue SET resolved_at_ns = ?2
+            WHERE project_id = 'global-preferences' AND note_path = ?1
+              AND resolved_at_ns IS NULL
+            "#,
+            params![note_path, timestamp_ns(observed_at)?],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn promotion_audit_count(&self) -> Result<u64> {
+        Ok(self.connection.query_row(
+            "SELECT COUNT(*) FROM global_preference_audit",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
+    pub fn note_review_count(&self) -> Result<u64> {
+        Ok(self.connection.query_row(
+            "SELECT COUNT(*) FROM note_review_queue WHERE project_id = 'global-preferences' AND resolved_at_ns IS NULL",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+}
+
+fn global_note_import_hash(connection: &Connection, note_path: &str) -> Result<Option<[u8; 32]>> {
+    let bytes = connection
+        .query_row(
+            "SELECT content_hash FROM note_imports WHERE project_id = 'global-preferences' AND note_path = ?1",
+            [note_path],
+            |row| row.get::<_, Vec<u8>>(0),
+        )
+        .optional()?;
+    bytes
+        .map(|bytes| {
+            bytes
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("stored global note hash is not 32 bytes"))
+        })
+        .transpose()
 }
 
 fn validate_record(memory: &MemoryRecord) -> Result<()> {

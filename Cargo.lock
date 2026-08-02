@@ -231,6 +231,7 @@ dependencies = [
  "brain-domain",
  "brain-hook",
  "brain-store",
+ "hex",
  "notify",
  "regex",
  "serde",
@@ -249,8 +250,11 @@ name = "brain-store"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "atomicwrites",
  "brain-domain",
+ "hex",
  "rusqlite",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",

@@ -42,6 +42,10 @@ pub struct StoredEvent {
 }
 
 impl EventLedger {
+    pub const fn project_id(&self) -> ProjectId {
+        self.project_scope
+    }
+
     pub fn open(path: impl AsRef<Path>, project_id: ProjectId) -> Result<Self> {
         if let Some(parent) = path.as_ref().parent() {
             std::fs::create_dir_all(parent)?;

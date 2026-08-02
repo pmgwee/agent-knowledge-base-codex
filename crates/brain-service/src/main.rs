@@ -4,6 +4,7 @@ use brain_domain::BrainConfig;
 use brain_service::{
     CaptureSupervisor, HookPipeServer, ProjectHookHandler, ServiceLaunchConfig,
     build_capture_bindings, build_hook_bindings, run_configured_consolidation,
+    run_notes_and_projections,
 };
 
 #[tokio::main]
@@ -32,7 +33,9 @@ async fn main() -> anyhow::Result<()> {
     });
     let pipe_shutdown = shutdown_rx.clone();
     let consolidation_shutdown = shutdown_rx.clone();
+    let projection_shutdown = shutdown_rx.clone();
     let consolidation_config = config.clone();
+    let projection_config = config.clone();
     let pipe_handler = Arc::clone(&handler);
     tokio::try_join!(
         pipe.run(pipe_shutdown, move |envelope| {
@@ -40,7 +43,8 @@ async fn main() -> anyhow::Result<()> {
             async move { handler.handle(&envelope) }
         }),
         Arc::clone(&capture).run(shutdown_rx),
-        run_configured_consolidation(consolidation_config, consolidation_shutdown)
+        run_configured_consolidation(consolidation_config, consolidation_shutdown),
+        run_notes_and_projections(projection_config, brain_home, projection_shutdown)
     )?;
     Ok(())
 }

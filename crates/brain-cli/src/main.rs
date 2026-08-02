@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use brain_cli::{
     AgentSourceOptions, RegisterOptions, install_claude_hooks, install_codex_hooks,
-    read_diagnostics, read_hermes_status, read_status, register_project_with_sources,
-    uninstall_claude_hooks, uninstall_codex_hooks,
+    read_diagnostics, read_hermes_status, read_status, rebuild_basic_memory, rebuild_markdown,
+    register_project_with_sources, uninstall_claude_hooks, uninstall_codex_hooks,
+    verify_projections,
 };
 use brain_context::{ContextCompiler, ContextQuery};
 use brain_domain::{BrainConfig, ProjectId};
@@ -70,6 +71,34 @@ enum Command {
     Diagnose {
         #[arg(long)]
         project: Option<String>,
+    },
+    Rebuild {
+        #[command(subcommand)]
+        target: RebuildCommand,
+    },
+    Verify {
+        #[command(subcommand)]
+        target: VerifyCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum RebuildCommand {
+    Markdown {
+        #[arg(long)]
+        project: String,
+    },
+    BasicMemory {
+        #[arg(long)]
+        project: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum VerifyCommand {
+    Projections {
+        #[arg(long)]
+        project: String,
     },
 }
 
@@ -241,6 +270,27 @@ fn main() -> Result<()> {
             let project = project.as_deref().map(parse_project_id).transpose()?;
             let bundle = read_diagnostics(&brain_home, project)?;
             println!("{}", serde_json::to_string_pretty(&bundle)?);
+        }
+        Command::Rebuild {
+            target: RebuildCommand::Markdown { project },
+        } => {
+            let report = rebuild_markdown(&brain_home, parse_project_id(&project)?)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Rebuild {
+            target: RebuildCommand::BasicMemory { project },
+        } => {
+            let report = rebuild_basic_memory(&brain_home, parse_project_id(&project)?)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Verify {
+            target: VerifyCommand::Projections { project },
+        } => {
+            let report = verify_projections(&brain_home, parse_project_id(&project)?)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if !report.valid {
+                anyhow::bail!("projection verification failed");
+            }
         }
     }
     Ok(())

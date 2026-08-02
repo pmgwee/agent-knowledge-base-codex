@@ -2,6 +2,7 @@
 
 mod diagnose;
 mod install_hooks;
+mod rebuild;
 mod register;
 mod status;
 
@@ -9,6 +10,9 @@ pub use diagnose::{DiagnosticBundle, RedactedCursor, RedactedSchemaDrift, read_d
 pub use install_hooks::{
     HookInstallResult, install_claude_hooks, install_codex_hooks, uninstall_claude_hooks,
     uninstall_codex_hooks,
+};
+pub use rebuild::{
+    rebuild_basic_memory, rebuild_basic_memory_with, rebuild_markdown, verify_projections,
 };
 pub use register::{
     AgentSourceOptions, RegisterOptions, RegistrationResult, register_project,
