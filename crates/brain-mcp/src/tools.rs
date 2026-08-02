@@ -3,7 +3,7 @@ use brain_service::BrainQueryService;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-const TOOL_NAMES: [&str; 14] = [
+const TOOL_NAMES: [&str; 15] = [
     "brain_search",
     "brain_timeline",
     "brain_checkpoint",
@@ -18,6 +18,7 @@ const TOOL_NAMES: [&str; 14] = [
     "brain_lease_release",
     "brain_lease_handoff",
     "brain_leases",
+    "brain_merge_preflight",
 ];
 
 pub struct BrainTools {
@@ -246,6 +247,21 @@ impl BrainTools {
                 true,
                 true,
             ),
+            tool(
+                "brain_merge_preflight",
+                "Predict Git merge conflicts without changing branches, worktrees, or indexes.",
+                object_schema(
+                    json!({
+                        "project": string("Registered project UUID or exact path alias."),
+                        "task_id": string("Optional task UUID whose validated worktree is the repository."),
+                        "source_ref": string("Source commit/ref; defaults to HEAD."),
+                        "target_ref": string("Target commit/ref to test against.")
+                    }),
+                    &["project", "target_ref"],
+                ),
+                true,
+                true,
+            ),
         ]
     }
 
@@ -265,6 +281,7 @@ impl BrainTools {
             "brain_lease_release" => serialize(self.service.release_lease(parse(arguments)?)),
             "brain_lease_handoff" => serialize(self.service.handoff_lease(parse(arguments)?)),
             "brain_leases" => serialize(self.service.leases(parse(arguments)?)),
+            "brain_merge_preflight" => serialize(self.service.preflight(parse(arguments)?)),
             _ => bail!("unknown tool {name}"),
         }
     }

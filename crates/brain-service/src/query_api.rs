@@ -6,7 +6,8 @@ use brain_context::{
     RetrievalQuery,
 };
 use brain_coordination::{
-    ClaimResult, CoordinationStore, PathClaim, PathClaimInput, SessionIdentity, WriterLease,
+    ClaimResult, CoordinationStore, MergePreflight, PathClaim, PathClaimInput, SessionIdentity,
+    WriterLease, merge_preflight,
 };
 use brain_domain::{
     Authority, EventBatch, EventType, Harness, MemoryKind, MemoryRecord, MemoryScope, MemoryStatus,
@@ -161,6 +162,22 @@ pub struct BrainLeaseResponse {
     pub lease: Option<WriterLease>,
     pub leases: Vec<WriterLease>,
     pub replayed: bool,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainPreflightRequest {
+    pub project: String,
+    #[serde(default)]
+    pub task_id: Option<uuid::Uuid>,
+    #[serde(default = "default_source_ref")]
+    pub source_ref: String,
+    pub target_ref: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainPreflightResponse {
+    pub project_id: ProjectId,
+    pub result: MergePreflight,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -746,6 +763,23 @@ impl BrainQueryService {
         })
     }
 
+    pub fn preflight(&self, request: BrainPreflightRequest) -> Result<BrainPreflightResponse> {
+        let project = self.project(&request.project)?;
+        let repository = if let Some(task_id) = request.task_id {
+            CoordinationStore::open(&project.ledger_path, project.project_id)?
+                .task(task_id)?
+                .context("preflight task does not exist")?
+                .worktree_path
+                .context("preflight task has no validated worktree path")?
+        } else {
+            project.project_root.clone()
+        };
+        Ok(BrainPreflightResponse {
+            project_id: project.project_id,
+            result: merge_preflight(repository, &request.source_ref, &request.target_ref)?,
+        })
+    }
+
     fn retrieve(
         &self,
         ledger: &EventLedger,
@@ -896,4 +930,8 @@ fn stable_uuid(parts: &[&[u8]]) -> uuid::Uuid {
     bytes[6] = (bytes[6] & 0x0f) | 0x50;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     uuid::Uuid::from_bytes(bytes)
+}
+
+fn default_source_ref() -> String {
+    "HEAD".to_owned()
 }

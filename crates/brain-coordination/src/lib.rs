@@ -2,6 +2,7 @@
 
 mod claims;
 mod lease;
+mod preflight;
 mod task;
 mod worktree;
 
@@ -12,6 +13,9 @@ use brain_domain::ProjectId;
 use rusqlite::Connection;
 
 pub use lease::{CoordinationEvent, LeaseError, SessionIdentity, WriterLease};
+pub use preflight::{
+    MergePreflight, PathChange, PreflightBlocker, SemanticWarning, merge_preflight,
+};
 pub use task::{TaskRecord, TaskStatus};
 pub use worktree::{CloseTaskReport, TaskWorktreeManager, WorktreeInfo};
 

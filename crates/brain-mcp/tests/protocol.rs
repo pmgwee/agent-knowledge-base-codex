@@ -31,7 +31,7 @@ fn initialize_and_tool_discovery_follow_the_stdio_mcp_contract() {
         serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
     );
     let tools = listed["result"]["tools"].as_array().expect("tools array");
-    assert_eq!(tools.len(), 14);
+    assert_eq!(tools.len(), 15);
     for tool in tools {
         assert!(
             tool["inputSchema"]["required"]

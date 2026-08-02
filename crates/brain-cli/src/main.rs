@@ -11,9 +11,9 @@ use brain_coordination::{ClaimKind, PathClaimInput, SessionIdentity};
 use brain_domain::{BrainConfig, Harness, ProjectId};
 use brain_service::{
     BrainCheckpointRequest, BrainClaimRequest, BrainClaimsRequest, BrainLeaseAcquireRequest,
-    BrainLeaseGenerationRequest, BrainLeaseHandoffRequest, BrainLeasesRequest, BrainQueryService,
-    BrainReleaseClaimRequest, BrainSearchRequest, BrainTimelineRequest, SourceSelector,
-    TimelineWindow,
+    BrainLeaseGenerationRequest, BrainLeaseHandoffRequest, BrainLeasesRequest,
+    BrainPreflightRequest, BrainQueryService, BrainReleaseClaimRequest, BrainSearchRequest,
+    BrainTimelineRequest, SourceSelector, TimelineWindow,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -107,6 +107,16 @@ enum Command {
     Task {
         #[command(subcommand)]
         action: TaskCommand,
+    },
+    Preflight {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        task: Option<uuid::Uuid>,
+        #[arg(long, default_value = "HEAD")]
+        source: String,
+        #[arg(long)]
+        target: String,
     },
     Diagnose {
         #[arg(long)]
@@ -581,6 +591,21 @@ fn main() -> Result<()> {
         } => {
             let result =
                 BrainQueryService::open(&brain_home)?.leases(BrainLeasesRequest { project })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::Preflight {
+            project,
+            task,
+            source,
+            target,
+        } => {
+            let result =
+                BrainQueryService::open(&brain_home)?.preflight(BrainPreflightRequest {
+                    project,
+                    task_id: task,
+                    source_ref: source,
+                    target_ref: target,
+                })?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
         Command::Task {
