@@ -21,6 +21,29 @@ impl EventLedger {
             "memory violates project scope {}",
             self.project_scope.0
         );
+        let replay: Option<(String, String, String, String)> = self
+            .connection
+            .query_row(
+                r#"
+                SELECT v.memory_id, v.title, v.content, r.project_id
+                FROM memory_versions v
+                JOIN memory_records r ON r.memory_id = v.memory_id
+                WHERE v.version_id = ?1
+                "#,
+                [memory.version_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()?;
+        if let Some((memory_id, title, content, existing_project)) = replay {
+            ensure!(
+                memory_id == memory.id.to_string()
+                    && title == memory.title
+                    && content == memory.content
+                    && existing_project == project_id.0.to_string(),
+                "memory version ID collision has different content or scope"
+            );
+            return Ok(());
+        }
         ensure!(
             !memory.evidence_ids.is_empty(),
             "project memory requires at least one evidence citation"

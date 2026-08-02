@@ -159,12 +159,41 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             status TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS consolidation_jobs (
+            job_id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            first_event_id TEXT NOT NULL REFERENCES events(event_id),
+            last_event_id TEXT NOT NULL REFERENCES events(event_id),
+            reason TEXT NOT NULL,
+            idempotency_key BLOB NOT NULL UNIQUE CHECK(length(idempotency_key) = 32),
+            status TEXT NOT NULL,
+            attempt INTEGER NOT NULL DEFAULT 0,
+            available_at_ns INTEGER NOT NULL,
+            lease_owner TEXT,
+            lease_until_ns INTEGER,
+            last_error TEXT,
+            created_at_ns INTEGER NOT NULL,
+            completed_at_ns INTEGER
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_consolidation_jobs_available
+            ON consolidation_jobs(project_id, status, available_at_ns, lease_until_ns);
+
+        CREATE TABLE IF NOT EXISTS redaction_manifests (
+            job_id TEXT NOT NULL REFERENCES consolidation_jobs(job_id),
+            category TEXT NOT NULL,
+            token_hash BLOB NOT NULL CHECK(length(token_hash) = 32),
+            PRIMARY KEY(job_id, category, token_hash)
+        );
+
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (1, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (2, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (3, datetime('now'));
+        INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+            VALUES (4, datetime('now'));
         "#,
     )?;
     Ok(())

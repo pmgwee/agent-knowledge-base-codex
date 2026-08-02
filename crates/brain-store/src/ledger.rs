@@ -313,6 +313,62 @@ impl EventLedger {
         }
         Ok(events)
     }
+
+    pub fn events_between(
+        &self,
+        first_event_id: uuid::Uuid,
+        last_event_id: uuid::Uuid,
+    ) -> Result<Vec<StoredEvent>> {
+        let first_row: i64 = self.connection.query_row(
+            "SELECT rowid FROM events WHERE event_id = ?1 AND project_id = ?2",
+            params![first_event_id.to_string(), self.project_scope.0.to_string()],
+            |row| row.get(0),
+        )?;
+        let last_row: i64 = self.connection.query_row(
+            "SELECT rowid FROM events WHERE event_id = ?1 AND project_id = ?2",
+            params![last_event_id.to_string(), self.project_scope.0.to_string()],
+            |row| row.get(0),
+        )?;
+        let (start, end) = if first_row <= last_row {
+            (first_row, last_row)
+        } else {
+            (last_row, first_row)
+        };
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT event_id, worktree_id, native_session_id, event_type,
+                   occurred_at_ns, source_offset, git_head, git_branch,
+                   payload_json, raw_json
+            FROM events
+            WHERE project_id = ?1 AND rowid BETWEEN ?2 AND ?3
+            ORDER BY rowid ASC
+            "#,
+        )?;
+        let rows = statement.query_map(
+            params![self.project_scope.0.to_string(), start, end],
+            |row| {
+                Ok(RawStoredEvent {
+                    event_id: row.get(0)?,
+                    worktree_id: row.get(1)?,
+                    native_session_id: row.get(2)?,
+                    event_type: row.get(3)?,
+                    occurred_at_ns: row.get(4)?,
+                    source_offset: row.get(5)?,
+                    git_head: row.get(6)?,
+                    git_branch: row.get(7)?,
+                    payload_json: row.get(8)?,
+                    raw_json: row.get(9)?,
+                })
+            },
+        )?;
+        let mut events = Vec::new();
+        for row in rows {
+            if let Some(event) = row?.parse(self.project_scope) {
+                events.push(event);
+            }
+        }
+        Ok(events)
+    }
 }
 
 type RawSchemaDrift = (

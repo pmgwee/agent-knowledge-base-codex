@@ -11,6 +11,12 @@ async fn codex_continues_work_recorded_by_claude_codex_and_hermes() {
     let ledger = fixture.ledger(&fixture.registered_a);
     assert!(
         ledger
+            .consolidation_job_count()
+            .expect("count consolidation jobs")
+            > 0
+    );
+    assert!(
+        ledger
             .event_count_by_harness(Harness::ClaudeCode)
             .expect("count Claude")
             > 0

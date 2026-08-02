@@ -4,7 +4,10 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
 use brain_adapters::{NormalizeContext, ReadOutcome, SourceAdapter, SourceDescriptor};
-use brain_domain::{CaptureGapRecord, EventBatch, ProjectId, QuarantinedRecord, SchemaDriftRecord};
+use brain_domain::{
+    CaptureGapRecord, EventBatch, EventType, ProjectId, QuarantinedRecord, SchemaDriftRecord,
+};
+use brain_store::ConsolidationReason;
 use brain_store::EventLedger;
 
 use crate::CaptureServiceConfig;
@@ -249,6 +252,8 @@ impl CaptureSupervisor {
                     for record in &batch.records {
                         events.extend(binding.adapter.normalize(record, &binding.context)?);
                     }
+                    let last_event_id = events.last().map(|event| event.event_id);
+                    let consolidation_reason = consolidation_reason(&events);
                     let (result, persisted_events, last_event_at) = {
                         let mut store = store
                             .lock()
@@ -260,6 +265,11 @@ impl CaptureSupervisor {
                             capture_gaps,
                             next_cursor: batch.next_cursor,
                         })?;
+                        if let (Some(last), Some(reason)) = (last_event_id, consolidation_reason) {
+                            store.enqueue_through_event_job(last, reason)?;
+                        } else {
+                            store.enqueue_event_threshold_job(200)?;
+                        }
                         let persisted_events = store.event_count()?;
                         let last_event_at = store.latest_event_at()?;
                         (result, persisted_events, last_event_at)
@@ -323,6 +333,13 @@ impl CaptureSupervisor {
                 }
             }
         }
+        let now = time::OffsetDateTime::now_utc();
+        for store in self.stores.values() {
+            store
+                .lock()
+                .map_err(|_| anyhow::anyhow!("event ledger lock is poisoned"))?
+                .enqueue_inactivity_job(now, time::Duration::minutes(30))?;
+        }
         Ok(())
     }
 
@@ -373,6 +390,27 @@ impl CaptureSupervisor {
 
     pub(crate) fn config(&self) -> CaptureServiceConfig {
         self.config
+    }
+}
+
+fn consolidation_reason(events: &[brain_domain::NormalizedEvent]) -> Option<ConsolidationReason> {
+    if events
+        .iter()
+        .any(|event| event.event_type == EventType::SessionEnded)
+    {
+        Some(ConsolidationReason::SessionStopped)
+    } else if events
+        .iter()
+        .any(|event| event.event_type == EventType::SessionCompacted)
+    {
+        Some(ConsolidationReason::SessionCompacted)
+    } else if events
+        .iter()
+        .any(|event| event.event_type == EventType::CheckpointAuthored)
+    {
+        Some(ConsolidationReason::ExplicitCheckpoint)
+    } else {
+        None
     }
 }
 
