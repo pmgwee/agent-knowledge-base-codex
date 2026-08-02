@@ -66,6 +66,7 @@ pub fn build_hook_bindings(config: &ServiceLaunchConfig) -> Vec<HookProjectBindi
             project_id: project.project_id,
             worktree_id: project.worktree_id,
             ledger_path: project.ledger_path.clone(),
+            global_preferences_path: None,
         })
         .collect()
 }

@@ -98,6 +98,7 @@ impl E2eFixture {
             project_id: registered.project_id,
             worktree_id: registered.worktree_id,
             ledger_path: registered.ledger_path.clone(),
+            global_preferences_path: None,
         })
         .expect("create hook handler");
         let server_name = self.pipe_name.clone();

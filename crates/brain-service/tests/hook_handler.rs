@@ -1,9 +1,9 @@
 use brain_domain::{
-    EventBatch, EventType, HOOK_PROTOCOL_VERSION, Harness, HookEnvelope, NormalizedEvent,
-    ProjectId, SourceCursor, WorktreeId,
+    Authority, EventBatch, EventType, HOOK_PROTOCOL_VERSION, Harness, HookEnvelope, MemoryKind,
+    MemoryRecord, MemoryScope, MemoryStatus, NormalizedEvent, ProjectId, SourceCursor, WorktreeId,
 };
 use brain_service::{ClaudeHookHandler, HookProjectBinding};
-use brain_store::EventLedger;
+use brain_store::{EventLedger, GlobalPreferenceStore};
 
 #[test]
 fn session_start_returns_bounded_project_scoped_context() {
@@ -46,6 +46,7 @@ fn session_start_returns_bounded_project_scoped_context() {
         project_id,
         worktree_id,
         ledger_path,
+        global_preferences_path: None,
     })
     .expect("create hook handler");
 
@@ -66,6 +67,57 @@ fn session_start_returns_bounded_project_scoped_context() {
         .handle(&envelope("PostToolUse", &project_root))
         .expect("handle capture-only event");
     assert_eq!(capture_only.additional_context, None);
+}
+
+#[test]
+fn session_start_includes_only_explicit_global_preferences() {
+    let temp = tempfile::tempdir().expect("create global preference hook fixture");
+    let project_root = temp.path().join("project");
+    std::fs::create_dir_all(&project_root).expect("create project root");
+    let project_id = ProjectId(uuid::Uuid::now_v7());
+    let worktree_id = WorktreeId(uuid::Uuid::now_v7());
+    let ledger_path = temp.path().join("events.db");
+    EventLedger::open(&ledger_path, project_id).expect("open empty project ledger");
+    let preferences_path = temp.path().join("preferences.sqlite");
+    let mut preferences = GlobalPreferenceStore::open(&preferences_path).expect("open preferences");
+    let preference = MemoryRecord {
+        id: uuid::Uuid::now_v7(),
+        version_id: uuid::Uuid::now_v7(),
+        scope: MemoryScope::GlobalPreferences,
+        worktree_id: None,
+        task_id: None,
+        kind: MemoryKind::Preference,
+        title: "Response style".to_owned(),
+        content: "Prefer concise implementation updates.".to_owned(),
+        valid_from: time::OffsetDateTime::UNIX_EPOCH,
+        valid_to: None,
+        recorded_at: time::OffsetDateTime::UNIX_EPOCH,
+        confidence: 1.0,
+        authority: Authority::HumanCorrection,
+        evidence_ids: Vec::new(),
+        supersedes: Vec::new(),
+        status: MemoryStatus::Current,
+    };
+    preferences
+        .append_preference(&preference)
+        .expect("append explicit preference");
+    drop(preferences);
+    let handler = ClaudeHookHandler::new(HookProjectBinding {
+        project_root: project_root.clone(),
+        project_id,
+        worktree_id,
+        ledger_path,
+        global_preferences_path: Some(preferences_path),
+    })
+    .expect("create hook handler");
+
+    let context = handler
+        .handle(&envelope("SessionStart", &project_root))
+        .expect("compile startup context")
+        .additional_context
+        .expect("preference creates context");
+    assert!(context.contains("Prefer concise implementation updates"));
+    assert!(context.contains(&format!("memory:{}", preference.version_id)));
 }
 
 fn envelope(event_name: &str, cwd: &std::path::Path) -> HookEnvelope {

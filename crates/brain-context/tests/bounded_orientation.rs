@@ -1,5 +1,5 @@
 use brain_context::{ContextCompiler, ContextEvidence, ContextQuery, token_count};
-use brain_domain::{EventType, ProjectId, WorktreeId};
+use brain_domain::{EventType, Harness, ProjectId, WorktreeId};
 
 #[test]
 fn orientation_never_crosses_1500_tokens_and_cites_every_included_fact() {
@@ -165,9 +165,12 @@ fn evidence(
         event_id: uuid::Uuid::now_v7(),
         project_id,
         worktree_id,
+        task_id: None,
+        harness: Harness::ClaudeCode,
         native_session_id: "prior-session".to_owned(),
         event_type,
         occurred_at: time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(sequence),
+        observed_at: time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(sequence),
         source_offset: sequence,
         git_head: None,
         git_branch: None,

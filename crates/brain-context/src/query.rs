@@ -9,6 +9,9 @@ pub struct ContextQuery {
     pub project_id: ProjectId,
     pub worktree_id: WorktreeId,
     pub native_session_id: Option<String>,
+    pub prompt: Option<String>,
+    pub paths: Vec<String>,
+    pub as_of: Option<time::OffsetDateTime>,
     pub max_tokens: usize,
 }
 
@@ -22,6 +25,9 @@ impl ContextQuery {
             project_id,
             worktree_id,
             native_session_id: None,
+            prompt: None,
+            paths: Vec::new(),
+            as_of: None,
             max_tokens: NORMAL_STARTUP_TOKENS,
         }
     }

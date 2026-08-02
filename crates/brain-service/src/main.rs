@@ -20,9 +20,14 @@ async fn main() -> anyhow::Result<()> {
     let brain_home = BrainConfig::brain_home()?;
     let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
     let capture = Arc::new(CaptureSupervisor::new(build_capture_bindings(&config)?)?);
-    let handler = Arc::new(ProjectHookHandler::for_projects(build_hook_bindings(
-        &config,
-    ))?);
+    let mut hook_bindings = build_hook_bindings(&config);
+    let global_preferences_path = brain_home
+        .join("global-preferences")
+        .join("preferences.sqlite");
+    for binding in &mut hook_bindings {
+        binding.global_preferences_path = Some(global_preferences_path.clone());
+    }
+    let handler = Arc::new(ProjectHookHandler::for_projects(hook_bindings)?);
     let pipe = HookPipeServer::new(config.pipe_name.clone());
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let signal_tx = shutdown_tx.clone();

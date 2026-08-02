@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use brain_context::{ContextCompiler, ContextQuery};
+use brain_context::{ContextCompiler, ContextQuery, LiveState};
 use brain_domain::{Harness, HookEnvelope, HookReply, ProjectId, WorktreeId};
 use brain_store::EventLedger;
 
@@ -11,6 +11,7 @@ pub struct HookProjectBinding {
     pub project_id: ProjectId,
     pub worktree_id: WorktreeId,
     pub ledger_path: PathBuf,
+    pub global_preferences_path: Option<PathBuf>,
 }
 
 pub struct ProjectHookHandler {
@@ -71,7 +72,19 @@ impl ProjectHookHandler {
         let binding = &resolved.binding;
 
         let ledger = EventLedger::open(&binding.ledger_path, binding.project_id)?;
-        let compiler = ContextCompiler::from_ledger(&ledger, binding.project_id, 500)?;
+        let mut compiler =
+            ContextCompiler::from_ledger(&ledger, binding.project_id, 500)?.with_live_state(
+                LiveState::inspect(&binding.project_root, binding.worktree_id),
+            );
+        if let Some(path) = binding
+            .global_preferences_path
+            .as_ref()
+            .filter(|path| path.is_file())
+        {
+            let preferences =
+                brain_store::GlobalPreferenceStore::open(path)?.current_preferences()?;
+            compiler = compiler.with_global_preferences(preferences);
+        }
         let mut query = ContextQuery::for_worktree(binding.project_id, binding.worktree_id);
         query.native_session_id = envelope
             .payload
@@ -79,7 +92,7 @@ impl ProjectHookHandler {
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned);
         let compiled = compiler.compile(query)?;
-        if compiled.evidence_ids.is_empty() {
+        if compiled.citations.is_empty() {
             return Ok(HookReply::default());
         }
         Ok(HookReply {
