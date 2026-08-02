@@ -4,4 +4,4 @@ mod cursor;
 mod ledger;
 mod migrations;
 
-pub use ledger::{AppendResult, EventLedger};
+pub use ledger::{AppendResult, EventLedger, StoredEvent};

@@ -11,7 +11,7 @@ brain-domain = { path = "../brain-domain" }
 rusqlite.workspace = true
 serde_json.workspace = true
 time.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-uuid.workspace = true

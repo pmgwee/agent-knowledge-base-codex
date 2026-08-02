@@ -7,3 +7,8 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+brain-domain = { path = "../brain-domain" }
+brain-store = { path = "../brain-store" }
+serde_json.workspace = true
+time.workspace = true
+uuid.workspace = true

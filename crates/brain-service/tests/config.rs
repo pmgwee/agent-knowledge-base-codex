@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use brain_service::CaptureServiceConfig;
+use brain_service::{CaptureServiceConfig, ServiceLaunchConfig};
 
 #[test]
 fn capture_timing_rejects_zero_intervals() {
@@ -23,4 +23,31 @@ fn capture_timing_defaults_match_the_recovery_contract() {
     assert_eq!(config.reconciliation_interval, Duration::from_secs(2));
     assert_eq!(config.watcher_debounce, Duration::from_millis(50));
     config.validate().expect("default timing is valid");
+}
+
+#[test]
+fn service_launch_config_loads_the_explicit_project_scope() {
+    let temp = tempfile::tempdir().expect("create service config fixture");
+    let project_id = uuid::Uuid::now_v7();
+    let worktree_id = uuid::Uuid::now_v7();
+    let path = temp.path().join("service.json");
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "pipe_name": r"\\.\pipe\fixture-brain",
+            "project_root": temp.path().join("project"),
+            "project_id": project_id,
+            "worktree_id": worktree_id,
+            "ledger_path": temp.path().join("events.db"),
+            "claude_sources": [temp.path().join("session.jsonl")],
+        }))
+        .expect("serialize fixture config"),
+    )
+    .expect("write service config");
+
+    let config = ServiceLaunchConfig::load(&path).expect("load service config");
+
+    assert_eq!(config.project_id.0, project_id);
+    assert_eq!(config.worktree_id.0, worktree_id);
+    assert_eq!(config.claude_sources.len(), 1);
 }

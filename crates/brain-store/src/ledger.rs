@@ -2,7 +2,8 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 use brain_domain::{
-    CaptureGapRecord, EventBatch, NormalizedEvent, ProjectId, QuarantinedRecord, SourceCursor,
+    CaptureGapRecord, EventBatch, EventType, NormalizedEvent, ProjectId, QuarantinedRecord,
+    SourceCursor, WorktreeId,
 };
 use rusqlite::{Connection, TransactionBehavior, params};
 
@@ -19,6 +20,21 @@ pub struct AppendResult {
     pub inserted: usize,
     pub quarantined: usize,
     pub capture_gaps: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct StoredEvent {
+    pub event_id: uuid::Uuid,
+    pub project_id: ProjectId,
+    pub worktree_id: WorktreeId,
+    pub native_session_id: String,
+    pub event_type: EventType,
+    pub occurred_at: time::OffsetDateTime,
+    pub source_offset: i64,
+    pub git_head: Option<String>,
+    pub git_branch: Option<String>,
+    pub payload: serde_json::Value,
+    pub raw: serde_json::Value,
 }
 
 impl EventLedger {
@@ -136,6 +152,87 @@ impl EventLedger {
             [needle],
             |row| row.get(0),
         )?)
+    }
+
+    pub fn recent_events(&self, project_id: ProjectId, limit: usize) -> Result<Vec<StoredEvent>> {
+        if project_id != self.project_scope {
+            bail!(
+                "project {} cannot query ledger scoped to {}",
+                project_id.0,
+                self.project_scope.0
+            );
+        }
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let bounded_limit = i64::try_from(limit.min(500))?;
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT event_id, worktree_id, native_session_id, event_type,
+                   occurred_at_ns, source_offset, git_head, git_branch,
+                   payload_json, raw_json
+            FROM events
+            WHERE project_id = ?1
+            ORDER BY occurred_at_ns DESC, observed_at_ns DESC, source_offset DESC
+            LIMIT ?2
+            "#,
+        )?;
+        let rows =
+            statement.query_map(params![project_id.0.to_string(), bounded_limit], |row| {
+                Ok(RawStoredEvent {
+                    event_id: row.get(0)?,
+                    worktree_id: row.get(1)?,
+                    native_session_id: row.get(2)?,
+                    event_type: row.get(3)?,
+                    occurred_at_ns: row.get(4)?,
+                    source_offset: row.get(5)?,
+                    git_head: row.get(6)?,
+                    git_branch: row.get(7)?,
+                    payload_json: row.get(8)?,
+                    raw_json: row.get(9)?,
+                })
+            })?;
+        let mut events = Vec::new();
+        for row in rows {
+            if let Some(event) = row?.parse(project_id) {
+                events.push(event);
+            }
+        }
+        Ok(events)
+    }
+}
+
+struct RawStoredEvent {
+    event_id: String,
+    worktree_id: String,
+    native_session_id: String,
+    event_type: String,
+    occurred_at_ns: i64,
+    source_offset: i64,
+    git_head: Option<String>,
+    git_branch: Option<String>,
+    payload_json: String,
+    raw_json: String,
+}
+
+impl RawStoredEvent {
+    fn parse(self, project_id: ProjectId) -> Option<StoredEvent> {
+        Some(StoredEvent {
+            event_id: uuid::Uuid::parse_str(&self.event_id).ok()?,
+            project_id,
+            worktree_id: WorktreeId(uuid::Uuid::parse_str(&self.worktree_id).ok()?),
+            native_session_id: self.native_session_id,
+            event_type: EventType::from_name(&self.event_type)?,
+            occurred_at: time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(
+                self.occurred_at_ns,
+            ))
+            .ok()?,
+            source_offset: self.source_offset,
+            git_head: self.git_head,
+            git_branch: self.git_branch,
+            payload: serde_json::from_str(&self.payload_json).ok()?,
+            raw: serde_json::from_str(&self.raw_json).ok()?,
+        })
     }
 }
 

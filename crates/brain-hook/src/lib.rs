@@ -85,3 +85,40 @@ fn render_reply(harness: &Harness, event_name: &str, reply: HookReply) -> serde_
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use brain_domain::{Harness, HookReply};
+
+    use super::render_reply;
+
+    #[test]
+    fn claude_session_start_reply_uses_the_native_hook_shape() {
+        let output = render_reply(
+            &Harness::ClaudeCode,
+            "SessionStart",
+            HookReply {
+                additional_context: Some("bounded context".to_owned()),
+                diagnostics_id: Some("diagnostic".to_owned()),
+            },
+        );
+
+        assert_eq!(
+            output,
+            serde_json::json!({
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": "bounded context",
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn capture_only_reply_is_an_empty_object() {
+        assert_eq!(
+            render_reply(&Harness::ClaudeCode, "PostToolUse", HookReply::default()),
+            serde_json::json!({})
+        );
+    }
+}

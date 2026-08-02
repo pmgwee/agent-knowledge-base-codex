@@ -119,6 +119,42 @@ impl EventType {
             Self::CaptureGap => "capture.gap",
         }
     }
+
+    pub fn from_name(value: &str) -> Option<Self> {
+        Some(match value {
+            "session.started" => Self::SessionStarted,
+            "session.resumed" => Self::SessionResumed,
+            "session.compacted" => Self::SessionCompacted,
+            "session.ended" => Self::SessionEnded,
+            "session.relocated" => Self::SessionRelocated,
+            "user.prompted" => Self::UserPrompted,
+            "agent.responded" => Self::AgentResponded,
+            "tool.requested" => Self::ToolRequested,
+            "tool.completed" => Self::ToolCompleted,
+            "tool.failed" => Self::ToolFailed,
+            "file.read" => Self::FileRead,
+            "file.created" => Self::FileCreated,
+            "file.modified" => Self::FileModified,
+            "file.deleted" => Self::FileDeleted,
+            "command.started" => Self::CommandStarted,
+            "command.completed" => Self::CommandCompleted,
+            "test.completed" => Self::TestCompleted,
+            "git.commit_observed" => Self::GitCommitObserved,
+            "git.branch_changed" => Self::GitBranchChanged,
+            "deployment.observed" => Self::DeploymentObserved,
+            "system.observed" => Self::SystemObserved,
+            "attachment.observed" => Self::AttachmentObserved,
+            "queue.operation_observed" => Self::QueueOperationObserved,
+            "mode.changed" => Self::ModeChanged,
+            "task.claimed" => Self::TaskClaimed,
+            "task.released" => Self::TaskReleased,
+            "task.completed" => Self::TaskCompleted,
+            "checkpoint.authored" => Self::CheckpointAuthored,
+            "schema.unknown" => Self::SchemaUnknown,
+            "capture.gap" => Self::CaptureGap,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

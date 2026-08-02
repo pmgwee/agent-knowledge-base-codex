@@ -138,6 +138,11 @@ name = "brain-context"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "brain-domain",
+ "brain-store",
+ "serde_json",
+ "time",
+ "uuid",
 ]
 
 [[package]]
@@ -174,6 +179,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "brain-adapters",
+ "brain-context",
  "brain-domain",
  "brain-hook",
  "brain-store",
