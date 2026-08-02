@@ -15,6 +15,7 @@ use brain_service::{
     BrainPreflightRequest, BrainQueryService, BrainReleaseClaimRequest, BrainSearchRequest,
     BrainTimelineRequest, SourceSelector, TimelineWindow,
 };
+use brain_store::BackupManager;
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
@@ -129,6 +130,28 @@ enum Command {
     Verify {
         #[command(subcommand)]
         target: VerifyCommand,
+    },
+    Backup {
+        #[command(subcommand)]
+        action: BackupCommand,
+    },
+    Restore {
+        #[arg(long)]
+        backup: PathBuf,
+        #[arg(long)]
+        destination: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum BackupCommand {
+    Create {
+        #[arg(long)]
+        destination: PathBuf,
+    },
+    Verify {
+        #[arg(long)]
+        backup: PathBuf,
     },
 }
 
@@ -693,6 +716,26 @@ fn main() -> Result<()> {
             if !report.valid {
                 anyhow::bail!("projection verification failed");
             }
+        }
+        Command::Backup {
+            action: BackupCommand::Create { destination },
+        } => {
+            let report =
+                BackupManager::create(&brain_home, destination, time::OffsetDateTime::now_utc())?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Backup {
+            action: BackupCommand::Verify { backup },
+        } => {
+            let report = BackupManager::verify(backup)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Restore {
+            backup,
+            destination,
+        } => {
+            let report = BackupManager::restore_isolated(backup, destination)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
         }
     }
     Ok(())

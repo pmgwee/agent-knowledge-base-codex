@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod backup;
 mod basic_memory;
 mod blob;
 mod catalog;
@@ -13,6 +14,10 @@ mod notes;
 mod search;
 mod segment;
 
+pub use backup::{
+    BACKUP_FORMAT_VERSION, BackupInventory, BackupManager, BackupReport, InventoryFile,
+    InventoryKind, RestoreReport, VerificationReport,
+};
 pub use basic_memory::{
     BASIC_MEMORY_PINNED_VERSION, BasicMemoryCli, BasicMemoryIndexer, BasicMemoryReport,
     BasicMemoryState, ProcessBasicMemoryCli,
