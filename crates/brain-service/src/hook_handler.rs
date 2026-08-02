@@ -13,12 +13,16 @@ pub struct HookProjectBinding {
     pub ledger_path: PathBuf,
 }
 
-pub struct ClaudeHookHandler {
+pub struct ProjectHookHandler {
     binding: HookProjectBinding,
     normalized_root: String,
 }
 
-impl ClaudeHookHandler {
+/// Backwards-compatible foundation name. New integrations should use
+/// `ProjectHookHandler` because project boundaries and context are shared.
+pub type ClaudeHookHandler = ProjectHookHandler;
+
+impl ProjectHookHandler {
     pub fn new(mut binding: HookProjectBinding) -> Result<Self> {
         binding.project_root = std::fs::canonicalize(&binding.project_root).with_context(|| {
             format!(
@@ -34,7 +38,9 @@ impl ClaudeHookHandler {
     }
 
     pub fn handle(&self, envelope: &HookEnvelope) -> Result<HookReply> {
-        if envelope.harness != Harness::ClaudeCode || envelope.event_name != "SessionStart" {
+        if !matches!(envelope.harness, Harness::ClaudeCode | Harness::Codex)
+            || envelope.event_name != "SessionStart"
+        {
             return Ok(HookReply::default());
         }
         let Some(cwd) = envelope

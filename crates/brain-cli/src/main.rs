@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use brain_cli::{
-    RegisterOptions, install_claude_hooks, read_status, register_project, uninstall_claude_hooks,
+    RegisterOptions, install_claude_hooks, install_codex_hooks, read_status, register_project,
+    uninstall_claude_hooks, uninstall_codex_hooks,
 };
 use brain_context::{ContextCompiler, ContextQuery};
 use brain_domain::{BrainConfig, ProjectId};
@@ -58,6 +59,7 @@ enum Command {
 #[derive(Clone, Copy, ValueEnum)]
 enum HookHarness {
     Claude,
+    Codex,
 }
 
 fn main() -> Result<()> {
@@ -111,6 +113,17 @@ fn main() -> Result<()> {
             )?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
+        Command::InstallHooks {
+            harness: HookHarness::Codex,
+            settings,
+            hook_executable,
+        } => {
+            let result = install_codex_hooks(
+                settings.unwrap_or(default_codex_hooks()?),
+                hook_executable.unwrap_or(default_hook_executable()?),
+            )?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
         Command::UninstallHooks {
             harness: HookHarness::Claude,
             settings,
@@ -118,6 +131,17 @@ fn main() -> Result<()> {
         } => {
             let result = uninstall_claude_hooks(
                 settings.unwrap_or(default_claude_settings()?),
+                hook_executable.unwrap_or(default_hook_executable()?),
+            )?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::UninstallHooks {
+            harness: HookHarness::Codex,
+            settings,
+            hook_executable,
+        } => {
+            let result = uninstall_codex_hooks(
+                settings.unwrap_or(default_codex_hooks()?),
                 hook_executable.unwrap_or(default_hook_executable()?),
             )?;
             println!("{}", serde_json::to_string_pretty(&result)?);
@@ -161,6 +185,11 @@ fn default_claude_projects_root() -> Option<PathBuf> {
 fn default_claude_settings() -> Result<PathBuf> {
     let home = std::env::var_os("USERPROFILE").context("USERPROFILE is unavailable")?;
     Ok(PathBuf::from(home).join(".claude").join("settings.json"))
+}
+
+fn default_codex_hooks() -> Result<PathBuf> {
+    let home = std::env::var_os("USERPROFILE").context("USERPROFILE is unavailable")?;
+    Ok(PathBuf::from(home).join(".codex").join("hooks.json"))
 }
 
 fn default_hook_executable() -> Result<PathBuf> {

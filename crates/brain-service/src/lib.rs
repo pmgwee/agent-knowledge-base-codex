@@ -10,5 +10,5 @@ mod reconcile;
 pub use capture::{CaptureBinding, CaptureSupervisor};
 pub use config::{CaptureServiceConfig, ServiceLaunchConfig};
 pub use health::{ProjectHealth, ServiceHealth, SourceHealth};
-pub use hook_handler::{ClaudeHookHandler, HookProjectBinding};
+pub use hook_handler::{ClaudeHookHandler, HookProjectBinding, ProjectHookHandler};
 pub use pipe::HookPipeServer;

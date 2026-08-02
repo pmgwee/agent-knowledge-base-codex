@@ -74,13 +74,13 @@ fn render_reply(harness: &Harness, event_name: &str, reply: HookReply) -> serde_
         return serde_json::json!({});
     };
     match harness {
-        Harness::ClaudeCode => serde_json::json!({
+        Harness::ClaudeCode | Harness::Codex => serde_json::json!({
             "hookSpecificOutput": {
                 "hookEventName": event_name,
                 "additionalContext": context,
             }
         }),
-        Harness::Codex | Harness::Hermes | Harness::Other(_) => {
+        Harness::Hermes | Harness::Other(_) => {
             serde_json::json!({ "additional_context": context })
         }
     }
@@ -119,6 +119,28 @@ mod tests {
         assert_eq!(
             render_reply(&Harness::ClaudeCode, "PostToolUse", HookReply::default()),
             serde_json::json!({})
+        );
+    }
+
+    #[test]
+    fn codex_session_start_reply_uses_the_native_lifecycle_hook_shape() {
+        let output = render_reply(
+            &Harness::Codex,
+            "SessionStart",
+            HookReply {
+                additional_context: Some("bounded context".to_owned()),
+                diagnostics_id: None,
+            },
+        );
+
+        assert_eq!(
+            output,
+            serde_json::json!({
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": "bounded context",
+                }
+            })
         );
     }
 }
