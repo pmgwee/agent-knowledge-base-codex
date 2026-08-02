@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
+mod diagnose;
 mod install_hooks;
 mod register;
 mod status;
 
+pub use diagnose::{DiagnosticBundle, RedactedCursor, RedactedSchemaDrift, read_diagnostics};
 pub use install_hooks::{
     HookInstallResult, install_claude_hooks, install_codex_hooks, uninstall_claude_hooks,
     uninstall_codex_hooks,

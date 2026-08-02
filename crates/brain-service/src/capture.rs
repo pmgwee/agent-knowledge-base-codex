@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
 use brain_adapters::{NormalizeContext, ReadOutcome, SourceAdapter, SourceDescriptor};
-use brain_domain::{CaptureGapRecord, EventBatch, ProjectId, QuarantinedRecord};
+use brain_domain::{CaptureGapRecord, EventBatch, ProjectId, QuarantinedRecord, SchemaDriftRecord};
 use brain_store::EventLedger;
 
 use crate::CaptureServiceConfig;
@@ -92,15 +92,25 @@ impl CaptureSupervisor {
             let cursor = store.cursor(&binding.source.source_id)?;
             let quarantined_count = store.quarantine_count(&binding.source.source_id)?;
             let capture_gaps = store.unresolved_capture_gap_count(&binding.source.source_id)?;
+            let active_drift = store.active_schema_drift(&binding.source.source_id)?;
             drop(store);
             let fingerprint = binding
                 .adapter
                 .fingerprint(&binding.source)
                 .map(|fingerprint| fingerprint.0);
-            let (schema_fingerprint, last_error) = match fingerprint {
+            let (schema_fingerprint, fingerprint_error) = match fingerprint {
                 Ok(fingerprint) => (Some(fingerprint), None),
                 Err(error) => (None, Some(error.to_string())),
             };
+            let last_error = active_drift
+                .as_ref()
+                .map(|drift| {
+                    format!(
+                        "schema drift [{}]: expected {}, observed {}",
+                        drift.diagnostic_id, drift.expected_fingerprint, drift.observed_fingerprint
+                    )
+                })
+                .or(fingerprint_error);
             health.register_source(
                 binding.source.source_id.clone(),
                 binding.source.path.clone(),
@@ -110,6 +120,7 @@ impl CaptureSupervisor {
                 capture_gaps,
                 backlog_bytes(&binding.source.path, &cursor),
                 schema_fingerprint,
+                active_drift.map(|drift| drift.diagnostic_id),
                 last_error,
             );
         }
@@ -148,18 +159,49 @@ impl CaptureSupervisor {
                 Ok(fingerprint) => fingerprint,
                 Err(error) => {
                     self.record_error(&binding.source.source_id, error.to_string())?;
-                    return Err(error);
+                    continue;
                 }
             };
+            let fingerprint_value = fingerprint.0;
             self.health
                 .lock()
                 .map_err(|_| anyhow::anyhow!("service health lock is poisoned"))?
-                .record_fingerprint(&binding.source.source_id, fingerprint.0);
+                .record_fingerprint(&binding.source.source_id, fingerprint_value.clone());
+            let active_drift = store
+                .lock()
+                .map_err(|_| anyhow::anyhow!("event ledger lock is poisoned"))?
+                .active_schema_drift(&binding.source.source_id)?;
+            if let Some(active_drift) = active_drift {
+                if fingerprint_value == active_drift.expected_fingerprint {
+                    store
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("event ledger lock is poisoned"))?
+                        .resolve_schema_drift(
+                            &binding.source.source_id,
+                            time::OffsetDateTime::now_utc(),
+                        )?;
+                    self.health
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("service health lock is poisoned"))?
+                        .record_schema_drift_resolved(&binding.source.source_id);
+                } else {
+                    self.record_error(
+                        &binding.source.source_id,
+                        format!(
+                            "schema drift [{}]: expected {}, observed {}",
+                            active_drift.diagnostic_id,
+                            active_drift.expected_fingerprint,
+                            fingerprint_value
+                        ),
+                    )?;
+                    continue;
+                }
+            }
             let outcome = match binding.adapter.read_increment(&binding.source, &cursor) {
                 Ok(outcome) => outcome,
                 Err(error) => {
                     self.record_error(&binding.source.source_id, error.to_string())?;
-                    return Err(error);
+                    continue;
                 }
             };
             match outcome {
@@ -242,25 +284,40 @@ impl CaptureSupervisor {
                         );
                 }
                 ReadOutcome::SchemaDrift(drift) => {
+                    let record = SchemaDriftRecord {
+                        diagnostic_id: uuid::Uuid::now_v7(),
+                        source_id: binding.source.source_id.clone(),
+                        expected_fingerprint: drift.expected.0,
+                        observed_fingerprint: drift.observed.0,
+                        cursor,
+                        sample_hash: drift.sample_hash,
+                        reason: "adapter schema differs from its reviewed profile".to_owned(),
+                        observed_at: time::OffsetDateTime::now_utc(),
+                        resolved_at: None,
+                    };
+                    store
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("event ledger lock is poisoned"))?
+                        .record_schema_drift(&record)?;
                     self.health
                         .lock()
                         .map_err(|_| anyhow::anyhow!("service health lock is poisoned"))?
-                        .record_error(
+                        .record_schema_drift(
                             &binding.source.source_id,
-                            format!("schema drift: {}", drift.observed.0),
+                            record.diagnostic_id,
+                            format!(
+                                "schema drift [{}]: expected {}, observed {}",
+                                record.diagnostic_id,
+                                record.expected_fingerprint,
+                                record.observed_fingerprint
+                            ),
                         );
-                    bail!("source {} has schema drift", drift.source_id);
                 }
                 ReadOutcome::SourceUnavailable(unavailable) => {
                     self.health
                         .lock()
                         .map_err(|_| anyhow::anyhow!("service health lock is poisoned"))?
                         .record_error(&binding.source.source_id, unavailable.reason.clone());
-                    bail!(
-                        "source {} is unavailable: {}",
-                        unavailable.source_id,
-                        unavailable.reason
-                    );
                 }
             }
         }

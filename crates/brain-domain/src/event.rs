@@ -256,3 +256,16 @@ pub struct CaptureGapRecord {
     pub reason: String,
     pub observed_at: time::OffsetDateTime,
 }
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct SchemaDriftRecord {
+    pub diagnostic_id: uuid::Uuid,
+    pub source_id: String,
+    pub expected_fingerprint: String,
+    pub observed_fingerprint: String,
+    pub cursor: SourceCursor,
+    pub sample_hash: [u8; 32],
+    pub reason: String,
+    pub observed_at: time::OffsetDateTime,
+    pub resolved_at: Option<time::OffsetDateTime>,
+}

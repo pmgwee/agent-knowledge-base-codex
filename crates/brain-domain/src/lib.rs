@@ -10,7 +10,7 @@ mod registry;
 pub use config::BrainConfig;
 pub use event::{
     CaptureGapRecord, EventBatch, EventType, Harness, NormalizedEvent, QuarantinedRecord,
-    SourceCursor,
+    SchemaDriftRecord, SourceCursor,
 };
 pub use hook::{
     HOOK_MAX_FRAME_BYTES, HOOK_PROTOCOL_VERSION, HookEnvelope, HookReply, decode_hook_frame_length,

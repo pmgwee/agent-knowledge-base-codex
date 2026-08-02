@@ -73,8 +73,28 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             resolved_at_ns INTEGER
         );
 
+        CREATE TABLE IF NOT EXISTS schema_drifts (
+            diagnostic_id TEXT PRIMARY KEY NOT NULL,
+            source_id TEXT NOT NULL,
+            expected_fingerprint TEXT NOT NULL,
+            observed_fingerprint TEXT NOT NULL,
+            cursor_json TEXT NOT NULL,
+            sample_hash BLOB NOT NULL CHECK(length(sample_hash) = 32),
+            reason TEXT NOT NULL,
+            observed_at_ns INTEGER NOT NULL,
+            resolved_at_ns INTEGER
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_drifts_one_active_source
+            ON schema_drifts(source_id)
+            WHERE resolved_at_ns IS NULL;
+        CREATE INDEX IF NOT EXISTS idx_schema_drifts_observed
+            ON schema_drifts(observed_at_ns DESC);
+
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (1, datetime('now'));
+        INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+            VALUES (2, datetime('now'));
         "#,
     )?;
     Ok(())

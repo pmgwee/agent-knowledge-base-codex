@@ -20,9 +20,11 @@ impl ServiceHealth {
     }
 
     pub fn is_healthy(&self) -> bool {
-        self.sources
-            .values()
-            .all(|source| source.capture_gaps == 0 && source.last_error.is_none())
+        self.sources.values().all(|source| {
+            source.capture_gaps == 0
+                && source.active_schema_drift.is_none()
+                && source.last_error.is_none()
+        })
     }
 
     pub(crate) fn record_batch(&mut self, update: BatchHealthUpdate) {
@@ -58,6 +60,26 @@ impl ServiceHealth {
         }
     }
 
+    pub(crate) fn record_schema_drift(
+        &mut self,
+        source_id: &str,
+        diagnostic_id: uuid::Uuid,
+        error: String,
+    ) {
+        if let Some(source) = self.sources.get_mut(source_id) {
+            source.last_checked_at = Some(time::OffsetDateTime::now_utc());
+            source.active_schema_drift = Some(diagnostic_id);
+            source.last_error = Some(error);
+        }
+    }
+
+    pub(crate) fn record_schema_drift_resolved(&mut self, source_id: &str) {
+        if let Some(source) = self.sources.get_mut(source_id) {
+            source.active_schema_drift = None;
+            source.last_error = None;
+        }
+    }
+
     pub(crate) fn register_project(
         &mut self,
         project_id: ProjectId,
@@ -85,6 +107,7 @@ impl ServiceHealth {
         capture_gaps: u64,
         backlog_bytes: u64,
         schema_fingerprint: Option<String>,
+        active_schema_drift: Option<uuid::Uuid>,
         last_error: Option<String>,
     ) {
         self.sources.insert(
@@ -100,6 +123,7 @@ impl ServiceHealth {
                 backlog_bytes,
                 schema_fingerprint,
                 schema_fingerprint_changes: 0,
+                active_schema_drift,
                 last_checked_at: None,
                 last_success_at: None,
                 last_error,
@@ -152,6 +176,7 @@ pub struct SourceHealth {
     pub backlog_bytes: u64,
     pub schema_fingerprint: Option<String>,
     pub schema_fingerprint_changes: u64,
+    pub active_schema_drift: Option<uuid::Uuid>,
     pub last_checked_at: Option<time::OffsetDateTime>,
     pub last_success_at: Option<time::OffsetDateTime>,
     pub last_error: Option<String>,

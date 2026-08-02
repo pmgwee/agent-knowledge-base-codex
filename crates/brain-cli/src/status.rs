@@ -21,6 +21,7 @@ pub struct BrainStatus {
     pub backlog_bytes: u64,
     pub quarantined_records: u64,
     pub unresolved_capture_gaps: u64,
+    pub active_schema_drifts: u64,
     pub healthy: bool,
 }
 
@@ -65,6 +66,7 @@ pub fn read_status(
         quarantined_records += ledger.quarantine_count(&source.source_id)?;
         unresolved_capture_gaps += ledger.unresolved_capture_gap_count(&source.source_id)?;
     }
+    let active_schema_drifts = ledger.active_schema_drift_count()?;
 
     Ok(BrainStatus {
         brain_home: brain_home.to_path_buf(),
@@ -80,7 +82,8 @@ pub fn read_status(
         backlog_bytes,
         quarantined_records,
         unresolved_capture_gaps,
-        healthy: unresolved_capture_gaps == 0,
+        active_schema_drifts,
+        healthy: unresolved_capture_gaps == 0 && active_schema_drifts == 0,
     })
 }
 

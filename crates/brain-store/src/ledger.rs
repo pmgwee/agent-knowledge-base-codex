@@ -3,9 +3,9 @@ use std::path::Path;
 use anyhow::{Result, bail};
 use brain_domain::{
     CaptureGapRecord, EventBatch, EventType, NormalizedEvent, ProjectId, QuarantinedRecord,
-    SourceCursor, WorktreeId,
+    SchemaDriftRecord, SourceCursor, WorktreeId,
 };
-use rusqlite::{Connection, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::cursor::{load_cursor, save_cursor, timestamp_ns};
 use crate::migrations::{configure, migrate};
@@ -127,6 +127,111 @@ impl EventLedger {
         )?)
     }
 
+    pub fn record_schema_drift(&mut self, record: &SchemaDriftRecord) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let updated = transaction.execute(
+            r#"
+            UPDATE schema_drifts SET
+                expected_fingerprint = ?2,
+                observed_fingerprint = ?3,
+                cursor_json = ?4,
+                sample_hash = ?5,
+                reason = ?6,
+                observed_at_ns = ?7
+            WHERE source_id = ?1 AND resolved_at_ns IS NULL
+            "#,
+            params![
+                record.source_id,
+                record.expected_fingerprint,
+                record.observed_fingerprint,
+                serde_json::to_string(&record.cursor)?,
+                record.sample_hash.as_slice(),
+                record.reason,
+                timestamp_ns(record.observed_at)?,
+            ],
+        )?;
+        if updated == 0 {
+            transaction.execute(
+                r#"
+                INSERT INTO schema_drifts(
+                    diagnostic_id, source_id, expected_fingerprint,
+                    observed_fingerprint, cursor_json, sample_hash,
+                    reason, observed_at_ns, resolved_at_ns
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)
+                "#,
+                params![
+                    record.diagnostic_id.to_string(),
+                    record.source_id,
+                    record.expected_fingerprint,
+                    record.observed_fingerprint,
+                    serde_json::to_string(&record.cursor)?,
+                    record.sample_hash.as_slice(),
+                    record.reason,
+                    timestamp_ns(record.observed_at)?,
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn active_schema_drift(&self, source_id: &str) -> Result<Option<SchemaDriftRecord>> {
+        self.connection
+            .query_row(
+                r#"
+                SELECT diagnostic_id, source_id, expected_fingerprint,
+                       observed_fingerprint, cursor_json, sample_hash,
+                       reason, observed_at_ns, resolved_at_ns
+                FROM schema_drifts
+                WHERE source_id = ?1 AND resolved_at_ns IS NULL
+                "#,
+                [source_id],
+                parse_schema_drift,
+            )
+            .optional()?
+            .map(parse_schema_drift_record)
+            .transpose()
+    }
+
+    pub fn active_schema_drift_count(&self) -> Result<u64> {
+        Ok(self.connection.query_row(
+            "SELECT COUNT(*) FROM schema_drifts WHERE resolved_at_ns IS NULL",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
+    pub fn resolve_schema_drift(
+        &mut self,
+        source_id: &str,
+        resolved_at: time::OffsetDateTime,
+    ) -> Result<bool> {
+        Ok(self.connection.execute(
+            r#"
+            UPDATE schema_drifts
+            SET resolved_at_ns = ?2
+            WHERE source_id = ?1 AND resolved_at_ns IS NULL
+            "#,
+            params![source_id, timestamp_ns(resolved_at)?],
+        )? > 0)
+    }
+
+    pub fn schema_drifts(&self) -> Result<Vec<SchemaDriftRecord>> {
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT diagnostic_id, source_id, expected_fingerprint,
+                   observed_fingerprint, cursor_json, sample_hash,
+                   reason, observed_at_ns, resolved_at_ns
+            FROM schema_drifts
+            ORDER BY observed_at_ns DESC, diagnostic_id DESC
+            "#,
+        )?;
+        let rows = statement.query_map([], parse_schema_drift)?;
+        rows.map(|row| parse_schema_drift_record(row?)).collect()
+    }
+
     pub fn cursor(&self, source_id: &str) -> Result<SourceCursor> {
         load_cursor(&self.connection, source_id)
     }
@@ -200,6 +305,53 @@ impl EventLedger {
         }
         Ok(events)
     }
+}
+
+type RawSchemaDrift = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    Vec<u8>,
+    String,
+    i64,
+    Option<i64>,
+);
+
+fn parse_schema_drift(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawSchemaDrift> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
+        row.get(8)?,
+    ))
+}
+
+fn parse_schema_drift_record(raw: RawSchemaDrift) -> Result<SchemaDriftRecord> {
+    let sample_hash: [u8; 32] = raw
+        .5
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("stored schema drift sample hash is not 32 bytes"))?;
+    Ok(SchemaDriftRecord {
+        diagnostic_id: uuid::Uuid::parse_str(&raw.0)?,
+        source_id: raw.1,
+        expected_fingerprint: raw.2,
+        observed_fingerprint: raw.3,
+        cursor: serde_json::from_str(&raw.4)?,
+        sample_hash,
+        reason: raw.6,
+        observed_at: time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(raw.7))?,
+        resolved_at: raw
+            .8
+            .map(|value| time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(value)))
+            .transpose()?,
+    })
 }
 
 struct RawStoredEvent {

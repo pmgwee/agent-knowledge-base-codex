@@ -2,8 +2,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use brain_cli::{
-    RegisterOptions, install_claude_hooks, install_codex_hooks, read_hermes_status, read_status,
-    register_project, uninstall_claude_hooks, uninstall_codex_hooks,
+    RegisterOptions, install_claude_hooks, install_codex_hooks, read_diagnostics,
+    read_hermes_status, read_status, register_project, uninstall_claude_hooks,
+    uninstall_codex_hooks,
 };
 use brain_context::{ContextCompiler, ContextQuery};
 use brain_domain::{BrainConfig, ProjectId};
@@ -57,6 +58,10 @@ enum Command {
         #[arg(long)]
         project: String,
         text: String,
+    },
+    Diagnose {
+        #[arg(long)]
+        project: Option<String>,
     },
 }
 
@@ -138,6 +143,7 @@ fn main() -> Result<()> {
                 println!("events: {}", status.persisted_events);
                 println!("sources: {}", status.source_count);
                 println!("backlog_bytes: {}", status.backlog_bytes);
+                println!("active_schema_drifts: {}", status.active_schema_drifts);
                 println!("healthy: {}", status.healthy);
             }
         }
@@ -203,6 +209,11 @@ fn main() -> Result<()> {
             let context =
                 compiler.compile(ContextQuery::for_worktree(project, config.worktree_id))?;
             println!("{}", context.text);
+        }
+        Command::Diagnose { project } => {
+            let project = project.as_deref().map(parse_project_id).transpose()?;
+            let bundle = read_diagnostics(&brain_home, project)?;
+            println!("{}", serde_json::to_string_pretty(&bundle)?);
         }
     }
     Ok(())
