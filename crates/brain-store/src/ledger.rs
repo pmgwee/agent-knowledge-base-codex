@@ -11,8 +11,8 @@ use crate::cursor::{load_cursor, save_cursor, timestamp_ns};
 use crate::migrations::{configure, migrate};
 
 pub struct EventLedger {
-    connection: Connection,
-    project_scope: ProjectId,
+    pub(crate) connection: Connection,
+    pub(crate) project_scope: ProjectId,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

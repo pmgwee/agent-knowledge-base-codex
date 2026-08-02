@@ -4,6 +4,7 @@ mod config;
 mod event;
 mod hook;
 mod ids;
+mod memory;
 mod project;
 mod registry;
 
@@ -17,5 +18,6 @@ pub use hook::{
     decode_hook_frame_payload, encode_hook_frame,
 };
 pub use ids::{ProjectId, WorktreeId};
+pub use memory::{Authority, MemoryKind, MemoryRecord, MemoryScope, MemoryStatus};
 pub use project::ProjectIdentity;
 pub use registry::ProjectRegistry;

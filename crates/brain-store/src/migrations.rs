@@ -91,10 +91,80 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_schema_drifts_observed
             ON schema_drifts(observed_at_ns DESC);
 
+        CREATE TABLE IF NOT EXISTS memory_records (
+            memory_id TEXT PRIMARY KEY NOT NULL,
+            scope TEXT NOT NULL CHECK(scope = 'project'),
+            project_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            projection_path TEXT NOT NULL UNIQUE,
+            created_at_ns INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS memory_versions (
+            version_id TEXT PRIMARY KEY NOT NULL,
+            memory_id TEXT NOT NULL REFERENCES memory_records(memory_id),
+            version_number INTEGER NOT NULL,
+            worktree_id TEXT,
+            task_id TEXT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            valid_from_ns INTEGER NOT NULL,
+            valid_to_ns INTEGER,
+            recorded_at_ns INTEGER NOT NULL,
+            confidence REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
+            authority TEXT NOT NULL,
+            status TEXT NOT NULL,
+            UNIQUE(memory_id, version_number)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_memory_versions_current
+            ON memory_versions(memory_id, version_number DESC);
+        CREATE INDEX IF NOT EXISTS idx_memory_versions_validity
+            ON memory_versions(valid_from_ns, valid_to_ns);
+
+        CREATE TABLE IF NOT EXISTS memory_evidence (
+            version_id TEXT NOT NULL REFERENCES memory_versions(version_id),
+            event_id TEXT NOT NULL REFERENCES events(event_id),
+            PRIMARY KEY(version_id, event_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS memory_supersession (
+            version_id TEXT NOT NULL REFERENCES memory_versions(version_id),
+            superseded_version_id TEXT NOT NULL REFERENCES memory_versions(version_id),
+            PRIMARY KEY(version_id, superseded_version_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS global_preferences (
+            preference_id TEXT NOT NULL,
+            version_id TEXT PRIMARY KEY NOT NULL,
+            version_number INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            valid_from_ns INTEGER NOT NULL,
+            valid_to_ns INTEGER,
+            recorded_at_ns INTEGER NOT NULL,
+            confidence REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
+            authority TEXT NOT NULL,
+            status TEXT NOT NULL,
+            projection_path TEXT NOT NULL,
+            UNIQUE(preference_id, version_number)
+        );
+
+        CREATE TABLE IF NOT EXISTS projection_state (
+            projection_path TEXT PRIMARY KEY NOT NULL,
+            memory_id TEXT NOT NULL,
+            version_id TEXT NOT NULL,
+            content_hash BLOB,
+            projected_at_ns INTEGER,
+            status TEXT NOT NULL
+        );
+
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (1, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (2, datetime('now'));
+        INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+            VALUES (3, datetime('now'));
         "#,
     )?;
     Ok(())
