@@ -44,8 +44,8 @@ connections through SQLite `data_version`. The preceding uncached six-million
 event diagnostic measured raw FTS p95 at 4.92 ms, also well under the one-second
 absolute gate.
 
-The release hook latency gate also passed with warm p95 12.27 ms and p99 14.38
-ms against a 50 ms p95 limit.
+The final release hook latency gate also passed with warm p95 9.46 ms and p99
+9.79 ms against a 50 ms p95 limit.
 
 ## Ten-times stress gate
 
