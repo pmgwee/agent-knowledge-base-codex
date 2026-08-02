@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 use brain_context::{
-    CompiledContext, ContextCompiler, ContextQuery, LiveState, RankedCandidate, RetrievalEngine,
-    RetrievalQuery,
+    CodeGraphProvider, CompiledContext, ContextCompiler, ContextQuery, LiveState, LlmWikiProvider,
+    ProcessCodeGraphClient, ProviderConfig, ProviderResult, ProviderStatus, RankedCandidate,
+    RetrievalEngine, RetrievalQuery,
 };
 use brain_coordination::{
     ClaimResult, CoordinationStore, MergePreflight, PathClaim, PathClaimInput, SessionIdentity,
@@ -13,7 +14,10 @@ use brain_domain::{
     Authority, EventBatch, EventType, Harness, MemoryKind, MemoryRecord, MemoryScope, MemoryStatus,
     NormalizedEvent, ProjectId, ProjectRegistry, SourceCursor,
 };
-use brain_store::{EventLedger, GlobalPreferenceStore, SearchSource, SearchSourceFilter};
+use brain_store::{
+    EventLedger, GlobalPreferenceStore, ProviderCacheEntry, ProviderCacheStore, SearchSource,
+    SearchSourceFilter,
+};
 use sha2::{Digest, Sha256};
 
 use crate::{ServiceLaunchConfig, ServiceProjectConfig};
@@ -71,6 +75,37 @@ pub struct BrainCheckpointRequest {
     pub as_of: Option<String>,
     #[serde(default)]
     pub max_tokens: Option<usize>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainPromptContextRequest {
+    pub project: String,
+    pub harness: Harness,
+    pub native_session_id: String,
+    pub prompt: String,
+    #[serde(default)]
+    pub task_id: Option<uuid::Uuid>,
+    #[serde(default)]
+    pub paths: Vec<String>,
+    #[serde(default)]
+    pub max_tokens: Option<usize>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainProviderState {
+    pub provider: String,
+    pub status: ProviderStatus,
+    pub item_count: usize,
+    pub latency_ms: u64,
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainPromptContextResponse {
+    pub project_id: ProjectId,
+    pub first_prompt_claimed: bool,
+    pub context: CompiledContext,
+    pub providers: Vec<BrainProviderState>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -353,11 +388,245 @@ impl BrainQueryService {
 
     pub fn checkpoint(&self, request: BrainCheckpointRequest) -> Result<BrainCheckpointResponse> {
         let project = self.project(&request.project)?;
+        self.compile_checkpoint(
+            project,
+            &project.project_root,
+            project.worktree_id,
+            request,
+            Vec::new(),
+        )
+    }
+
+    pub fn context_for_prompt(
+        &self,
+        request: BrainPromptContextRequest,
+    ) -> Result<BrainPromptContextResponse> {
+        ensure!(
+            !request.native_session_id.trim().is_empty(),
+            "native session ID is required"
+        );
+        ensure!(
+            !request.prompt.trim().is_empty(),
+            "first prompt is required"
+        );
+        let project = self.project(&request.project)?.clone();
+        let (worktree_root, worktree_id) = if let Some(task_id) = request.task_id {
+            let task = CoordinationStore::open(&project.ledger_path, project.project_id)?
+                .task(task_id)?
+                .context("prompt task does not exist")?;
+            (
+                task.worktree_path
+                    .context("prompt task has no validated worktree")?,
+                task.worktree_id,
+            )
+        } else {
+            (project.project_root.clone(), project.worktree_id)
+        };
+        let project_storage = project
+            .ledger_path
+            .parent()
+            .context("project ledger has no storage directory")?;
+        let config_path = project_storage.join("providers.json");
+        let config = ProviderConfig::load(config_path, &self.brain_home)?;
+        let config_hash = config.sha256()?;
+        let now = time::OffsetDateTime::now_utc();
+        let prompt_hash: [u8; 32] = Sha256::digest(
+            [
+                request.prompt.as_bytes(),
+                &[0],
+                request.paths.join("\n").as_bytes(),
+            ]
+            .concat(),
+        )
+        .into();
+        let mut cache = ProviderCacheStore::open(&project.ledger_path, project.project_id)?;
+        let first_prompt_claimed = cache.claim_first_prompt(
+            &request.harness,
+            &request.native_session_id,
+            prompt_hash,
+            now,
+        )?;
+        let mut query = ContextQuery::for_worktree(project.project_id, worktree_id);
+        query.native_session_id = Some(request.native_session_id.clone());
+        query.prompt = Some(request.prompt.clone());
+        query.paths = request.paths.clone();
+        if let Some(max_tokens) = request.max_tokens {
+            query.max_tokens = max_tokens;
+        }
+        let mut provider_results = Vec::new();
+        let mut provider_states = Vec::new();
+
+        if config.llm_wiki.enabled {
+            let started = std::time::Instant::now();
+            match config.llm_wiki.vault.as_ref() {
+                Some(vault) => match LlmWikiProvider::new(
+                    project.project_id,
+                    worktree_id,
+                    vault,
+                    &self.brain_home,
+                    std::time::Duration::from_millis(config.llm_wiki.deadline_ms),
+                    config.llm_wiki.max_results,
+                    config.llm_wiki.max_tokens,
+                ) {
+                    Ok(provider) => {
+                        let source_version = provider.source_version()?;
+                        let cached = cache.get(
+                            "llm_wiki",
+                            prompt_hash,
+                            config_hash,
+                            &source_version,
+                            now,
+                        )?;
+                        let (items, status, reason) = if let Some(entry) = cached {
+                            (
+                                serde_json::from_value::<Vec<ProviderResult>>(entry.items)?,
+                                ProviderStatus::Ready,
+                                Some("served idempotent project-scoped cache".to_owned()),
+                            )
+                        } else if first_prompt_claimed {
+                            match provider.search_blocking(&query) {
+                                Ok(items) => {
+                                    cache.put(&ProviderCacheEntry {
+                                        provider: "llm_wiki".to_owned(),
+                                        project_id: project.project_id,
+                                        task_id: request.task_id,
+                                        query_sha256: prompt_hash,
+                                        config_sha256: config_hash,
+                                        source_version,
+                                        fetched_at: now,
+                                        expires_at: now
+                                            + time::Duration::seconds(i64::try_from(
+                                                config.llm_wiki.cache_ttl_seconds,
+                                            )?),
+                                        items: serde_json::to_value(&items)?,
+                                    })?;
+                                    (items, ProviderStatus::Ready, None)
+                                }
+                                Err(error) => {
+                                    (Vec::new(), ProviderStatus::Failed, Some(error.to_string()))
+                                }
+                            }
+                        } else {
+                            (
+                                Vec::new(),
+                                ProviderStatus::Disabled,
+                                Some(
+                                    "live LLM Wiki search already consumed for this session"
+                                        .to_owned(),
+                                ),
+                            )
+                        };
+                        provider_states.push(BrainProviderState {
+                            provider: "llm_wiki".to_owned(),
+                            status,
+                            item_count: items.len(),
+                            latency_ms: elapsed_ms(started),
+                            reason,
+                        });
+                        provider_results.extend(items);
+                    }
+                    Err(error) => provider_states.push(BrainProviderState {
+                        provider: "llm_wiki".to_owned(),
+                        status: ProviderStatus::Unsupported,
+                        item_count: 0,
+                        latency_ms: elapsed_ms(started),
+                        reason: Some(error.to_string()),
+                    }),
+                },
+                None => provider_states.push(BrainProviderState {
+                    provider: "llm_wiki".to_owned(),
+                    status: ProviderStatus::Unsupported,
+                    item_count: 0,
+                    latency_ms: elapsed_ms(started),
+                    reason: Some("no reviewed Markdown vault is configured".to_owned()),
+                }),
+            }
+        } else {
+            provider_states.push(disabled_state("llm_wiki"));
+        }
+
+        if config.codegraph.enabled {
+            let started = std::time::Instant::now();
+            let result = (|| {
+                let executable = config
+                    .codegraph
+                    .executable
+                    .as_ref()
+                    .context("CodeGraph executable is not configured")?;
+                ensure!(
+                    config.codegraph.activation_report_sha256.is_some(),
+                    "CodeGraph activation benchmark has not passed"
+                );
+                let head = git_head(&worktree_root)?;
+                let client = std::sync::Arc::new(ProcessCodeGraphClient::with_deadline(
+                    executable,
+                    std::time::Duration::from_millis(config.codegraph.deadline_ms),
+                )?);
+                let provider = CodeGraphProvider::new(
+                    client,
+                    project.project_id,
+                    worktree_id,
+                    &worktree_root,
+                    head,
+                    true,
+                )?;
+                provider.search_blocking(&query)
+            })();
+            match result {
+                Ok(items) => {
+                    provider_states.push(BrainProviderState {
+                        provider: "codegraph".to_owned(),
+                        status: ProviderStatus::Ready,
+                        item_count: items.len(),
+                        latency_ms: elapsed_ms(started),
+                        reason: None,
+                    });
+                    provider_results.extend(items);
+                }
+                Err(error) => provider_states.push(BrainProviderState {
+                    provider: "codegraph".to_owned(),
+                    status: ProviderStatus::Stale,
+                    item_count: 0,
+                    latency_ms: elapsed_ms(started),
+                    reason: Some(error.to_string()),
+                }),
+            }
+        } else {
+            provider_states.push(disabled_state("codegraph"));
+        }
+
+        let checkpoint = self.compile_checkpoint(
+            &project,
+            &worktree_root,
+            worktree_id,
+            BrainCheckpointRequest {
+                project: request.project,
+                prompt: Some(request.prompt),
+                paths: request.paths,
+                as_of: None,
+                max_tokens: request.max_tokens,
+            },
+            provider_results,
+        )?;
+        Ok(BrainPromptContextResponse {
+            project_id: project.project_id,
+            first_prompt_claimed,
+            context: checkpoint.context,
+            providers: provider_states,
+        })
+    }
+
+    fn compile_checkpoint(
+        &self,
+        project: &ServiceProjectConfig,
+        worktree_root: &Path,
+        worktree_id: brain_domain::WorktreeId,
+        request: BrainCheckpointRequest,
+        provider_results: Vec<ProviderResult>,
+    ) -> Result<BrainCheckpointResponse> {
         let ledger = self.ledger(project)?;
-        let mut compiler =
-            ContextCompiler::from_ledger(&ledger, project.project_id, 500)?.with_live_state(
-                LiveState::inspect(&project.project_root, project.worktree_id),
-            );
+        let mut compiler = ContextCompiler::from_ledger(&ledger, project.project_id, 500)?
+            .with_live_state(LiveState::inspect(worktree_root, worktree_id));
         let global_path = self
             .brain_home
             .join("global-preferences")
@@ -367,7 +636,10 @@ impl BrainQueryService {
                 GlobalPreferenceStore::open(global_path)?.current_preferences()?,
             );
         }
-        let mut query = ContextQuery::for_worktree(project.project_id, project.worktree_id);
+        if !provider_results.is_empty() {
+            compiler = compiler.with_provider_results(provider_results);
+        }
+        let mut query = ContextQuery::for_worktree(project.project_id, worktree_id);
         query.prompt = request.prompt;
         query.paths = request.paths;
         query.as_of = request.as_of.as_deref().map(parse_timestamp).transpose()?;
@@ -934,4 +1206,32 @@ fn stable_uuid(parts: &[&[u8]]) -> uuid::Uuid {
 
 fn default_source_ref() -> String {
     "HEAD".to_owned()
+}
+
+fn disabled_state(provider: &str) -> BrainProviderState {
+    BrainProviderState {
+        provider: provider.to_owned(),
+        status: ProviderStatus::Disabled,
+        item_count: 0,
+        latency_ms: 0,
+        reason: Some("provider is disabled for this project".to_owned()),
+    }
+}
+
+fn elapsed_ms(started: std::time::Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+fn git_head(root: &Path) -> Result<String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "HEAD"])
+        .output()?;
+    ensure!(
+        output.status.success(),
+        "resolve current Git HEAD: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }

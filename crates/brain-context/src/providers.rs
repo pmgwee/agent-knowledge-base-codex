@@ -119,6 +119,21 @@ impl Default for LlmWikiConfig {
 }
 
 impl ProviderConfig {
+    pub fn load(path: impl AsRef<Path>, brain_home: &Path) -> Result<Self> {
+        let config = if path.as_ref().is_file() {
+            serde_json::from_slice(&std::fs::read(path.as_ref())?)?
+        } else {
+            Self::default()
+        };
+        config.validate(brain_home)?;
+        Ok(config)
+    }
+
+    pub fn sha256(&self) -> Result<[u8; 32]> {
+        use sha2::{Digest, Sha256};
+        Ok(Sha256::digest(serde_json::to_vec(self)?).into())
+    }
+
     pub fn validate(&self, brain_home: &Path) -> Result<()> {
         ensure!(
             self.codegraph.deadline_ms > 0 && self.codegraph.deadline_ms <= 30_000,

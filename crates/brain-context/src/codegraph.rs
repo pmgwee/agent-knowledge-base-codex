@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 
 use anyhow::{Context, Result, ensure};
@@ -45,20 +45,54 @@ pub trait CodeGraphClient: Send + Sync {
 
 pub struct ProcessCodeGraphClient {
     executable: PathBuf,
+    deadline: std::time::Duration,
 }
 
 impl ProcessCodeGraphClient {
     pub fn new(executable: impl Into<PathBuf>) -> Self {
         Self {
             executable: executable.into(),
+            deadline: std::time::Duration::from_secs(5),
         }
     }
 
+    pub fn with_deadline(
+        executable: impl Into<PathBuf>,
+        deadline: std::time::Duration,
+    ) -> Result<Self> {
+        ensure!(
+            deadline > std::time::Duration::ZERO,
+            "CodeGraph deadline is zero"
+        );
+        Ok(Self {
+            executable: executable.into(),
+            deadline,
+        })
+    }
+
     fn json<T: serde::de::DeserializeOwned>(&self, arguments: &[&str]) -> Result<T> {
-        let output = Command::new(&self.executable)
+        let mut child = Command::new(&self.executable)
             .args(arguments)
-            .output()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .with_context(|| format!("execute CodeGraph {}", self.executable.display()))?;
+        let started = std::time::Instant::now();
+        loop {
+            if child.try_wait()?.is_some() {
+                break;
+            }
+            if started.elapsed() >= self.deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                anyhow::bail!(
+                    "CodeGraph command exceeded {} ms",
+                    self.deadline.as_millis()
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let output = child.wait_with_output()?;
         ensure!(
             output.status.success(),
             "CodeGraph command failed: {}",
@@ -178,11 +212,8 @@ impl CodeGraphProvider {
         );
         Ok(index)
     }
-}
 
-#[async_trait]
-impl ContextProvider for CodeGraphProvider {
-    async fn retrieve(&self, query: &ContextQuery) -> Result<Vec<ProviderResult>> {
+    pub fn search_blocking(&self, query: &ContextQuery) -> Result<Vec<ProviderResult>> {
         ensure!(
             query.project_id == self.project_id,
             "CodeGraph project scope mismatch"
@@ -195,21 +226,18 @@ impl ContextProvider for CodeGraphProvider {
         if prompt.is_empty() && query.paths.is_empty() {
             return Ok(Vec::new());
         }
-        let client = Arc::clone(&self.client);
-        let path = self.worktree_path.clone();
-        let head = self.git_head.clone();
-        let activated = self.activated;
         let prompt = if prompt.is_empty() {
             query.paths.join(" ")
         } else {
             prompt.to_owned()
         };
-        let (status, hits) = tokio::task::spawn_blocking(move || {
-            let status = validate_client(client.as_ref(), &path, &head, activated)?;
-            let hits = client.search(&path, &prompt, 8)?;
-            Ok::<_, anyhow::Error>((status, hits))
-        })
-        .await??;
+        let status = validate_client(
+            self.client.as_ref(),
+            &self.worktree_path,
+            &self.git_head,
+            self.activated,
+        )?;
+        let hits = self.client.search(&self.worktree_path, &prompt, 8)?;
         let now = time::OffsetDateTime::now_utc();
         Ok(hits
             .into_iter()
@@ -246,6 +274,22 @@ impl ContextProvider for CodeGraphProvider {
                 })
             })
             .collect())
+    }
+}
+
+#[async_trait]
+impl ContextProvider for CodeGraphProvider {
+    async fn retrieve(&self, query: &ContextQuery) -> Result<Vec<ProviderResult>> {
+        let provider = Self {
+            client: Arc::clone(&self.client),
+            project_id: self.project_id,
+            worktree_id: self.worktree_id,
+            worktree_path: self.worktree_path.clone(),
+            git_head: self.git_head.clone(),
+            activated: self.activated,
+        };
+        let query = query.clone();
+        tokio::task::spawn_blocking(move || provider.search_blocking(&query)).await?
     }
 }
 

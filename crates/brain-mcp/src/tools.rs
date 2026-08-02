@@ -3,7 +3,7 @@ use brain_service::BrainQueryService;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-const TOOL_NAMES: [&str; 15] = [
+const TOOL_NAMES: [&str; 16] = [
     "brain_search",
     "brain_timeline",
     "brain_checkpoint",
@@ -19,6 +19,7 @@ const TOOL_NAMES: [&str; 15] = [
     "brain_lease_handoff",
     "brain_leases",
     "brain_merge_preflight",
+    "brain_context_for_prompt",
 ];
 
 pub struct BrainTools {
@@ -262,6 +263,24 @@ impl BrainTools {
                 true,
                 true,
             ),
+            tool(
+                "brain_context_for_prompt",
+                "Compile canonical context plus guarded optional knowledge for the first real prompt of a native session.",
+                object_schema(
+                    json!({
+                        "project": string("Registered project UUID or exact path alias."),
+                        "harness": {"type": "string", "enum": ["claude-code", "codex", "hermes"]},
+                        "native_session_id": string("Stable native session ID used for once-only retrieval."),
+                        "prompt": string("The first real user prompt, never the full transcript."),
+                        "task_id": string("Optional coordination task UUID for exact worktree scope."),
+                        "paths": {"type": "array", "items": {"type": "string"}},
+                        "max_tokens": {"type": "integer", "minimum": 1, "maximum": 3000}
+                    }),
+                    &["project", "harness", "native_session_id", "prompt"],
+                ),
+                true,
+                true,
+            ),
         ]
     }
 
@@ -282,6 +301,9 @@ impl BrainTools {
             "brain_lease_handoff" => serialize(self.service.handoff_lease(parse(arguments)?)),
             "brain_leases" => serialize(self.service.leases(parse(arguments)?)),
             "brain_merge_preflight" => serialize(self.service.preflight(parse(arguments)?)),
+            "brain_context_for_prompt" => {
+                serialize(self.service.context_for_prompt(parse(arguments)?))
+            }
             _ => bail!("unknown tool {name}"),
         }
     }

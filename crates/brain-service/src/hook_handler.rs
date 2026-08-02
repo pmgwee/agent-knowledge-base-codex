@@ -1,12 +1,14 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use brain_context::{ContextCompiler, ContextQuery, LiveState, token_count};
+use brain_context::{
+    ContextCompiler, ContextQuery, LiveState, ProviderConfig, ProviderResult, token_count,
+};
 use brain_coordination::{
     CoordinationStore, LeaseError, Overlap, RENEWAL_INTERVAL, SessionIdentity, overlap,
 };
 use brain_domain::{Harness, HookEnvelope, HookReply, ProjectId, WorktreeId};
-use brain_store::EventLedger;
+use brain_store::{EventLedger, ProviderCacheStore};
 
 #[derive(Clone, Debug)]
 pub struct HookProjectBinding {
@@ -91,6 +93,11 @@ impl ProjectHookHandler {
                 brain_store::GlobalPreferenceStore::open(path)?.current_preferences()?;
             compiler = compiler.with_global_preferences(preferences);
         }
+        if let Ok(results) = cached_wiki_context(&binding, envelope.received_at)
+            && !results.is_empty()
+        {
+            compiler = compiler.with_provider_results(results);
+        }
         let mut query = ContextQuery::for_worktree(binding.project_id, binding.worktree_id);
         let coordination = coordination_context(&binding, envelope.received_at)
             .ok()
@@ -158,6 +165,41 @@ impl ProjectHookHandler {
         }
         None
     }
+}
+
+fn cached_wiki_context(
+    binding: &HookProjectBinding,
+    now: time::OffsetDateTime,
+) -> Result<Vec<ProviderResult>> {
+    let project_storage = binding
+        .ledger_path
+        .parent()
+        .context("project ledger has no storage directory")?;
+    let brain_home = project_storage
+        .parent()
+        .and_then(Path::parent)
+        .context("project ledger is not under BRAIN_HOME/projects/<id>")?;
+    let config = ProviderConfig::load(project_storage.join("providers.json"), brain_home)?;
+    if !config.llm_wiki.enabled {
+        return Ok(Vec::new());
+    }
+    let config_hash = config.sha256()?;
+    let cache = ProviderCacheStore::open(&binding.ledger_path, binding.project_id)?;
+    let Some(entry) = cache.latest("llm_wiki", config_hash, now)? else {
+        return Ok(Vec::new());
+    };
+    let age = (now - entry.fetched_at).whole_seconds().max(0);
+    let mut items = serde_json::from_value::<Vec<ProviderResult>>(entry.items)?;
+    items.retain(|item| {
+        item.project_id == binding.project_id
+            && item.worktree_id.is_none_or(|id| id == binding.worktree_id)
+            && !item.source_uri.trim().is_empty()
+    });
+    items.truncate(2);
+    for item in &mut items {
+        item.trust = format!("external_document_cached age={}s", age);
+    }
+    Ok(items)
 }
 
 fn manage_lease_lifecycle(
