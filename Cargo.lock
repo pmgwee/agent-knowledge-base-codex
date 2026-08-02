@@ -131,6 +131,20 @@ name = "brain-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "atomicwrites",
+ "brain-adapters",
+ "brain-context",
+ "brain-domain",
+ "brain-hook",
+ "brain-service",
+ "brain-store",
+ "clap",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

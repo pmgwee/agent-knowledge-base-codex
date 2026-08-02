@@ -7,7 +7,27 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+atomicwrites.workspace = true
+brain-adapters = { path = "../brain-adapters" }
+brain-context = { path = "../brain-context" }
+brain-domain = { path = "../brain-domain" }
+brain-service = { path = "../brain-service" }
+brain-store = { path = "../brain-store" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+brain-hook = { path = "../brain-hook" }
+tempfile.workspace = true
+tokio.workspace = true
 
 [[bin]]
 name = "brain"
 path = "src/main.rs"
+
+[[test]]
+name = "claude_walking_skeleton"
+path = "../../tests/e2e/claude_walking_skeleton.rs"
