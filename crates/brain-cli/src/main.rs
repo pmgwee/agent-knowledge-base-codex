@@ -2,12 +2,13 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use brain_cli::{
-    AgentSourceOptions, BenchmarkProfile, RegisterOptions, TaskCommands, benchmark_corpus,
-    configure_codegraph, configure_llm_wiki, disable_provider, index_codegraph,
-    install_claude_hooks, install_codex_hooks, provider_status, read_diagnostics,
-    read_hermes_status, read_status, rebuild_basic_memory, rebuild_markdown,
-    register_project_with_sources, remove_provider, uninstall_claude_hooks, uninstall_codex_hooks,
-    verify_projections,
+    AgentSourceOptions, BenchmarkProfile, RegisterOptions, ServiceInstallOptions, TaskCommands,
+    benchmark_corpus, configure_codegraph, configure_llm_wiki, disable_provider, index_codegraph,
+    install_claude_hooks, install_codex_hooks, install_windows_service, provider_status,
+    read_diagnostics, read_hermes_status, read_status, rebuild_basic_memory, rebuild_markdown,
+    register_project_with_sources, remove_provider, start_windows_service, stop_windows_service,
+    uninstall_claude_hooks, uninstall_codex_hooks, uninstall_windows_service, verify_projections,
+    windows_service_status,
 };
 use brain_coordination::{ClaimKind, PathClaimInput, SessionIdentity};
 use brain_domain::{BrainConfig, Harness, ProjectId};
@@ -159,6 +160,36 @@ enum Command {
         #[command(subcommand)]
         action: ProviderCommand,
     },
+    Service {
+        #[command(subcommand)]
+        action: ServiceCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ServiceCommand {
+    Install {
+        #[arg(long)]
+        service_executable: Option<PathBuf>,
+        #[arg(long)]
+        brain_executable: Option<PathBuf>,
+        #[arg(long)]
+        backup_root: Option<PathBuf>,
+        #[arg(long)]
+        drill_root: Option<PathBuf>,
+        #[arg(long)]
+        install_hooks: bool,
+        #[arg(long)]
+        hook_executable: Option<PathBuf>,
+        #[arg(long)]
+        claude_settings: Option<PathBuf>,
+        #[arg(long)]
+        codex_settings: Option<PathBuf>,
+    },
+    Start,
+    Stop,
+    Status,
+    Uninstall,
 }
 
 #[derive(Subcommand)]
@@ -224,6 +255,12 @@ enum BackupCommand {
     Drill {
         #[arg(long)]
         backup: PathBuf,
+        #[arg(long)]
+        work_root: PathBuf,
+    },
+    DrillLatest {
+        #[arg(long)]
+        root: PathBuf,
         #[arg(long)]
         work_root: PathBuf,
     },
@@ -860,6 +897,20 @@ fn main() -> Result<()> {
                 );
             }
         }
+        Command::Backup {
+            action: BackupCommand::DrillLatest { root, work_root },
+        } => {
+            let backup = BackupManager::latest_verified_backup(root)?;
+            let report =
+                BackupManager::recovery_drill(backup, work_root, time::OffsetDateTime::now_utc())?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if !report.success {
+                anyhow::bail!(
+                    "recovery drill failed: {}",
+                    report.error.as_deref().unwrap_or("unknown error")
+                );
+            }
+        }
         Command::Restore {
             backup,
             destination,
@@ -938,6 +989,88 @@ fn main() -> Result<()> {
             let report = remove_provider(&brain_home, &project, provider.into())?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
+        Command::Service {
+            action:
+                ServiceCommand::Install {
+                    service_executable,
+                    brain_executable,
+                    backup_root,
+                    drill_root,
+                    install_hooks,
+                    hook_executable,
+                    claude_settings,
+                    codex_settings,
+                },
+        } => {
+            let current_executable = std::env::current_exe()?;
+            let binary_directory = current_executable
+                .parent()
+                .context("brain executable has no parent")?;
+            let backup_root =
+                backup_root.unwrap_or_else(|| sibling_path(&brain_home, "AgentBrainBackups"));
+            let drill_root =
+                drill_root.unwrap_or_else(|| sibling_path(&brain_home, "AgentBrainDrills"));
+            let hook_executable = if install_hooks {
+                Some(hook_executable.unwrap_or_else(|| binary_directory.join("brain-hook.exe")))
+            } else {
+                None
+            };
+            let claude_settings = if install_hooks {
+                Some(match claude_settings {
+                    Some(path) => path,
+                    None => default_claude_settings()?,
+                })
+            } else {
+                None
+            };
+            let codex_settings = if install_hooks {
+                Some(match codex_settings {
+                    Some(path) => path,
+                    None => default_codex_hooks()?,
+                })
+            } else {
+                None
+            };
+            let options = ServiceInstallOptions {
+                brain_home: brain_home.clone(),
+                service_executable: service_executable
+                    .unwrap_or_else(|| binary_directory.join("brain-service.exe")),
+                brain_executable: brain_executable.unwrap_or(current_executable),
+                backup_root,
+                drill_root,
+                hook_executable,
+                claude_settings,
+                codex_settings,
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&install_windows_service(options)?)?
+            );
+        }
+        Command::Service {
+            action: ServiceCommand::Start,
+        } => println!(
+            "{}",
+            serde_json::to_string_pretty(&start_windows_service(&brain_home)?)?
+        ),
+        Command::Service {
+            action: ServiceCommand::Stop,
+        } => println!(
+            "{}",
+            serde_json::to_string_pretty(&stop_windows_service(&brain_home)?)?
+        ),
+        Command::Service {
+            action: ServiceCommand::Status,
+        } => println!(
+            "{}",
+            serde_json::to_string_pretty(&windows_service_status(&brain_home)?)?
+        ),
+        Command::Service {
+            action: ServiceCommand::Uninstall,
+        } => println!(
+            "{}",
+            serde_json::to_string_pretty(&uninstall_windows_service(&brain_home)?)?
+        ),
     }
     Ok(())
 }
@@ -1005,6 +1138,13 @@ fn default_claude_projects_root() -> Option<PathBuf> {
         .map(PathBuf::from)
         .map(|home| home.join(".claude").join("projects"))
         .filter(|path| path.is_dir())
+}
+
+fn sibling_path(brain_home: &std::path::Path, name: &str) -> PathBuf {
+    brain_home
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join(name)
 }
 
 fn default_codex_sessions_root() -> Option<PathBuf> {

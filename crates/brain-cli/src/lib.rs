@@ -6,6 +6,7 @@ mod install_hooks;
 mod providers;
 mod rebuild;
 mod register;
+mod service;
 mod status;
 
 pub use diagnose::{DiagnosticBundle, RedactedCursor, RedactedSchemaDrift, read_diagnostics};
@@ -24,6 +25,11 @@ pub use rebuild::{
 pub use register::{
     AgentSourceOptions, RegisterOptions, RegistrationResult, register_project,
     register_project_with_sources,
+};
+pub use service::{
+    ServiceInstallOptions, ServiceInstallReport, ServiceStatusReport, ServiceTaskStatus,
+    ServiceUninstallReport, install_windows_service, start_windows_service, stop_windows_service,
+    uninstall_windows_service, windows_service_status,
 };
 pub use status::{BrainStatus, HermesStatus, read_hermes_status, read_status};
 pub use task::TaskCommands;

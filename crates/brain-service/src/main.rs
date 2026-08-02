@@ -11,13 +11,34 @@ use brain_service::{
 async fn main() -> anyhow::Result<()> {
     use tracing_subscriber::EnvFilter;
 
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .json()
-        .try_init()
-        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    let arguments = launch_arguments()?;
+    let filter = || EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+    let _log_guard = if let Some(log_dir) = &arguments.log_dir {
+        std::fs::create_dir_all(log_dir)?;
+        let appender = tracing_appender::rolling::Builder::new()
+            .rotation(tracing_appender::rolling::Rotation::DAILY)
+            .filename_prefix("brain-service")
+            .filename_suffix("jsonl")
+            .max_log_files(14)
+            .build(log_dir)?;
+        let (writer, guard) = tracing_appender::non_blocking(appender);
+        tracing_subscriber::fmt()
+            .with_env_filter(filter())
+            .with_writer(writer)
+            .json()
+            .try_init()
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        Some(guard)
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(filter())
+            .json()
+            .try_init()
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        None
+    };
 
-    let brain_home = BrainConfig::brain_home()?;
+    let brain_home = arguments.brain_home;
     let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
     let capture = Arc::new(CaptureSupervisor::new(build_capture_bindings(&config)?)?);
     let consolidation_pressure = capture.degradation_receiver();
@@ -63,4 +84,40 @@ async fn main() -> anyhow::Result<()> {
         )
     )?;
     Ok(())
+}
+
+struct LaunchArguments {
+    brain_home: std::path::PathBuf,
+    log_dir: Option<std::path::PathBuf>,
+}
+
+fn launch_arguments() -> anyhow::Result<LaunchArguments> {
+    let mut brain_home = None;
+    let mut log_dir = None;
+    let mut arguments = std::env::args_os().skip(1);
+    while let Some(argument) = arguments.next() {
+        match argument.to_string_lossy().as_ref() {
+            "--brain-home" => {
+                brain_home = Some(
+                    arguments
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("--brain-home requires a path"))?
+                        .into(),
+                );
+            }
+            "--log-dir" => {
+                log_dir = Some(
+                    arguments
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("--log-dir requires a path"))?
+                        .into(),
+                );
+            }
+            other => anyhow::bail!("unknown brain-service argument {other:?}"),
+        }
+    }
+    Ok(LaunchArguments {
+        brain_home: brain_home.unwrap_or(BrainConfig::brain_home()?),
+        log_dir,
+    })
 }

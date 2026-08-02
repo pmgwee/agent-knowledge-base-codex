@@ -105,6 +105,29 @@ pub struct RecoveryDrillReport {
 pub struct BackupManager;
 
 impl BackupManager {
+    pub fn latest_verified_backup(backup_root: impl AsRef<Path>) -> Result<PathBuf> {
+        let backup_root = fs::canonicalize(backup_root.as_ref())?;
+        let mut points = Vec::new();
+        for entry in fs::read_dir(&backup_root)? {
+            let entry = entry?;
+            let path = entry.path();
+            let metadata = fs::symlink_metadata(&path)?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                continue;
+            }
+            if let Ok(inventory) = load_inventory(&path) {
+                points.push((path, inventory.created_at));
+            }
+        }
+        points.sort_by(|left, right| right.1.cmp(&left.1));
+        for (path, _) in points {
+            if Self::verify(&path).is_ok() {
+                return Ok(path);
+            }
+        }
+        bail!("no verified backup is available")
+    }
+
     pub fn create(
         brain_home: impl AsRef<Path>,
         backup_root: impl AsRef<Path>,
