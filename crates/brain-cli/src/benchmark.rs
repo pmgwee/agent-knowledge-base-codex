@@ -164,8 +164,8 @@ pub fn benchmark_corpus(
         })?
         .inserted;
 
-    let (query_p50, query_p95, query_p99, precision, recall) =
-        query_quality(&ledger, project, profile)?;
+    let (_, _, _, precision, recall) = query_quality(&ledger, project, profile)?;
+    let (query_p50, query_p95, query_p99) = query_latencies(&ledger, project, profile)?;
     let baseline_query_p95_ms = baseline_query_p95_ms.unwrap_or(query_p95);
     let degradation = if baseline_query_p95_ms <= f64::EPSILON {
         0.0
@@ -418,6 +418,14 @@ fn query_quality(
     profile: BenchmarkProfile,
 ) -> Result<(f64, f64, f64, f64, f64)> {
     let expected = (profile.events() / marker_interval(profile)).clamp(1, 30);
+    query_quality_for_markers(ledger, project, expected)
+}
+
+fn query_quality_for_markers(
+    ledger: &EventLedger,
+    project: ProjectId,
+    expected: u64,
+) -> Result<(f64, f64, f64, f64, f64)> {
     let mut latencies = Vec::new();
     let mut correct = 0_u64;
     let mut found = 0_u64;
@@ -452,8 +460,45 @@ fn query_latencies(
     project: ProjectId,
     profile: BenchmarkProfile,
 ) -> Result<(f64, f64, f64)> {
-    let (p50, p95, p99, _, _) = query_quality(ledger, project, profile)?;
-    Ok((p50, p95, p99))
+    const MEASUREMENT_ROUNDS: usize = 5;
+
+    let marker_count = comparison_marker_count(profile);
+    let _ = query_latencies_for_markers(ledger, project, marker_count)?;
+    let mut latencies = Vec::with_capacity(MEASUREMENT_ROUNDS * usize::try_from(marker_count)?);
+    for _ in 0..MEASUREMENT_ROUNDS {
+        latencies.extend(query_latencies_for_markers(ledger, project, marker_count)?);
+    }
+    latencies.sort_by(f64::total_cmp);
+    Ok((
+        percentile(&latencies, 0.50),
+        percentile(&latencies, 0.95),
+        percentile(&latencies, 0.99),
+    ))
+}
+
+fn query_latencies_for_markers(
+    ledger: &EventLedger,
+    project: ProjectId,
+    marker_count: u64,
+) -> Result<Vec<f64>> {
+    let mut latencies = Vec::with_capacity(usize::try_from(marker_count)?);
+    for marker_id in 0..marker_count {
+        let began = Instant::now();
+        ledger.search(
+            &SearchQuery::text(project, marker(marker_id))
+                .events_only()
+                .with_limit(5),
+        )?;
+        latencies.push(began.elapsed().as_secs_f64() * 1_000.0);
+    }
+    Ok(latencies)
+}
+
+fn comparison_marker_count(profile: BenchmarkProfile) -> u64 {
+    let quality_marker_count = (profile.events() / marker_interval(profile)).clamp(1, 30);
+    let baseline_marker_count =
+        (baseline_event_boundary(profile) - 1) / marker_interval(profile) + 1;
+    quality_marker_count.min(baseline_marker_count)
 }
 
 fn startup_latencies(path: &Path, project: ProjectId) -> Result<(f64, f64, f64)> {
@@ -539,4 +584,24 @@ fn write_report(path: PathBuf, report: &BenchmarkReport) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(report)?;
     fs::write(path, bytes)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        BenchmarkProfile, baseline_event_boundary, comparison_marker_count, marker_interval,
+    };
+
+    #[test]
+    fn comparison_queries_all_exist_at_the_baseline_checkpoint() {
+        for profile in [BenchmarkProfile::Smoke, BenchmarkProfile::Primary] {
+            let count = comparison_marker_count(profile);
+            let last_marker_offset = (count - 1) * marker_interval(profile);
+            assert!(
+                last_marker_offset < baseline_event_boundary(profile),
+                "{profile:?} comparison marker {last_marker_offset} is absent at baseline {}",
+                baseline_event_boundary(profile)
+            );
+        }
+    }
 }
