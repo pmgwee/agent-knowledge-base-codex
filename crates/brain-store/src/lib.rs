@@ -13,6 +13,7 @@ mod migrations;
 mod notes;
 mod search;
 mod segment;
+mod upgrade;
 
 pub use backup::{
     BACKUP_FORMAT_VERSION, BackupInventory, BackupManager, BackupReport, InventoryFile,
@@ -34,3 +35,4 @@ pub use search::{SearchHit, SearchQuery, SearchSource, SearchSourceFilter, TimeR
 pub use segment::{
     SEGMENT_FORMAT_VERSION, SegmentManifest, SegmentSealReport, SegmentStore, should_seal,
 };
+pub use upgrade::{UpgradeIssue, UpgradeManager, UpgradeReport, UpgradeStageReport};

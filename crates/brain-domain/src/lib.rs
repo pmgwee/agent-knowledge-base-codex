@@ -7,6 +7,7 @@ mod ids;
 mod memory;
 mod project;
 mod registry;
+mod version;
 
 pub use config::BrainConfig;
 pub use event::{
@@ -21,3 +22,4 @@ pub use ids::{ProjectId, WorktreeId};
 pub use memory::{Authority, MemoryKind, MemoryRecord, MemoryScope, MemoryStatus};
 pub use project::ProjectIdentity;
 pub use registry::ProjectRegistry;
+pub use version::{FormatVersions, SUPPORTED_FORMATS};

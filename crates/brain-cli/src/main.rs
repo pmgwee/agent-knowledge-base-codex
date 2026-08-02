@@ -15,7 +15,7 @@ use brain_service::{
     BrainPreflightRequest, BrainQueryService, BrainReleaseClaimRequest, BrainSearchRequest,
     BrainTimelineRequest, SourceSelector, TimelineWindow,
 };
-use brain_store::BackupManager;
+use brain_store::{BackupManager, UpgradeManager};
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
@@ -141,6 +141,10 @@ enum Command {
         #[arg(long)]
         destination: PathBuf,
     },
+    Upgrade {
+        #[command(subcommand)]
+        action: UpgradeCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -152,6 +156,15 @@ enum BackupCommand {
     Verify {
         #[arg(long)]
         backup: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum UpgradeCommand {
+    Check,
+    Stage {
+        #[arg(long)]
+        destination: PathBuf,
     },
 }
 
@@ -735,6 +748,22 @@ fn main() -> Result<()> {
             destination,
         } => {
             let report = BackupManager::restore_isolated(backup, destination)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Upgrade {
+            action: UpgradeCommand::Check,
+        } => {
+            let report = UpgradeManager::check(&brain_home)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if !report.compatible {
+                anyhow::bail!("brain formats are not compatible with this binary");
+            }
+        }
+        Command::Upgrade {
+            action: UpgradeCommand::Stage { destination },
+        } => {
+            let report =
+                UpgradeManager::stage(&brain_home, destination, time::OffsetDateTime::now_utc())?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
     }
