@@ -3,6 +3,7 @@
 mod benchmark;
 mod diagnose;
 mod install_hooks;
+mod providers;
 mod rebuild;
 mod register;
 mod status;
@@ -11,6 +12,11 @@ pub use diagnose::{DiagnosticBundle, RedactedCursor, RedactedSchemaDrift, read_d
 pub use install_hooks::{
     HookInstallResult, install_claude_hooks, install_codex_hooks, uninstall_claude_hooks,
     uninstall_codex_hooks,
+};
+pub use providers::{
+    CodeGraphIndexReport, ProviderChangeReport, ProviderKind, ProviderStatusReport,
+    configure_codegraph, configure_llm_wiki, disable_provider, index_codegraph, provider_status,
+    remove_provider,
 };
 pub use rebuild::{
     rebuild_basic_memory, rebuild_basic_memory_with, rebuild_markdown, verify_projections,

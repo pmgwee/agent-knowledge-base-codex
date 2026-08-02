@@ -3,9 +3,11 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use brain_cli::{
     AgentSourceOptions, BenchmarkProfile, RegisterOptions, TaskCommands, benchmark_corpus,
-    install_claude_hooks, install_codex_hooks, read_diagnostics, read_hermes_status, read_status,
-    rebuild_basic_memory, rebuild_markdown, register_project_with_sources, uninstall_claude_hooks,
-    uninstall_codex_hooks, verify_projections,
+    configure_codegraph, configure_llm_wiki, disable_provider, index_codegraph,
+    install_claude_hooks, install_codex_hooks, provider_status, read_diagnostics,
+    read_hermes_status, read_status, rebuild_basic_memory, rebuild_markdown,
+    register_project_with_sources, remove_provider, uninstall_claude_hooks, uninstall_codex_hooks,
+    verify_projections,
 };
 use brain_coordination::{ClaimKind, PathClaimInput, SessionIdentity};
 use brain_domain::{BrainConfig, Harness, ProjectId};
@@ -152,6 +154,50 @@ enum Command {
         output: PathBuf,
         #[arg(long, default_value_t = 42)]
         seed: u64,
+    },
+    Providers {
+        #[command(subcommand)]
+        action: ProviderCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProviderCommand {
+    Status {
+        #[arg(long)]
+        project: String,
+    },
+    ConfigureLlmWiki {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        vault: PathBuf,
+    },
+    ConfigureCodegraph {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        executable: PathBuf,
+        #[arg(long)]
+        activation_report: PathBuf,
+    },
+    IndexCodegraph {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        task: Option<uuid::Uuid>,
+    },
+    Disable {
+        #[arg(long)]
+        project: String,
+        #[arg(value_enum)]
+        provider: CliProviderKind,
+    },
+    Remove {
+        #[arg(long)]
+        project: String,
+        #[arg(value_enum)]
+        provider: CliProviderKind,
     },
 }
 
@@ -344,6 +390,12 @@ enum CliHarness {
     Claude,
     Codex,
     Hermes,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum CliProviderKind {
+    Codegraph,
+    LlmWiki,
 }
 
 fn main() -> Result<()> {
@@ -792,8 +844,61 @@ fn main() -> Result<()> {
                 anyhow::bail!("benchmark gates failed: {}", report.failures.join("; "));
             }
         }
+        Command::Providers {
+            action: ProviderCommand::Status { project },
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&provider_status(&brain_home, &project)?)?
+            );
+        }
+        Command::Providers {
+            action: ProviderCommand::ConfigureLlmWiki { project, vault },
+        } => {
+            let report = configure_llm_wiki(&brain_home, &project, &vault)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Providers {
+            action:
+                ProviderCommand::ConfigureCodegraph {
+                    project,
+                    executable,
+                    activation_report,
+                },
+        } => {
+            let report =
+                configure_codegraph(&brain_home, &project, &executable, &activation_report)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Providers {
+            action: ProviderCommand::IndexCodegraph { project, task },
+        } => {
+            let report = index_codegraph(&brain_home, &project, task)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Providers {
+            action: ProviderCommand::Disable { project, provider },
+        } => {
+            let report = disable_provider(&brain_home, &project, provider.into())?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Providers {
+            action: ProviderCommand::Remove { project, provider },
+        } => {
+            let report = remove_provider(&brain_home, &project, provider.into())?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
     }
     Ok(())
+}
+
+impl From<CliProviderKind> for brain_cli::ProviderKind {
+    fn from(value: CliProviderKind) -> Self {
+        match value {
+            CliProviderKind::Codegraph => Self::Codegraph,
+            CliProviderKind::LlmWiki => Self::LlmWiki,
+        }
+    }
 }
 
 impl From<CliTimelineWindow> for TimelineWindow {
