@@ -329,6 +329,31 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             PRIMARY KEY(project_id, raw_sha256)
         );
 
+        CREATE TABLE IF NOT EXISTS provider_cache (
+            provider TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            task_id TEXT,
+            query_sha256 BLOB NOT NULL CHECK(length(query_sha256) = 32),
+            config_sha256 BLOB NOT NULL CHECK(length(config_sha256) = 32),
+            source_version TEXT NOT NULL,
+            fetched_at_ns INTEGER NOT NULL,
+            expires_at_ns INTEGER NOT NULL,
+            items_json TEXT NOT NULL,
+            PRIMARY KEY(provider, project_id, query_sha256, config_sha256, source_version)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_provider_cache_project_expiry
+            ON provider_cache(project_id, provider, expires_at_ns);
+
+        CREATE TABLE IF NOT EXISTS provider_prompt_state (
+            project_id TEXT NOT NULL,
+            harness TEXT NOT NULL,
+            native_session_id TEXT NOT NULL,
+            prompt_sha256 BLOB NOT NULL CHECK(length(prompt_sha256) = 32),
+            claimed_at_ns INTEGER NOT NULL,
+            PRIMARY KEY(project_id, harness, native_session_id)
+        );
+
         CREATE VIRTUAL TABLE IF NOT EXISTS event_search USING fts5(
             scope_token,
             content,
@@ -427,6 +452,8 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             VALUES (7, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (8, datetime('now'));
+        INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+            VALUES (9, datetime('now'));
         "#,
     )?;
     ensure_column(

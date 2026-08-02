@@ -10,6 +10,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 brain-domain = { path = "../brain-domain" }
 brain-store = { path = "../brain-store" }
+hex.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

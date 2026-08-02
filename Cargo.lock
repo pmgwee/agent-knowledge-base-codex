@@ -184,6 +184,7 @@ dependencies = [
  "async-trait",
  "brain-domain",
  "brain-store",
+ "hex",
  "reqwest",
  "serde",
  "serde_json",

@@ -15,7 +15,7 @@ pub struct FormatVersions {
 pub const SUPPORTED_FORMATS: FormatVersions = FormatVersions {
     hook_protocol: 1,
     project_registry: 1,
-    ledger: 8,
+    ledger: 9,
     normalized_event: 1,
     memory: 1,
     markdown_projection: 1,

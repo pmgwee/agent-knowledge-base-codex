@@ -11,6 +11,7 @@ mod markdown;
 mod memory;
 mod migrations;
 mod notes;
+mod provider_cache;
 mod search;
 mod segment;
 mod upgrade;
@@ -31,6 +32,7 @@ pub use markdown::{
     MarkdownProjector, ProjectionReport, ProjectionVerification, project_vault_root,
 };
 pub use memory::GlobalPreferenceStore;
+pub use provider_cache::{ProviderCacheEntry, ProviderCacheStore};
 pub use search::{SearchHit, SearchQuery, SearchSource, SearchSourceFilter, TimeRange};
 pub use segment::{
     SEGMENT_FORMAT_VERSION, SegmentManifest, SegmentSealReport, SegmentStore, should_seal,

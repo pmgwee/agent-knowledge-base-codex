@@ -8,7 +8,7 @@ use rusqlite::{Connection, DatabaseName};
 use sha2::{Digest, Sha256};
 
 pub const BACKUP_FORMAT_VERSION: u32 = 1;
-const LEDGER_SCHEMA_VERSION: u32 = 8;
+const LEDGER_SCHEMA_VERSION: u32 = 9;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
