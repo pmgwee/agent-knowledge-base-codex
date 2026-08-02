@@ -20,6 +20,7 @@ anyhow = "1"
 async-trait = "0.1"
 atomicwrites = "0.4"
 clap = { version = "4.5", features = ["derive"] }
+file-id = "0.2.3"
 hex = "0.4"
 notify = "7"
 regex = "1"
@@ -29,7 +30,7 @@ serde_json = "1"
 sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
-time = { version = "0.3", features = ["serde", "formatting"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 toml = "0.8"
 tracing = "0.1"

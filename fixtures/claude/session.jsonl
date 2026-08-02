@@ -1,0 +1,8 @@
+{"type":"user","sessionId":"session-1","uuid":"turn-1","timestamp":"2026-08-01T01:02:03Z","cwd":"C:\\fixture\\project","gitBranch":"main","message":{"role":"user","content":"implement callback"}}
+{"type":"assistant","sessionId":"session-1","uuid":"turn-2","parentUuid":"turn-1","requestId":"request-1","timestamp":"2026-08-01T01:02:04Z","cwd":"C:\\fixture\\project","gitBranch":"main","message":{"role":"assistant","content":[{"type":"text","text":"I will inspect the route."},{"type":"tool_use","id":"tool-1","name":"Read","input":{"file_path":"src/auth.rs"}}]}}
+{"type":"user","sessionId":"session-1","uuid":"turn-3","parentUuid":"turn-2","timestamp":"2026-08-01T01:02:05Z","cwd":"C:\\fixture\\project","gitBranch":"main","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":"route found","is_error":false}]}}
+{"type":"system","subtype":"stop_hook_summary","sessionId":"session-1","uuid":"turn-4","timestamp":"2026-08-01T01:02:06Z","cwd":"C:\\fixture\\project","gitBranch":"main","stopReason":"end_turn","hookCount":1}
+{"type":"attachment","sessionId":"session-1","uuid":"turn-5","timestamp":"2026-08-01T01:02:07Z","cwd":"C:\\fixture\\project","gitBranch":"main","attachment":{"type":"file","filename":"auth.md","displayPath":"docs/auth.md"}}
+{"type":"queue-operation","operation":"enqueue","sessionId":"session-1","timestamp":"2026-08-01T01:02:08Z","content":"follow-up"}
+{"type":"mode","mode":"plan","sessionId":"session-1"}
+{"type":"relocated","sessionId":"session-1","timestamp":"2026-08-01T01:02:09Z","from":"C:\\fixture\\old","to":"C:\\fixture\\project"}

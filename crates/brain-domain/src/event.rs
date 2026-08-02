@@ -30,6 +30,8 @@ pub enum EventType {
     SessionCompacted,
     #[serde(rename = "session.ended")]
     SessionEnded,
+    #[serde(rename = "session.relocated")]
+    SessionRelocated,
     #[serde(rename = "user.prompted")]
     UserPrompted,
     #[serde(rename = "agent.responded")]
@@ -60,6 +62,14 @@ pub enum EventType {
     GitBranchChanged,
     #[serde(rename = "deployment.observed")]
     DeploymentObserved,
+    #[serde(rename = "system.observed")]
+    SystemObserved,
+    #[serde(rename = "attachment.observed")]
+    AttachmentObserved,
+    #[serde(rename = "queue.operation_observed")]
+    QueueOperationObserved,
+    #[serde(rename = "mode.changed")]
+    ModeChanged,
     #[serde(rename = "task.claimed")]
     TaskClaimed,
     #[serde(rename = "task.released")]
@@ -81,6 +91,7 @@ impl EventType {
             Self::SessionResumed => "session.resumed",
             Self::SessionCompacted => "session.compacted",
             Self::SessionEnded => "session.ended",
+            Self::SessionRelocated => "session.relocated",
             Self::UserPrompted => "user.prompted",
             Self::AgentResponded => "agent.responded",
             Self::ToolRequested => "tool.requested",
@@ -96,6 +107,10 @@ impl EventType {
             Self::GitCommitObserved => "git.commit_observed",
             Self::GitBranchChanged => "git.branch_changed",
             Self::DeploymentObserved => "deployment.observed",
+            Self::SystemObserved => "system.observed",
+            Self::AttachmentObserved => "attachment.observed",
+            Self::QueueOperationObserved => "queue.operation_observed",
+            Self::ModeChanged => "mode.changed",
             Self::TaskClaimed => "task.claimed",
             Self::TaskReleased => "task.released",
             Self::TaskCompleted => "task.completed",
@@ -132,15 +147,30 @@ pub struct NormalizedEvent {
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct SourceCursor {
     pub byte_offset: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_identity: Option<String>,
 }
 
 impl SourceCursor {
     pub const fn start() -> Self {
-        Self { byte_offset: 0 }
+        Self {
+            byte_offset: 0,
+            file_identity: None,
+        }
     }
 
     pub const fn byte_offset(byte_offset: u64) -> Self {
-        Self { byte_offset }
+        Self {
+            byte_offset,
+            file_identity: None,
+        }
+    }
+
+    pub fn for_file(byte_offset: u64, file_identity: String) -> Self {
+        Self {
+            byte_offset,
+            file_identity: Some(file_identity),
+        }
     }
 }
 
