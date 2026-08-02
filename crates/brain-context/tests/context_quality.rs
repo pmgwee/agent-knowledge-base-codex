@@ -52,11 +52,16 @@ fn hard_budget_survives_oversized_optional_provider_results() {
     let providers = (0..20)
         .map(|sequence| ProviderResult {
             provider: "fixture".to_owned(),
+            project_id: project,
+            worktree_id: Some(worktree),
             title: format!("provider result {sequence}"),
             content: "provider content ".repeat(1_000),
             source_uri: format!("fixture://result/{sequence}"),
+            source_date: Some(time::OffsetDateTime::UNIX_EPOCH),
             observed_at: time::OffsetDateTime::UNIX_EPOCH,
             trust: "external_document".to_owned(),
+            relevance: 0.5,
+            git_head: None,
         })
         .collect();
     let compiler = ContextCompiler::from_events(events).with_provider_results(providers);

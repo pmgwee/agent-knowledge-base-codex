@@ -21,7 +21,10 @@ pub use llm::{
     ConsolidationLlm, EvidencePacket, ProposedMemory, ProposedMemoryBatch, RedactedEvidence,
     validate_proposed_batch,
 };
-pub use providers::{ContextProvider, ProviderResult, retrieve_provider_results};
+pub use providers::{
+    CodeGraphConfig, ContextProvider, GuardedProviderResult, LlmWikiConfig, ProviderConfig,
+    ProviderGuard, ProviderResult, ProviderStatus, retrieve_provider_results,
+};
 pub use query::{ContextQuery, HARD_MAX_TOKENS, NORMAL_STARTUP_TOKENS, RetrievalQuery};
 pub use retrieval::{RankedCandidate, RetrievalEngine, ScoreComponents};
 pub use supersession::{MemoryConflict, ResolvedMemorySet, resolve_candidates};

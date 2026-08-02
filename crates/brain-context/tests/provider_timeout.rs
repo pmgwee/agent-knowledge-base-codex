@@ -39,11 +39,16 @@ impl ContextProvider for FastProvider {
     async fn retrieve(&self, _query: &ContextQuery) -> Result<Vec<ProviderResult>> {
         Ok(vec![ProviderResult {
             provider: "fast".to_owned(),
+            project_id: _query.project_id,
+            worktree_id: Some(_query.worktree_id),
             title: "Useful result".to_owned(),
             content: "Canonical context remains and this optional result is added.".to_owned(),
             source_uri: "fixture://fast".to_owned(),
+            source_date: Some(time::OffsetDateTime::UNIX_EPOCH),
             observed_at: time::OffsetDateTime::UNIX_EPOCH,
             trust: "external_document".to_owned(),
+            relevance: 1.0,
+            git_head: None,
         }])
     }
 }
