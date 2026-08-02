@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use brain_adapters::SourceDescriptor;
+use brain_adapters::{HermesActivation, HermesAdapter, SourceDescriptor};
 use brain_domain::{ProjectId, WorktreeId};
 use brain_service::ServiceLaunchConfig;
 use brain_store::EventLedger;
@@ -22,6 +22,17 @@ pub struct BrainStatus {
     pub quarantined_records: u64,
     pub unresolved_capture_gaps: u64,
     pub healthy: bool,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct HermesStatus {
+    pub database_path: PathBuf,
+    pub project_root: PathBuf,
+    pub project_id: ProjectId,
+    pub activation: String,
+    pub expected_fingerprint: String,
+    pub observed_fingerprint: String,
+    pub reason: Option<String>,
 }
 
 pub fn read_status(
@@ -70,5 +81,52 @@ pub fn read_status(
         quarantined_records,
         unresolved_capture_gaps,
         healthy: unresolved_capture_gaps == 0,
+    })
+}
+
+pub fn read_hermes_status(
+    brain_home: impl AsRef<Path>,
+    database_path: impl AsRef<Path>,
+    project: Option<ProjectId>,
+) -> Result<HermesStatus> {
+    let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(brain_home))?;
+    if let Some(project) = project
+        && project != config.project_id
+    {
+        bail!(
+            "project {} is not the configured service scope {}",
+            project.0,
+            config.project_id.0
+        );
+    }
+    let adapter =
+        HermesAdapter::reviewed_for_project(database_path.as_ref(), &config.project_root)?;
+    let status = adapter.activation()?;
+    let (activation, expected_fingerprint, observed_fingerprint, reason) = match status {
+        HermesActivation::Active { fingerprint } => (
+            "active".to_owned(),
+            fingerprint.0.clone(),
+            fingerprint.0,
+            None,
+        ),
+        HermesActivation::FixtureOnly {
+            expected,
+            observed,
+            reason,
+        } => (
+            "fixture_only".to_owned(),
+            expected.0,
+            observed.0,
+            Some(reason),
+        ),
+    };
+    Ok(HermesStatus {
+        database_path: database_path.as_ref().to_path_buf(),
+        project_root: config.project_root,
+        project_id: config.project_id,
+        activation,
+        expected_fingerprint,
+        observed_fingerprint,
+        reason,
     })
 }

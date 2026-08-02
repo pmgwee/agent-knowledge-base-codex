@@ -82,7 +82,7 @@ pub(crate) fn read_jsonl_increment(
     }))
 }
 
-fn file_identity(path: &std::path::Path) -> Result<FileIdentity> {
+pub(crate) fn file_identity(path: &std::path::Path) -> Result<FileIdentity> {
     let identity = file_id::get_file_id(path)?;
     let value = match identity {
         file_id::FileId::Inode {

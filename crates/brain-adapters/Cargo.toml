@@ -9,9 +9,11 @@ rust-version.workspace = true
 anyhow.workspace = true
 brain-domain = { path = "../brain-domain" }
 file-id.workspace = true
+hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+rusqlite.workspace = true
 time.workspace = true
 uuid.workspace = true
 

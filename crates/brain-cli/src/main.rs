@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use brain_cli::{
-    RegisterOptions, install_claude_hooks, install_codex_hooks, read_status, register_project,
-    uninstall_claude_hooks, uninstall_codex_hooks,
+    RegisterOptions, install_claude_hooks, install_codex_hooks, read_hermes_status, read_status,
+    register_project, uninstall_claude_hooks, uninstall_codex_hooks,
 };
 use brain_context::{ContextCompiler, ContextQuery};
 use brain_domain::{BrainConfig, ProjectId};
@@ -32,6 +32,10 @@ enum Command {
     Status {
         #[arg(long)]
         project: Option<String>,
+        #[arg(long)]
+        harness: Option<StatusHarness>,
+        #[arg(long)]
+        hermes_db: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -62,6 +66,11 @@ enum HookHarness {
     Codex,
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+enum StatusHarness {
+    Hermes,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let brain_home = match cli.brain_home {
@@ -88,7 +97,37 @@ fn main() -> Result<()> {
             })?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
-        Command::Status { project, json } => {
+        Command::Status {
+            project,
+            harness: Some(StatusHarness::Hermes),
+            hermes_db,
+            json,
+        } => {
+            let project = project.as_deref().map(parse_project_id).transpose()?;
+            let status = read_hermes_status(
+                &brain_home,
+                hermes_db.unwrap_or(default_hermes_database()?),
+                project,
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&status)?);
+            } else {
+                println!("harness: hermes");
+                println!("activation: {}", status.activation);
+                println!("project: {}", status.project_id.0);
+                println!("database: {}", status.database_path.display());
+                println!("observed_fingerprint: {}", status.observed_fingerprint);
+                if let Some(reason) = status.reason {
+                    println!("reason: {reason}");
+                }
+            }
+        }
+        Command::Status {
+            project,
+            harness: None,
+            hermes_db: _,
+            json,
+        } => {
             let project = project.as_deref().map(parse_project_id).transpose()?;
             let status = read_status(&brain_home, project)?;
             if json {
@@ -190,6 +229,11 @@ fn default_claude_settings() -> Result<PathBuf> {
 fn default_codex_hooks() -> Result<PathBuf> {
     let home = std::env::var_os("USERPROFILE").context("USERPROFILE is unavailable")?;
     Ok(PathBuf::from(home).join(".codex").join("hooks.json"))
+}
+
+fn default_hermes_database() -> Result<PathBuf> {
+    let local = std::env::var_os("LOCALAPPDATA").context("LOCALAPPDATA is unavailable")?;
+    Ok(PathBuf::from(local).join("hermes").join("state.db"))
 }
 
 fn default_hook_executable() -> Result<PathBuf> {

@@ -9,4 +9,4 @@ pub use install_hooks::{
     uninstall_codex_hooks,
 };
 pub use register::{RegisterOptions, RegistrationResult, register_project};
-pub use status::{BrainStatus, read_status};
+pub use status::{BrainStatus, HermesStatus, read_hermes_status, read_status};

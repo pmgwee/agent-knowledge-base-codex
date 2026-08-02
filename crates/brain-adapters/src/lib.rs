@@ -3,6 +3,7 @@
 mod claude;
 mod codex;
 mod conformance;
+mod hermes;
 mod jsonl;
 mod traits;
 
@@ -11,6 +12,7 @@ pub use codex::CodexAdapter;
 pub use conformance::{
     AdapterConformanceReport, AdapterConformanceSubject, assert_adapter_conformance,
 };
+pub use hermes::{HermesActivation, HermesAdapter, HermesSchemaProfile};
 pub use traits::{
     FileIdentity, FileRotation, NormalizeContext, RawRecord, RawRecordBatch, ReadOutcome,
     SchemaDrift, SchemaFingerprint, SourceAdapter, SourceDescriptor, SourceUnavailable,

@@ -189,6 +189,8 @@ pub struct SourceCursor {
     pub byte_offset: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_position: Option<serde_json::Value>,
 }
 
 impl SourceCursor {
@@ -196,6 +198,7 @@ impl SourceCursor {
         Self {
             byte_offset: 0,
             file_identity: None,
+            native_position: None,
         }
     }
 
@@ -203,6 +206,7 @@ impl SourceCursor {
         Self {
             byte_offset,
             file_identity: None,
+            native_position: None,
         }
     }
 
@@ -210,6 +214,19 @@ impl SourceCursor {
         Self {
             byte_offset,
             file_identity: Some(file_identity),
+            native_position: None,
+        }
+    }
+
+    pub fn for_native(
+        byte_offset: u64,
+        file_identity: String,
+        native_position: serde_json::Value,
+    ) -> Self {
+        Self {
+            byte_offset,
+            file_identity: Some(file_identity),
+            native_position: Some(native_position),
         }
     }
 }
