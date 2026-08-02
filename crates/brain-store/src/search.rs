@@ -388,7 +388,7 @@ impl EventLedger {
     }
 }
 
-fn match_expression(project_id: ProjectId, text: Option<&str>) -> Option<String> {
+fn match_expression(_project_id: ProjectId, text: Option<&str>) -> Option<String> {
     let terms = text?
         .split(|character: char| !character.is_alphanumeric())
         .filter(|term| !term.is_empty())
@@ -399,11 +399,7 @@ fn match_expression(project_id: ProjectId, text: Option<&str>) -> Option<String>
     if terms.is_empty() {
         return None;
     }
-    let scope = format!("p{}", project_id.0.simple());
-    Some(format!(
-        "scope_token:\"{scope}\" AND ({})",
-        terms.join(" AND ")
-    ))
+    Some(terms.join(" AND "))
 }
 
 struct RawEventHit {
@@ -558,4 +554,24 @@ fn from_ns(value: i64) -> Result<time::OffsetDateTime> {
     Ok(time::OffsetDateTime::from_unix_timestamp_nanos(
         i128::from(value),
     )?)
+}
+
+#[cfg(test)]
+mod tests {
+    use brain_domain::ProjectId;
+
+    use super::match_expression;
+
+    #[test]
+    fn fts_match_uses_only_selective_user_terms_not_the_ubiquitous_project_token() {
+        let project = ProjectId(
+            uuid::Uuid::parse_str("00000000-0000-7000-8000-000000000001")
+                .expect("literal project UUID"),
+        );
+
+        assert_eq!(
+            match_expression(project, Some("OAuth PKCE")),
+            Some("\"OAuth\" AND \"PKCE\"".to_owned())
+        );
+    }
 }

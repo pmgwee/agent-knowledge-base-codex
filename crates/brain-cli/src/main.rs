@@ -19,7 +19,7 @@ use brain_service::{
     BrainTimelineRequest, SourceSelector, TimelineWindow,
 };
 use brain_store::{BackupManager, RetentionPolicy, UpgradeManager};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
 #[command(name = "brain", about = "Cross-agent secondary brain operator CLI")]
@@ -168,28 +168,31 @@ enum Command {
 
 #[derive(Subcommand)]
 enum ServiceCommand {
-    Install {
-        #[arg(long)]
-        service_executable: Option<PathBuf>,
-        #[arg(long)]
-        brain_executable: Option<PathBuf>,
-        #[arg(long)]
-        backup_root: Option<PathBuf>,
-        #[arg(long)]
-        drill_root: Option<PathBuf>,
-        #[arg(long)]
-        install_hooks: bool,
-        #[arg(long)]
-        hook_executable: Option<PathBuf>,
-        #[arg(long)]
-        claude_settings: Option<PathBuf>,
-        #[arg(long)]
-        codex_settings: Option<PathBuf>,
-    },
+    Install(Box<ServiceInstallCommand>),
     Start,
     Stop,
     Status,
     Uninstall,
+}
+
+#[derive(Args)]
+struct ServiceInstallCommand {
+    #[arg(long)]
+    service_executable: Option<PathBuf>,
+    #[arg(long)]
+    brain_executable: Option<PathBuf>,
+    #[arg(long)]
+    backup_root: Option<PathBuf>,
+    #[arg(long)]
+    drill_root: Option<PathBuf>,
+    #[arg(long)]
+    install_hooks: bool,
+    #[arg(long)]
+    hook_executable: Option<PathBuf>,
+    #[arg(long)]
+    claude_settings: Option<PathBuf>,
+    #[arg(long)]
+    codex_settings: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -990,18 +993,18 @@ fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Command::Service {
-            action:
-                ServiceCommand::Install {
-                    service_executable,
-                    brain_executable,
-                    backup_root,
-                    drill_root,
-                    install_hooks,
-                    hook_executable,
-                    claude_settings,
-                    codex_settings,
-                },
+            action: ServiceCommand::Install(arguments),
         } => {
+            let ServiceInstallCommand {
+                service_executable,
+                brain_executable,
+                backup_root,
+                drill_root,
+                install_hooks,
+                hook_executable,
+                claude_settings,
+                codex_settings,
+            } = *arguments;
             let current_executable = std::env::current_exe()?;
             let binary_directory = current_executable
                 .parent()

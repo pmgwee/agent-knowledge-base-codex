@@ -1,5 +1,7 @@
 use anyhow::Result;
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction, TransactionBehavior};
+
+const FTS_MIGRATION_VERSION: i64 = 5;
 
 pub(crate) fn configure(connection: &Connection) -> Result<()> {
     connection.pragma_update(None, "foreign_keys", true)?;
@@ -10,6 +12,14 @@ pub(crate) fn configure(connection: &Connection) -> Result<()> {
 }
 
 pub(crate) fn migrate(connection: &Connection) -> Result<()> {
+    connection.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            applied_at TEXT NOT NULL
+        );
+        "#,
+    )?;
     connection.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -409,33 +419,6 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             );
         END;
 
-        INSERT INTO event_search(rowid, scope_token, content, path, task_label, aliases)
-        SELECT
-            e.rowid,
-            'p' || replace(e.project_id, '-', ''),
-            e.event_type || ' ' || e.payload_json,
-            e.source_locator || ' ' ||
-                coalesce(json_extract(e.payload_json, '$.path'), '') || ' ' ||
-                coalesce(json_extract(e.payload_json, '$.file_path'), ''),
-            coalesce(e.task_id, ''),
-            e.native_session_id || ' ' || coalesce(e.native_turn_id, '') || ' ' ||
-                coalesce(e.git_head, '') || ' ' || coalesce(e.git_branch, '')
-        FROM events e
-        WHERE NOT EXISTS (SELECT 1 FROM event_search WHERE rowid = e.rowid);
-
-        INSERT INTO memory_search(rowid, scope_token, title, content, path, task_label, aliases)
-        SELECT
-            v.rowid,
-            'p' || replace(r.project_id, '-', ''),
-            v.title,
-            v.content,
-            r.projection_path,
-            coalesce(v.task_id, ''),
-            v.memory_id || ' ' || v.version_id || ' ' || r.kind
-        FROM memory_versions v
-        JOIN memory_records r ON r.memory_id = v.memory_id
-        WHERE NOT EXISTS (SELECT 1 FROM memory_search WHERE rowid = v.rowid);
-
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (1, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
@@ -444,8 +427,6 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             VALUES (3, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (4, datetime('now'));
-        INSERT OR IGNORE INTO schema_migrations(version, applied_at)
-            VALUES (5, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (6, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
@@ -456,6 +437,7 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             VALUES (9, datetime('now'));
         "#,
     )?;
+    apply_fts_data_migration(connection)?;
     ensure_column(
         connection,
         "events",
@@ -477,6 +459,58 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn apply_fts_data_migration(connection: &Connection) -> Result<()> {
+    if migration_applied(connection, FTS_MIGRATION_VERSION)? {
+        return Ok(());
+    }
+    let transaction = Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+    if !migration_applied(&transaction, FTS_MIGRATION_VERSION)? {
+        transaction.execute_batch(
+            r#"
+            INSERT INTO event_search(rowid, scope_token, content, path, task_label, aliases)
+            SELECT
+                e.rowid,
+                'p' || replace(e.project_id, '-', ''),
+                e.event_type || ' ' || e.payload_json,
+                e.source_locator || ' ' ||
+                    coalesce(json_extract(e.payload_json, '$.path'), '') || ' ' ||
+                    coalesce(json_extract(e.payload_json, '$.file_path'), ''),
+                coalesce(e.task_id, ''),
+                e.native_session_id || ' ' || coalesce(e.native_turn_id, '') || ' ' ||
+                    coalesce(e.git_head, '') || ' ' || coalesce(e.git_branch, '')
+            FROM events e
+            WHERE NOT EXISTS (SELECT 1 FROM event_search WHERE rowid = e.rowid);
+
+            INSERT INTO memory_search(rowid, scope_token, title, content, path, task_label, aliases)
+            SELECT
+                v.rowid,
+                'p' || replace(r.project_id, '-', ''),
+                v.title,
+                v.content,
+                r.projection_path,
+                coalesce(v.task_id, ''),
+                v.memory_id || ' ' || v.version_id || ' ' || r.kind
+            FROM memory_versions v
+            JOIN memory_records r ON r.memory_id = v.memory_id
+            WHERE NOT EXISTS (SELECT 1 FROM memory_search WHERE rowid = v.rowid);
+
+            INSERT INTO schema_migrations(version, applied_at)
+                VALUES (5, datetime('now'));
+            "#,
+        )?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
+fn migration_applied(connection: &Connection, version: i64) -> Result<bool> {
+    Ok(connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = ?1)",
+        [version],
+        |row| row.get(0),
+    )?)
+}
+
 fn ensure_column(
     connection: &rusqlite::Connection,
     table: &str,
@@ -491,4 +525,60 @@ fn ensure_column(
         connection.execute_batch(statement)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::Connection;
+
+    use super::migrate;
+
+    #[test]
+    fn reopening_a_current_ledger_never_replays_the_fts_data_migration() {
+        let connection = Connection::open_in_memory().expect("open migration fixture");
+        migrate(&connection).expect("create current schema");
+        connection
+            .execute_batch(
+                r#"
+                INSERT INTO events(
+                    event_id, project_id, worktree_id, task_id, harness,
+                    native_session_id, native_turn_id, event_type, occurred_at_ns,
+                    observed_at_ns, source_locator, source_offset, source_schema,
+                    raw_hash, idempotency_key, git_head, git_branch,
+                    payload_json, raw_json
+                ) VALUES (
+                    '00000000-0000-7000-8000-000000000001',
+                    '00000000-0000-7000-8000-000000000002',
+                    '00000000-0000-7000-8000-000000000003',
+                    NULL, 'codex', 'session-1', 'turn-1', 'user.prompted',
+                    1, 1, 'fixture.jsonl', 1, 'fixture:v1',
+                    zeroblob(32), randomblob(32), NULL, NULL,
+                    '{"message":"migration sentinel"}',
+                    '{"message":"migration sentinel"}'
+                );
+                INSERT INTO event_search(event_search) VALUES('delete-all');
+                "#,
+            )
+            .expect("seed then clear derived FTS row");
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM event_search", [], |row| {
+                    row.get::<_, u64>(0)
+                })
+                .expect("count cleared FTS rows"),
+            0
+        );
+
+        migrate(&connection).expect("reopen current schema");
+
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM event_search", [], |row| {
+                    row.get::<_, u64>(0)
+                })
+                .expect("count FTS rows after reopen"),
+            0,
+            "a recorded data migration must not scan and repair FTS during normal startup"
+        );
+    }
 }

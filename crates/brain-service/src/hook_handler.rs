@@ -197,7 +197,7 @@ fn cached_wiki_context(
     });
     items.truncate(2);
     for item in &mut items {
-        item.trust = format!("external_document_cached age={}s", age);
+        item.trust = format!("external_document_cached age={age}s");
     }
     Ok(items)
 }
