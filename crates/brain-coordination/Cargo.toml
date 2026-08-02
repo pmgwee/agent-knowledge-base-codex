@@ -18,3 +18,11 @@ uuid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[[test]]
+name = "concurrent_tasks"
+path = "../../tests/e2e/concurrent_tasks.rs"
+
+[[test]]
+name = "lease_expiry"
+path = "../../tests/e2e/lease_expiry.rs"
