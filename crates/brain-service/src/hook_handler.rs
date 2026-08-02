@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use brain_context::{ContextCompiler, ContextQuery, LiveState, token_count};
-use brain_coordination::{CoordinationStore, Overlap, overlap};
+use brain_coordination::{
+    CoordinationStore, LeaseError, Overlap, RENEWAL_INTERVAL, SessionIdentity, overlap,
+};
 use brain_domain::{Harness, HookEnvelope, HookReply, ProjectId, WorktreeId};
 use brain_store::EventLedger;
 
@@ -47,9 +49,10 @@ impl ProjectHookHandler {
     }
 
     pub fn handle(&self, envelope: &HookEnvelope) -> Result<HookReply> {
-        if !matches!(envelope.harness, Harness::ClaudeCode | Harness::Codex)
-            || envelope.event_name != "SessionStart"
-        {
+        if !matches!(
+            envelope.harness,
+            Harness::ClaudeCode | Harness::Codex | Harness::Hermes
+        ) {
             return Ok(HookReply::default());
         }
         let Some(cwd) = envelope
@@ -66,6 +69,13 @@ impl ProjectHookHandler {
         let Some(binding) = self.resolve_binding(&normalized_cwd) else {
             return Ok(HookReply::default());
         };
+        let lease_warning = manage_lease_lifecycle(&binding, envelope)?;
+        if envelope.event_name != "SessionStart" {
+            return Ok(HookReply {
+                additional_context: lease_warning,
+                diagnostics_id: Some(envelope.nonce.to_string()),
+            });
+        }
 
         let ledger = EventLedger::open(&binding.ledger_path, binding.project_id)?;
         let mut compiler =
@@ -82,7 +92,9 @@ impl ProjectHookHandler {
             compiler = compiler.with_global_preferences(preferences);
         }
         let mut query = ContextQuery::for_worktree(binding.project_id, binding.worktree_id);
-        let coordination = coordination_context(&binding).ok().flatten();
+        let coordination = coordination_context(&binding, envelope.received_at)
+            .ok()
+            .flatten();
         if coordination.is_some() {
             query.max_tokens = 1_000;
         }
@@ -92,12 +104,18 @@ impl ProjectHookHandler {
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned);
         let compiled = compiler.compile(query)?;
-        if compiled.citations.is_empty() && coordination.is_none() {
+        if compiled.citations.is_empty() && coordination.is_none() && lease_warning.is_none() {
             return Ok(HookReply::default());
         }
-        let additional_context = match coordination {
-            Some(coordination) => format!("{coordination}\n\n{}", compiled.text),
-            None => compiled.text,
+        let coordination = [lease_warning, coordination]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join("\n");
+        let additional_context = if coordination.is_empty() {
+            compiled.text
+        } else {
+            format!("{coordination}\n\n{}", compiled.text)
         };
         debug_assert!(token_count(&additional_context) <= 1_500);
         Ok(HookReply {
@@ -142,7 +160,87 @@ impl ProjectHookHandler {
     }
 }
 
-fn coordination_context(binding: &HookProjectBinding) -> Result<Option<String>> {
+fn manage_lease_lifecycle(
+    binding: &HookProjectBinding,
+    envelope: &HookEnvelope,
+) -> Result<Option<String>> {
+    let Some(task_id) = envelope
+        .payload
+        .get("brain_task_id")
+        .and_then(serde_json::Value::as_str)
+        .map(uuid::Uuid::parse_str)
+        .transpose()?
+    else {
+        return Ok(None);
+    };
+    let Some(native_session_id) = envelope
+        .payload
+        .get("session_id")
+        .or_else(|| envelope.payload.get("sessionId"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return Ok(Some(
+            "Writer lease was not acquired because the native session ID is missing.".to_owned(),
+        ));
+    };
+    let owner = SessionIdentity {
+        harness: envelope.harness.clone(),
+        native_session_id: native_session_id.to_owned(),
+    };
+    let mut store = CoordinationStore::open(&binding.ledger_path, binding.project_id)?;
+    let Some(task) = store.task(task_id)? else {
+        return Ok(Some(format!(
+            "Writer lease was not acquired because task {task_id} is not an active project task."
+        )));
+    };
+    if task.worktree_id != binding.worktree_id {
+        return Ok(Some(format!(
+            "Writer lease was not acquired: task {task_id} belongs to worktree {}, but this session is in worktree {}. Switch to the task worktree before editing.",
+            task.worktree_id.0, binding.worktree_id.0
+        )));
+    }
+    let now = envelope.received_at;
+    let result = match envelope.event_name.as_str() {
+        "SessionEnd" | "session.end" => {
+            let Some(lease) = store.lease(task_id)? else {
+                return Ok(None);
+            };
+            store
+                .release_lease(task_id, &owner, lease.generation, now)
+                .map(|_| None)
+        }
+        "SessionStart" => store.acquire_lease(task_id, owner, now, None).map(|_| None),
+        _ => match store.lease(task_id)? {
+            Some(lease)
+                if lease.owner == owner
+                    && lease.renewed_at + RENEWAL_INTERVAL > now
+                    && lease.expires_at > now =>
+            {
+                return Ok(None);
+            }
+            Some(lease) if lease.owner == owner && lease.expires_at > now => store
+                .renew_lease(task_id, &owner, lease.generation, now, None)
+                .map(|_| None),
+            _ => store.acquire_lease(task_id, owner, now, None).map(|_| None),
+        },
+    };
+    match result {
+        Ok(value) => Ok(value),
+        Err(LeaseError::AlreadyHeld {
+            owner_harness,
+            owner_session,
+            expires_at,
+        }) => Ok(Some(format!(
+            "WARNING: writer lease is held by {owner_harness}/{owner_session} until {expires_at}. Do not edit in this worktree; create or switch to a separate task worktree, or perform an explicit handoff."
+        ))),
+        Err(error) => Ok(Some(format!("Writer lease update failed: {error}"))),
+    }
+}
+
+fn coordination_context(
+    binding: &HookProjectBinding,
+    now: time::OffsetDateTime,
+) -> Result<Option<String>> {
     let store = CoordinationStore::open(&binding.ledger_path, binding.project_id)?;
     let tasks = store.tasks(false)?;
     if tasks.is_empty() {
@@ -151,7 +249,6 @@ fn coordination_context(binding: &HookProjectBinding) -> Result<Option<String>> 
                 .to_owned(),
         ));
     }
-    let now = time::OffsetDateTime::now_utc();
     let leases = store.active_leases(now)?;
     let claims = store.active_claims()?;
     let mut lines =

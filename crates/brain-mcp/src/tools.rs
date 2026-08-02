@@ -3,7 +3,7 @@ use brain_service::BrainQueryService;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-const TOOL_NAMES: [&str; 9] = [
+const TOOL_NAMES: [&str; 14] = [
     "brain_search",
     "brain_timeline",
     "brain_checkpoint",
@@ -13,6 +13,11 @@ const TOOL_NAMES: [&str; 9] = [
     "brain_claim",
     "brain_claims",
     "brain_release_claim",
+    "brain_lease_acquire",
+    "brain_lease_renew",
+    "brain_lease_release",
+    "brain_lease_handoff",
+    "brain_leases",
 ];
 
 pub struct BrainTools {
@@ -177,6 +182,70 @@ impl BrainTools {
                 false,
                 true,
             ),
+            tool(
+                "brain_lease_acquire",
+                "Acquire the single writer lease for an active task worktree.",
+                object_schema(
+                    json!({
+                        "project": string("Registered project UUID or exact path alias."),
+                        "task_id": string("Active task UUID."),
+                        "owner": owner_schema()
+                    }),
+                    &["project", "task_id", "owner"],
+                ),
+                false,
+                false,
+            ),
+            tool(
+                "brain_lease_renew",
+                "Renew a writer lease using its exact owner and generation.",
+                lease_generation_schema(),
+                false,
+                true,
+            ),
+            tool(
+                "brain_lease_release",
+                "Release a writer lease using its exact owner and generation.",
+                lease_generation_schema(),
+                false,
+                true,
+            ),
+            tool(
+                "brain_lease_handoff",
+                "Write a checkpoint and atomically transfer the writer generation to another session.",
+                object_schema(
+                    json!({
+                        "project": string("Registered project UUID or exact path alias."),
+                        "handoff_id": string("Stable UUID for idempotent retries."),
+                        "task_id": string("Active task UUID."),
+                        "current_owner": owner_schema(),
+                        "generation": {"type": "integer", "minimum": 1},
+                        "next_owner": owner_schema(),
+                        "checkpoint": string("Concise evidence checkpoint for the receiving session.")
+                    }),
+                    &[
+                        "project",
+                        "handoff_id",
+                        "task_id",
+                        "current_owner",
+                        "generation",
+                        "next_owner",
+                        "checkpoint",
+                    ],
+                ),
+                false,
+                true,
+            ),
+            tool(
+                "brain_leases",
+                "List non-expired writer leases for a project.",
+                object_schema(
+                    json!({"project": string("Registered project UUID or exact path alias.")}),
+                    &["project"],
+                ),
+                true,
+                true,
+            ),
         ]
     }
 
@@ -191,6 +260,11 @@ impl BrainTools {
             "brain_claim" => serialize(self.service.claim(parse(arguments)?)),
             "brain_claims" => serialize(self.service.claims(parse(arguments)?)),
             "brain_release_claim" => serialize(self.service.release_claim(parse(arguments)?)),
+            "brain_lease_acquire" => serialize(self.service.acquire_lease(parse(arguments)?)),
+            "brain_lease_renew" => serialize(self.service.renew_lease(parse(arguments)?)),
+            "brain_lease_release" => serialize(self.service.release_lease(parse(arguments)?)),
+            "brain_lease_handoff" => serialize(self.service.handoff_lease(parse(arguments)?)),
+            "brain_leases" => serialize(self.service.leases(parse(arguments)?)),
             _ => bail!("unknown tool {name}"),
         }
     }
@@ -239,4 +313,28 @@ fn string(description: &str) -> Value {
 
 fn timestamp() -> Value {
     json!({"type": "string", "format": "date-time", "description": "RFC3339 timestamp."})
+}
+
+fn owner_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "harness": {"type": "string", "enum": ["claude-code", "codex", "hermes"]},
+            "native_session_id": string("Stable native session ID.")
+        },
+        "required": ["harness", "native_session_id"],
+        "additionalProperties": false
+    })
+}
+
+fn lease_generation_schema() -> Value {
+    object_schema(
+        json!({
+            "project": string("Registered project UUID or exact path alias."),
+            "task_id": string("Active task UUID."),
+            "owner": owner_schema(),
+            "generation": {"type": "integer", "minimum": 1}
+        }),
+        &["project", "task_id", "owner", "generation"],
+    )
 }

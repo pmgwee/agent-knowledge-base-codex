@@ -30,7 +30,9 @@ pub use query_api::{
     BrainCheckpointRequest, BrainCheckpointResponse, BrainCitation, BrainClaimRequest,
     BrainClaimResponse, BrainClaimsRequest, BrainClaimsResponse, BrainCorrectionRequest,
     BrainCorrectionResponse, BrainEvidenceRequest, BrainEvidenceResponse, BrainItemsResponse,
-    BrainQueryService, BrainReleaseClaimRequest, BrainResultItem, BrainSearchRequest,
-    BrainStatusRequest, BrainStatusResponse, BrainTimelineRequest, SourceSelector, TimelineWindow,
+    BrainLeaseAcquireRequest, BrainLeaseGenerationRequest, BrainLeaseHandoffRequest,
+    BrainLeaseResponse, BrainLeasesRequest, BrainQueryService, BrainReleaseClaimRequest,
+    BrainResultItem, BrainSearchRequest, BrainStatusRequest, BrainStatusResponse,
+    BrainTimelineRequest, SourceSelector, TimelineWindow,
 };
 pub use runtime::{build_capture_bindings, build_hook_bindings};

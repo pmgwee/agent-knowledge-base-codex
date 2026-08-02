@@ -7,10 +7,11 @@ use brain_cli::{
     register_project_with_sources, uninstall_claude_hooks, uninstall_codex_hooks,
     verify_projections,
 };
-use brain_coordination::{ClaimKind, PathClaimInput};
-use brain_domain::{BrainConfig, ProjectId};
+use brain_coordination::{ClaimKind, PathClaimInput, SessionIdentity};
+use brain_domain::{BrainConfig, Harness, ProjectId};
 use brain_service::{
-    BrainCheckpointRequest, BrainClaimRequest, BrainClaimsRequest, BrainQueryService,
+    BrainCheckpointRequest, BrainClaimRequest, BrainClaimsRequest, BrainLeaseAcquireRequest,
+    BrainLeaseGenerationRequest, BrainLeaseHandoffRequest, BrainLeasesRequest, BrainQueryService,
     BrainReleaseClaimRequest, BrainSearchRequest, BrainTimelineRequest, SourceSelector,
     TimelineWindow,
 };
@@ -189,6 +190,64 @@ enum TaskCommand {
         #[arg(long)]
         claim: uuid::Uuid,
     },
+    Acquire {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        task: uuid::Uuid,
+        #[arg(long, value_enum)]
+        harness: CliHarness,
+        #[arg(long)]
+        session: String,
+    },
+    Renew {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        task: uuid::Uuid,
+        #[arg(long, value_enum)]
+        harness: CliHarness,
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        generation: u64,
+    },
+    Release {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        task: uuid::Uuid,
+        #[arg(long, value_enum)]
+        harness: CliHarness,
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        generation: u64,
+    },
+    Handoff {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        handoff_id: uuid::Uuid,
+        #[arg(long)]
+        task: uuid::Uuid,
+        #[arg(long, value_enum)]
+        from_harness: CliHarness,
+        #[arg(long)]
+        from_session: String,
+        #[arg(long)]
+        generation: u64,
+        #[arg(long, value_enum)]
+        to_harness: CliHarness,
+        #[arg(long)]
+        to_session: String,
+        #[arg(long)]
+        checkpoint: String,
+    },
+    Leases {
+        #[arg(long)]
+        project: String,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -217,6 +276,13 @@ enum CliClaimKind {
     Directory,
     Glob,
     Symbol,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum CliHarness {
+    Claude,
+    Codex,
+    Hermes,
 }
 
 fn main() -> Result<()> {
@@ -430,6 +496,95 @@ fn main() -> Result<()> {
         }
         Command::Task {
             action:
+                TaskCommand::Acquire {
+                    project,
+                    task,
+                    harness,
+                    session,
+                },
+        } => {
+            let result =
+                BrainQueryService::open(&brain_home)?.acquire_lease(BrainLeaseAcquireRequest {
+                    project,
+                    task_id: task,
+                    owner: owner(harness, session),
+                })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::Task {
+            action:
+                TaskCommand::Renew {
+                    project,
+                    task,
+                    harness,
+                    session,
+                    generation,
+                },
+        } => {
+            let result =
+                BrainQueryService::open(&brain_home)?.renew_lease(BrainLeaseGenerationRequest {
+                    project,
+                    task_id: task,
+                    owner: owner(harness, session),
+                    generation,
+                })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::Task {
+            action:
+                TaskCommand::Release {
+                    project,
+                    task,
+                    harness,
+                    session,
+                    generation,
+                },
+        } => {
+            let result = BrainQueryService::open(&brain_home)?.release_lease(
+                BrainLeaseGenerationRequest {
+                    project,
+                    task_id: task,
+                    owner: owner(harness, session),
+                    generation,
+                },
+            )?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::Task {
+            action:
+                TaskCommand::Handoff {
+                    project,
+                    handoff_id,
+                    task,
+                    from_harness,
+                    from_session,
+                    generation,
+                    to_harness,
+                    to_session,
+                    checkpoint,
+                },
+        } => {
+            let result =
+                BrainQueryService::open(&brain_home)?.handoff_lease(BrainLeaseHandoffRequest {
+                    project,
+                    handoff_id,
+                    task_id: task,
+                    current_owner: owner(from_harness, from_session),
+                    generation,
+                    next_owner: owner(to_harness, to_session),
+                    checkpoint,
+                })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::Task {
+            action: TaskCommand::Leases { project },
+        } => {
+            let result =
+                BrainQueryService::open(&brain_home)?.leases(BrainLeasesRequest { project })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::Task {
+            action:
                 TaskCommand::List {
                     project,
                     include_closed,
@@ -537,6 +692,17 @@ impl From<CliClaimKind> for ClaimKind {
             CliClaimKind::Glob => Self::Glob,
             CliClaimKind::Symbol => Self::Symbol,
         }
+    }
+}
+
+fn owner(harness: CliHarness, native_session_id: String) -> SessionIdentity {
+    SessionIdentity {
+        harness: match harness {
+            CliHarness::Claude => Harness::ClaudeCode,
+            CliHarness::Codex => Harness::Codex,
+            CliHarness::Hermes => Harness::Hermes,
+        },
+        native_session_id,
     }
 }
 

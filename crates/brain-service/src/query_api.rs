@@ -5,7 +5,9 @@ use brain_context::{
     CompiledContext, ContextCompiler, ContextQuery, LiveState, RankedCandidate, RetrievalEngine,
     RetrievalQuery,
 };
-use brain_coordination::{ClaimResult, CoordinationStore, PathClaim, PathClaimInput};
+use brain_coordination::{
+    ClaimResult, CoordinationStore, PathClaim, PathClaimInput, SessionIdentity, WriterLease,
+};
 use brain_domain::{
     Authority, EventBatch, EventType, Harness, MemoryKind, MemoryRecord, MemoryScope, MemoryStatus,
     NormalizedEvent, ProjectId, ProjectRegistry, SourceCursor,
@@ -120,6 +122,45 @@ pub struct BrainReleaseClaimRequest {
 pub struct BrainClaimsResponse {
     pub project_id: ProjectId,
     pub claims: Vec<PathClaim>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainLeaseAcquireRequest {
+    pub project: String,
+    pub task_id: uuid::Uuid,
+    pub owner: SessionIdentity,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainLeaseGenerationRequest {
+    pub project: String,
+    pub task_id: uuid::Uuid,
+    pub owner: SessionIdentity,
+    pub generation: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainLeaseHandoffRequest {
+    pub project: String,
+    pub handoff_id: uuid::Uuid,
+    pub task_id: uuid::Uuid,
+    pub current_owner: SessionIdentity,
+    pub generation: u64,
+    pub next_owner: SessionIdentity,
+    pub checkpoint: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainLeasesRequest {
+    pub project: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BrainLeaseResponse {
+    pub project_id: ProjectId,
+    pub lease: Option<WriterLease>,
+    pub leases: Vec<WriterLease>,
+    pub replayed: bool,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -552,6 +593,156 @@ impl BrainQueryService {
         Ok(BrainClaimsResponse {
             project_id: project.project_id,
             claims: store.active_claims()?,
+        })
+    }
+
+    pub fn acquire_lease(&self, request: BrainLeaseAcquireRequest) -> Result<BrainLeaseResponse> {
+        let project = self.project(&request.project)?.clone();
+        let mut store = CoordinationStore::open(&project.ledger_path, project.project_id)?;
+        let lease = store
+            .acquire_lease(
+                request.task_id,
+                request.owner,
+                time::OffsetDateTime::now_utc(),
+                None,
+            )
+            .map_err(anyhow::Error::from)?;
+        Ok(BrainLeaseResponse {
+            project_id: project.project_id,
+            lease: Some(lease),
+            leases: store.active_leases(time::OffsetDateTime::now_utc())?,
+            replayed: false,
+        })
+    }
+
+    pub fn renew_lease(&self, request: BrainLeaseGenerationRequest) -> Result<BrainLeaseResponse> {
+        let project = self.project(&request.project)?.clone();
+        let mut store = CoordinationStore::open(&project.ledger_path, project.project_id)?;
+        let lease = store
+            .renew_lease(
+                request.task_id,
+                &request.owner,
+                request.generation,
+                time::OffsetDateTime::now_utc(),
+                None,
+            )
+            .map_err(anyhow::Error::from)?;
+        Ok(BrainLeaseResponse {
+            project_id: project.project_id,
+            lease: Some(lease),
+            leases: store.active_leases(time::OffsetDateTime::now_utc())?,
+            replayed: false,
+        })
+    }
+
+    pub fn release_lease(
+        &self,
+        request: BrainLeaseGenerationRequest,
+    ) -> Result<BrainLeaseResponse> {
+        let project = self.project(&request.project)?.clone();
+        let mut store = CoordinationStore::open(&project.ledger_path, project.project_id)?;
+        store
+            .release_lease(
+                request.task_id,
+                &request.owner,
+                request.generation,
+                time::OffsetDateTime::now_utc(),
+            )
+            .map_err(anyhow::Error::from)?;
+        Ok(BrainLeaseResponse {
+            project_id: project.project_id,
+            lease: None,
+            leases: store.active_leases(time::OffsetDateTime::now_utc())?,
+            replayed: false,
+        })
+    }
+
+    pub fn handoff_lease(&self, request: BrainLeaseHandoffRequest) -> Result<BrainLeaseResponse> {
+        ensure!(
+            !request.checkpoint.trim().is_empty(),
+            "handoff checkpoint is required"
+        );
+        let project = self.project(&request.project)?.clone();
+        let mut coordination = CoordinationStore::open(&project.ledger_path, project.project_id)?;
+        if let Some(existing) = coordination.lease(request.task_id)?
+            && existing.owner == request.next_owner
+            && existing.generation == request.generation.saturating_add(1)
+        {
+            return Ok(BrainLeaseResponse {
+                project_id: project.project_id,
+                lease: Some(existing),
+                leases: coordination.active_leases(time::OffsetDateTime::now_utc())?,
+                replayed: true,
+            });
+        }
+        let now = time::OffsetDateTime::now_utc();
+        let payload = serde_json::json!({
+            "summary": request.checkpoint,
+            "handoff_id": request.handoff_id,
+            "task_id": request.task_id,
+            "from": request.current_owner,
+            "to": request.next_owner,
+        });
+        let raw_hash: [u8; 32] = Sha256::digest(serde_json::to_vec(&payload)?).into();
+        let idempotency_key: [u8; 32] =
+            Sha256::digest([b"lease-handoff".as_slice(), request.handoff_id.as_bytes()].concat())
+                .into();
+        let mut ledger = self.ledger(&project)?;
+        ledger.append_batch(&EventBatch {
+            source_id: format!("lease-handoff:{}", request.handoff_id),
+            events: vec![NormalizedEvent {
+                event_id: request.handoff_id,
+                project_id: project.project_id,
+                worktree_id: coordination
+                    .task(request.task_id)?
+                    .context("handoff task does not exist")?
+                    .worktree_id,
+                task_id: Some(request.task_id),
+                harness: request.current_owner.harness.clone(),
+                native_session_id: request.current_owner.native_session_id.clone(),
+                native_turn_id: None,
+                event_type: EventType::CheckpointAuthored,
+                occurred_at: now,
+                observed_at: now,
+                source_locator: format!("brain://handoff/{}", request.handoff_id),
+                source_offset: 1,
+                source_schema: "brain-handoff:v1".to_owned(),
+                raw_hash,
+                idempotency_key,
+                git_head: None,
+                git_branch: None,
+                payload: payload.clone(),
+                raw: payload,
+            }],
+            quarantined: Vec::new(),
+            capture_gaps: Vec::new(),
+            next_cursor: SourceCursor::byte_offset(1),
+        })?;
+        let lease = coordination
+            .handoff_lease(
+                request.task_id,
+                &request.current_owner,
+                request.generation,
+                request.next_owner,
+                now,
+            )
+            .map_err(anyhow::Error::from)?;
+        Ok(BrainLeaseResponse {
+            project_id: project.project_id,
+            lease: Some(lease),
+            leases: coordination.active_leases(now)?,
+            replayed: false,
+        })
+    }
+
+    pub fn leases(&self, request: BrainLeasesRequest) -> Result<BrainLeaseResponse> {
+        let project = self.project(&request.project)?;
+        Ok(BrainLeaseResponse {
+            project_id: project.project_id,
+            lease: None,
+            leases: CoordinationStore::open(&project.ledger_path, project.project_id)?
+                .active_leases(time::OffsetDateTime::now_utc())?,
+            replayed: false,
         })
     }
 

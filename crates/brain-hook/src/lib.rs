@@ -22,7 +22,26 @@ pub struct HookOptions {
 }
 
 pub async fn invoke(options: HookOptions, input: &[u8]) -> serde_json::Value {
-    let payload = parse_payload(input);
+    let mut payload = parse_payload(input);
+    if let Some(object) = payload.as_object_mut() {
+        if !object.contains_key("brain_task_id")
+            && let Some(task_id) = std::env::var_os("BRAIN_TASK_ID")
+        {
+            object.insert(
+                "brain_task_id".to_owned(),
+                serde_json::Value::String(task_id.to_string_lossy().to_string()),
+            );
+        }
+        if !object.contains_key("session_id")
+            && !object.contains_key("sessionId")
+            && let Some(session_id) = std::env::var_os("BRAIN_NATIVE_SESSION_ID")
+        {
+            object.insert(
+                "session_id".to_owned(),
+                serde_json::Value::String(session_id.to_string_lossy().to_string()),
+            );
+        }
+    }
     let event_name = options
         .event_name
         .clone()
