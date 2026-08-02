@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{cell::RefCell, path::Path};
 
 use anyhow::{Result, bail};
 use brain_domain::{
@@ -9,12 +9,14 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::cursor::{load_cursor, save_cursor, timestamp_ns};
 use crate::migrations::{configure, migrate};
+use crate::search::SearchCache;
 
 const LATEST_EVENT_AT_SQL: &str = "SELECT MAX(occurred_at_ns) FROM events WHERE project_id = ?1";
 
 pub struct EventLedger {
     pub(crate) connection: Connection,
     pub(crate) project_scope: ProjectId,
+    pub(crate) search_cache: RefCell<SearchCache>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,6 +67,7 @@ impl EventLedger {
         Ok(Self {
             connection,
             project_scope,
+            search_cache: RefCell::new(SearchCache::default()),
         })
     }
 
@@ -96,6 +99,7 @@ impl EventLedger {
         }
         save_cursor(&transaction, &batch.source_id, &batch.next_cursor)?;
         transaction.commit()?;
+        self.search_cache.borrow_mut().clear();
         Ok(AppendResult {
             inserted,
             quarantined,

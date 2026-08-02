@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{Result, bail};
 use brain_domain::{Authority, Harness, MemoryKind, MemoryStatus, ProjectId, WorktreeId};
 use rusqlite::{Row, params};
@@ -9,6 +11,8 @@ const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 200;
 const MAX_QUERY_TERMS: usize = 32;
 const MAX_TERM_CHARACTERS: usize = 64;
+const MAX_SEARCH_CACHE_ENTRIES: usize = 128;
+const MAX_SEARCH_CACHE_BYTES: usize = 16 * 1024 * 1024;
 const LATE_OBSERVATION_THRESHOLD: time::Duration = time::Duration::minutes(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,20 +21,20 @@ pub enum SearchSource {
     Memory,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SearchSourceFilter {
     All,
     Events,
     Memories,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct TimeRange {
     pub start: time::OffsetDateTime,
     pub end: time::OffsetDateTime,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SearchQuery {
     pub project_id: ProjectId,
     pub text: Option<String>,
@@ -140,6 +144,20 @@ pub struct SearchHit {
     pub bm25_score: f64,
 }
 
+#[derive(Default)]
+pub(crate) struct SearchCache {
+    pub(crate) data_version: Option<i64>,
+    pub(crate) entries: HashMap<SearchQuery, Vec<SearchHit>>,
+    pub(crate) estimated_bytes: usize,
+}
+
+impl SearchCache {
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+        self.estimated_bytes = 0;
+    }
+}
+
 impl EventLedger {
     pub fn search(&self, query: &SearchQuery) -> Result<Vec<SearchHit>> {
         if query.project_id != self.project_scope {
@@ -162,6 +180,19 @@ impl EventLedger {
         {
             return Ok(Vec::new());
         }
+        let data_version = self
+            .connection
+            .query_row("PRAGMA data_version", [], |row| row.get::<_, i64>(0))?;
+        {
+            let mut cache = self.search_cache.borrow_mut();
+            if cache.data_version != Some(data_version) {
+                cache.clear();
+                cache.data_version = Some(data_version);
+            }
+            if let Some(hits) = cache.entries.get(query) {
+                return Ok(hits.clone());
+            }
+        }
         let mut hits = Vec::new();
         if query.source_filter != SearchSourceFilter::Memories {
             hits.extend(self.search_events(query)?);
@@ -177,6 +208,17 @@ impl EventLedger {
                 .then_with(|| right.source_id.cmp(&left.source_id))
         });
         hits.truncate(query.limit.min(MAX_LIMIT));
+        let entry_bytes = estimated_cache_entry_bytes(query, &hits);
+        if entry_bytes <= MAX_SEARCH_CACHE_BYTES {
+            let mut cache = self.search_cache.borrow_mut();
+            if cache.entries.len() >= MAX_SEARCH_CACHE_ENTRIES
+                || cache.estimated_bytes.saturating_add(entry_bytes) > MAX_SEARCH_CACHE_BYTES
+            {
+                cache.clear();
+            }
+            cache.estimated_bytes = cache.estimated_bytes.saturating_add(entry_bytes);
+            cache.entries.insert(query.clone(), hits.clone());
+        }
         Ok(hits)
     }
 
@@ -402,6 +444,21 @@ fn match_expression(_project_id: ProjectId, text: Option<&str>) -> Option<String
     Some(terms.join(" AND "))
 }
 
+fn estimated_cache_entry_bytes(query: &SearchQuery, hits: &[SearchHit]) -> usize {
+    let query_bytes = query.text.as_ref().map_or(0, String::len)
+        + query.native_session_id.as_ref().map_or(0, String::len)
+        + 256;
+    hits.iter().fold(query_bytes, |total, hit| {
+        total.saturating_add(
+            hit.title.len()
+                + hit.text.len()
+                + hit.path.as_ref().map_or(0, String::len)
+                + hit.native_session_id.as_ref().map_or(0, String::len)
+                + 256,
+        )
+    })
+}
+
 struct RawEventHit {
     source_id: String,
     worktree_id: String,
@@ -558,9 +615,12 @@ fn from_ns(value: i64) -> Result<time::OffsetDateTime> {
 
 #[cfg(test)]
 mod tests {
-    use brain_domain::ProjectId;
+    use brain_domain::{
+        EventBatch, EventType, Harness, NormalizedEvent, ProjectId, SourceCursor, WorktreeId,
+    };
 
-    use super::match_expression;
+    use super::{SearchQuery, match_expression};
+    use crate::EventLedger;
 
     #[test]
     fn fts_match_uses_only_selective_user_terms_not_the_ubiquitous_project_token() {
@@ -573,5 +633,110 @@ mod tests {
             match_expression(project, Some("OAuth PKCE")),
             Some("\"OAuth\" AND \"PKCE\"".to_owned())
         );
+    }
+
+    #[test]
+    fn cached_search_is_invalidated_by_a_local_append() {
+        let project = ProjectId(uuid::Uuid::now_v7());
+        let worktree = WorktreeId(uuid::Uuid::now_v7());
+        let mut ledger = EventLedger::open_in_memory(project).expect("ledger");
+        let query = SearchQuery::text(project, "new sentinel").events_only();
+
+        assert!(ledger.search(&query).expect("initial search").is_empty());
+        assert_eq!(ledger.search_cache.borrow().entries.len(), 1);
+
+        ledger
+            .append_batch(&EventBatch {
+                source_id: "cache-test".to_owned(),
+                events: vec![cache_event(project, worktree, [2; 32])],
+                quarantined: Vec::new(),
+                capture_gaps: Vec::new(),
+                next_cursor: SourceCursor::byte_offset(1),
+            })
+            .expect("append");
+
+        let hits = ledger.search(&query).expect("search after append");
+        assert_eq!(
+            hits.len(),
+            1,
+            "append must invalidate an empty cached result"
+        );
+    }
+
+    #[test]
+    fn cached_search_is_invalidated_by_an_external_commit() {
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("ledger.sqlite");
+        let project = ProjectId(uuid::Uuid::now_v7());
+        let worktree = WorktreeId(uuid::Uuid::now_v7());
+        let first = EventLedger::open(&path, project).expect("first ledger");
+        let mut second = EventLedger::open(&path, project).expect("second ledger");
+        let query = SearchQuery::text(project, "new sentinel").events_only();
+
+        assert!(first.search(&query).expect("initial search").is_empty());
+        second
+            .append_batch(&EventBatch {
+                source_id: "external-cache-test".to_owned(),
+                events: vec![cache_event(project, worktree, [3; 32])],
+                quarantined: Vec::new(),
+                capture_gaps: Vec::new(),
+                next_cursor: SourceCursor::byte_offset(1),
+            })
+            .expect("external append");
+
+        assert_eq!(
+            first
+                .search(&query)
+                .expect("search after external commit")
+                .len(),
+            1,
+            "SQLite data_version must invalidate results cached before an external commit"
+        );
+    }
+
+    #[test]
+    fn search_cache_never_exceeds_its_entry_cap() {
+        let project = ProjectId(uuid::Uuid::now_v7());
+        let ledger = EventLedger::open_in_memory(project).expect("ledger");
+
+        for index in 0..=super::MAX_SEARCH_CACHE_ENTRIES {
+            ledger
+                .search(
+                    &SearchQuery::text(project, format!("absent-cache-key-{index}")).events_only(),
+                )
+                .expect("search");
+        }
+
+        let cache = ledger.search_cache.borrow();
+        assert!(cache.entries.len() <= super::MAX_SEARCH_CACHE_ENTRIES);
+        assert!(cache.estimated_bytes <= super::MAX_SEARCH_CACHE_BYTES);
+    }
+
+    fn cache_event(
+        project_id: ProjectId,
+        worktree_id: WorktreeId,
+        idempotency_key: [u8; 32],
+    ) -> NormalizedEvent {
+        NormalizedEvent {
+            event_id: uuid::Uuid::now_v7(),
+            project_id,
+            worktree_id,
+            task_id: None,
+            harness: Harness::Codex,
+            native_session_id: "cache-session".to_owned(),
+            native_turn_id: None,
+            event_type: EventType::AgentResponded,
+            occurred_at: time::OffsetDateTime::UNIX_EPOCH,
+            observed_at: time::OffsetDateTime::UNIX_EPOCH,
+            source_locator: "cache.jsonl".to_owned(),
+            source_offset: 1,
+            source_schema: "cache:v1".to_owned(),
+            raw_hash: [1; 32],
+            idempotency_key,
+            git_head: None,
+            git_branch: Some("main".to_owned()),
+            payload: serde_json::json!({"message": "new sentinel"}),
+            raw: serde_json::json!({"message": "new sentinel"}),
+        }
     }
 }
