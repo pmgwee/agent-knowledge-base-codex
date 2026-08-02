@@ -1,7 +1,7 @@
 use brain_domain::{
     EventBatch, EventType, Harness, NormalizedEvent, ProjectId, SourceCursor, WorktreeId,
 };
-use brain_store::{BackupManager, EventLedger};
+use brain_store::{BackupManager, EventLedger, RetentionPolicy};
 use sha2::{Digest, Sha256};
 
 #[test]
@@ -52,6 +52,93 @@ fn checksum_failure_never_creates_or_replaces_a_restore_destination() {
             .expect("source count"),
         3
     );
+}
+
+#[test]
+fn retention_is_deterministic_dry_runnable_and_ignores_unknown_directories() {
+    let fixture = fixture();
+    let backups = fixture.temp.path().join("backups");
+    let first =
+        BackupManager::create(&fixture.brain_home, &backups, fixture.now).expect("first backup");
+    let second = BackupManager::create(
+        &fixture.brain_home,
+        &backups,
+        fixture.now + time::Duration::hours(1),
+    )
+    .expect("second backup");
+    let third = BackupManager::create(
+        &fixture.brain_home,
+        &backups,
+        fixture.now + time::Duration::hours(2),
+    )
+    .expect("third backup");
+    let unknown = backups.join("operator-notes");
+    std::fs::create_dir_all(&unknown).expect("unknown directory");
+    let policy = RetentionPolicy {
+        hourly: 2,
+        daily: 1,
+        monthly: 1,
+    };
+    let dry_run = BackupManager::apply_retention(&backups, policy, true).expect("dry run");
+    assert_eq!(dry_run.retained.len(), 2);
+    assert_eq!(dry_run.pruned, vec![first.backup_path.clone()]);
+    assert!(
+        dry_run
+            .ignored
+            .iter()
+            .any(|path| path.file_name() == unknown.file_name())
+    );
+    assert!(first.backup_path.is_dir());
+
+    let applied = BackupManager::apply_retention(&backups, policy, false).expect("apply retention");
+    assert_eq!(applied.pruned, vec![first.backup_path.clone()]);
+    assert!(!first.backup_path.exists());
+    assert!(second.backup_path.is_dir());
+    assert!(third.backup_path.is_dir());
+    assert!(unknown.is_dir());
+}
+
+#[test]
+fn recovery_drill_records_success_or_failure_without_leaving_a_restore_copy() {
+    let fixture = fixture();
+    let backup = BackupManager::create(
+        &fixture.brain_home,
+        fixture.temp.path().join("backups"),
+        fixture.now,
+    )
+    .expect("backup");
+    let drill_root = fixture.temp.path().join("drills");
+    let successful = BackupManager::recovery_drill(
+        &backup.backup_path,
+        &drill_root,
+        fixture.now + time::Duration::hours(1),
+    )
+    .expect("successful drill");
+    assert!(successful.success);
+    assert_eq!(
+        successful.restored_files,
+        backup.inventory.files.len() as u64
+    );
+    assert!(successful.report_path.is_file());
+    assert_eq!(
+        std::fs::read_dir(&drill_root)
+            .expect("list drill root")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("restore-"))
+            .count(),
+        0
+    );
+
+    std::fs::write(backup.backup_path.join("config.json"), "corrupt\n").expect("corrupt backup");
+    let failed = BackupManager::recovery_drill(
+        &backup.backup_path,
+        &drill_root,
+        fixture.now + time::Duration::hours(2),
+    )
+    .expect("failed drill is recorded");
+    assert!(!failed.success);
+    assert!(failed.error.is_some());
+    assert!(failed.report_path.is_file());
 }
 
 struct Fixture {

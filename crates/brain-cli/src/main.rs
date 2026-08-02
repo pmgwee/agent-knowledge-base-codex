@@ -17,7 +17,7 @@ use brain_service::{
     BrainPreflightRequest, BrainQueryService, BrainReleaseClaimRequest, BrainSearchRequest,
     BrainTimelineRequest, SourceSelector, TimelineWindow,
 };
-use brain_store::{BackupManager, UpgradeManager};
+use brain_store::{BackupManager, RetentionPolicy, UpgradeManager};
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
@@ -210,6 +210,22 @@ enum BackupCommand {
     Verify {
         #[arg(long)]
         backup: PathBuf,
+    },
+    Maintain {
+        #[arg(long)]
+        root: PathBuf,
+    },
+    Prune {
+        #[arg(long)]
+        root: PathBuf,
+        #[arg(long)]
+        apply: bool,
+    },
+    Drill {
+        #[arg(long)]
+        backup: PathBuf,
+        #[arg(long)]
+        work_root: PathBuf,
     },
 }
 
@@ -809,6 +825,40 @@ fn main() -> Result<()> {
         } => {
             let report = BackupManager::verify(backup)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Backup {
+            action: BackupCommand::Maintain { root },
+        } => {
+            let backup =
+                BackupManager::create(&brain_home, &root, time::OffsetDateTime::now_utc())?;
+            let retention =
+                BackupManager::apply_retention(&root, RetentionPolicy::default(), false)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "backup": backup,
+                    "retention": retention,
+                }))?
+            );
+        }
+        Command::Backup {
+            action: BackupCommand::Prune { root, apply },
+        } => {
+            let report = BackupManager::apply_retention(root, RetentionPolicy::default(), !apply)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Backup {
+            action: BackupCommand::Drill { backup, work_root },
+        } => {
+            let report =
+                BackupManager::recovery_drill(backup, work_root, time::OffsetDateTime::now_utc())?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if !report.success {
+                anyhow::bail!(
+                    "recovery drill failed: {}",
+                    report.error.as_deref().unwrap_or("unknown error")
+                );
+            }
         }
         Command::Restore {
             backup,

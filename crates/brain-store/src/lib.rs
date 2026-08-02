@@ -18,7 +18,8 @@ mod upgrade;
 
 pub use backup::{
     BACKUP_FORMAT_VERSION, BackupInventory, BackupManager, BackupReport, InventoryFile,
-    InventoryKind, RestoreReport, VerificationReport,
+    InventoryKind, RecoveryDrillReport, RestoreReport, RetentionPolicy, RetentionReport,
+    VerificationReport,
 };
 pub use basic_memory::{
     BASIC_MEMORY_PINNED_VERSION, BasicMemoryCli, BasicMemoryIndexer, BasicMemoryReport,

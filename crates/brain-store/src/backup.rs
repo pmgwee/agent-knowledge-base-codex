@@ -62,6 +62,46 @@ pub struct RestoreReport {
     pub restored_bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct RetentionPolicy {
+    pub hourly: usize,
+    pub daily: usize,
+    pub monthly: usize,
+}
+
+impl Default for RetentionPolicy {
+    fn default() -> Self {
+        Self {
+            hourly: 24,
+            daily: 30,
+            monthly: 12,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct RetentionReport {
+    pub backup_root: PathBuf,
+    pub retained: Vec<PathBuf>,
+    pub pruned: Vec<PathBuf>,
+    pub ignored: Vec<PathBuf>,
+    pub dry_run: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct RecoveryDrillReport {
+    pub backup_path: PathBuf,
+    pub inventory_sha256: Option<[u8; 32]>,
+    pub started_at: time::OffsetDateTime,
+    pub completed_at: time::OffsetDateTime,
+    pub elapsed_milliseconds: u64,
+    pub restored_files: u64,
+    pub restored_bytes: u64,
+    pub success: bool,
+    pub error: Option<String>,
+    pub report_path: PathBuf,
+}
+
 pub struct BackupManager;
 
 impl BackupManager {
@@ -178,6 +218,117 @@ impl BackupManager {
         result
     }
 
+    pub fn apply_retention(
+        backup_root: impl AsRef<Path>,
+        policy: RetentionPolicy,
+        dry_run: bool,
+    ) -> Result<RetentionReport> {
+        ensure!(
+            policy.hourly > 0 && policy.daily > 0 && policy.monthly > 0,
+            "backup retention counts must be positive"
+        );
+        let backup_root = fs::canonicalize(backup_root.as_ref())?;
+        let mut points = Vec::new();
+        let mut ignored = Vec::new();
+        for entry in fs::read_dir(&backup_root)? {
+            let entry = entry?;
+            let path = entry.path();
+            let metadata = fs::symlink_metadata(&path)?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                ignored.push(path);
+                continue;
+            }
+            match load_inventory(&path) {
+                Ok(inventory) => points.push((path, inventory.created_at)),
+                Err(_) => ignored.push(path),
+            }
+        }
+        points.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+        let retained_indexes = retained_indexes(&points, policy);
+        let mut retained = Vec::new();
+        let mut pruned = Vec::new();
+        for (index, (path, _)) in points.into_iter().enumerate() {
+            if retained_indexes.contains(&index) {
+                retained.push(path);
+            } else {
+                pruned.push(path);
+            }
+        }
+        ignored.sort();
+        if !dry_run {
+            for path in &pruned {
+                let resolved = fs::canonicalize(path)?;
+                ensure!(
+                    resolved.parent() == Some(backup_root.as_path()),
+                    "retention candidate escaped the backup root: {}",
+                    resolved.display()
+                );
+                fs::remove_dir_all(&resolved)?;
+            }
+        }
+        Ok(RetentionReport {
+            backup_root,
+            retained,
+            pruned,
+            ignored,
+            dry_run,
+        })
+    }
+
+    pub fn recovery_drill(
+        backup_path: impl AsRef<Path>,
+        drill_root: impl AsRef<Path>,
+        now: time::OffsetDateTime,
+    ) -> Result<RecoveryDrillReport> {
+        let started = std::time::Instant::now();
+        let backup_path = fs::canonicalize(backup_path.as_ref())?;
+        fs::create_dir_all(drill_root.as_ref())?;
+        let drill_root = fs::canonicalize(drill_root.as_ref())?;
+        ensure!(
+            !drill_root.starts_with(&backup_path),
+            "drill root cannot be inside the selected backup"
+        );
+        let drill_id = uuid::Uuid::now_v7();
+        let destination = drill_root.join(format!("restore-{drill_id}"));
+        let reports = drill_root.join("reports");
+        fs::create_dir_all(&reports)?;
+        let report_path = reports.join(format!("{}-{drill_id}.json", now.unix_timestamp_nanos()));
+        let result = Self::restore_isolated(&backup_path, &destination);
+        let completed_at = time::OffsetDateTime::now_utc();
+        let (inventory_sha256, restored_files, restored_bytes, success, error) = match result {
+            Ok(restored) => {
+                let resolved = fs::canonicalize(&restored.destination)?;
+                ensure!(
+                    resolved.parent() == Some(drill_root.as_path()),
+                    "drill restore escaped its work root"
+                );
+                fs::remove_dir_all(&resolved)?;
+                (
+                    Some(restored.inventory_sha256),
+                    restored.restored_files,
+                    restored.restored_bytes,
+                    true,
+                    None,
+                )
+            }
+            Err(error) => (None, 0, 0, false, Some(error.to_string())),
+        };
+        let report = RecoveryDrillReport {
+            backup_path,
+            inventory_sha256,
+            started_at: now,
+            completed_at,
+            elapsed_milliseconds: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            restored_files,
+            restored_bytes,
+            success,
+            error,
+            report_path: report_path.clone(),
+        };
+        write_synced(&report_path, &serde_json::to_vec_pretty(&report)?)?;
+        Ok(report)
+    }
+
     fn verify_at(backup_path: &Path, now: time::OffsetDateTime) -> Result<VerificationReport> {
         let backup_path = fs::canonicalize(backup_path)?;
         let inventory = load_inventory(&backup_path)?;
@@ -223,6 +374,31 @@ impl BackupManager {
             verified_at: now,
         })
     }
+}
+
+fn retained_indexes(
+    points: &[(PathBuf, time::OffsetDateTime)],
+    policy: RetentionPolicy,
+) -> BTreeSet<usize> {
+    let mut retained = BTreeSet::new();
+    let mut hours = BTreeSet::new();
+    let mut days = BTreeSet::new();
+    let mut months = BTreeSet::new();
+    for (index, (_, created_at)) in points.iter().enumerate() {
+        let hour = created_at.unix_timestamp().div_euclid(3_600);
+        let day = created_at.unix_timestamp().div_euclid(86_400);
+        let month = (created_at.year(), created_at.month() as u8);
+        if hours.len() < policy.hourly && hours.insert(hour) {
+            retained.insert(index);
+        }
+        if days.len() < policy.daily && days.insert(day) {
+            retained.insert(index);
+        }
+        if months.len() < policy.monthly && months.insert(month) {
+            retained.insert(index);
+        }
+    }
+    retained
 }
 
 fn collect_files(root: &Path, excluded_root: Option<&Path>) -> Result<Vec<PathBuf>> {

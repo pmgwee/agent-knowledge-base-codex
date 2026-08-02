@@ -17,3 +17,15 @@ bounded to 300 ms, three results, and 600 tokens. Weak, stale, duplicate,
 uncited, cross-scoped, or oversized results inject nothing. Cache loss or safe
 provider removal changes no canonical event, memory, correction, task, lease,
 or Obsidian projection.
+
+```powershell
+brain providers configure-llm-wiki --project <id-or-path> --vault D:\LLMWikiVault
+brain providers status --project <id-or-path>
+brain providers disable --project <id-or-path> llm-wiki
+brain providers remove --project <id-or-path> llm-wiki
+```
+
+The configured vault must exist outside `BRAIN_HOME`. Disable preserves the
+configuration for later use. Remove resets the AgentBrain configuration and
+deletes only its cached result rows; it never deletes or edits the LLM Wiki
+vault.

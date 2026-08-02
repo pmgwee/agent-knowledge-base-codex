@@ -22,3 +22,23 @@ SQLite integrity failure leaves the active brain untouched.
 Never copy `*-wal` or `*-shm` files manually. They are intentionally excluded
 because the online SQLite backup already captures a consistent committed
 boundary.
+
+Operator commands:
+
+```powershell
+brain backup maintain --root D:\AgentBrainBackups
+brain backup prune --root D:\AgentBrainBackups
+brain backup prune --root D:\AgentBrainBackups --apply
+brain backup drill --backup D:\AgentBrainBackups\<restore-point> --work-root D:\AgentBrainDrills
+```
+
+`maintain` creates and verifies a restore point, then applies the locked
+24-hour/30-day/12-month policy. `prune` is a dry run unless `--apply` is
+present. Retention ignores unknown files, symlinks, staging directories, and
+directories without a valid inventory. It removes only direct children of the
+resolved backup root.
+
+The drill command always writes a JSON success/failure report under
+`<work-root>\reports`. A successful isolated restore is removed only after its
+hashes and SQLite databases pass verification. The backup itself and active
+`BRAIN_HOME` are never modified.
