@@ -8,6 +8,7 @@ pub struct ServiceHealth {
     pub started_at: time::OffsetDateTime,
     pub projects: BTreeMap<String, ProjectHealth>,
     pub sources: BTreeMap<String, SourceHealth>,
+    pub operations: OperationalHealth,
 }
 
 impl ServiceHealth {
@@ -16,15 +17,18 @@ impl ServiceHealth {
             started_at: time::OffsetDateTime::now_utc(),
             projects: BTreeMap::new(),
             sources: BTreeMap::new(),
+            operations: OperationalHealth::default(),
         }
     }
 
     pub fn is_healthy(&self) -> bool {
-        self.sources.values().all(|source| {
-            source.capture_gaps == 0
-                && source.active_schema_drift.is_none()
-                && source.last_error.is_none()
-        })
+        !self.operations.degradation.capture_blocked
+            && self.operations.disk_probe_error.is_none()
+            && self.sources.values().all(|source| {
+                source.capture_gaps == 0
+                    && source.active_schema_drift.is_none()
+                    && source.last_error.is_none()
+            })
     }
 
     pub(crate) fn record_batch(&mut self, update: BatchHealthUpdate) {
@@ -145,6 +149,35 @@ impl ServiceHealth {
             source.schema_fingerprint = Some(fingerprint);
         }
     }
+
+    pub(crate) fn record_disk(
+        &mut self,
+        sample: Option<crate::DiskSample>,
+        degradation: crate::DegradationState,
+        error: Option<String>,
+    ) {
+        self.operations.disk = sample;
+        self.operations.degradation = degradation;
+        self.operations.disk_probe_error = error;
+        self.operations.last_pressure_check_at = Some(time::OffsetDateTime::now_utc());
+    }
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct OperationalHealth {
+    pub disk: Option<crate::DiskSample>,
+    pub degradation: crate::DegradationState,
+    pub disk_probe_error: Option<String>,
+    pub last_pressure_check_at: Option<time::OffsetDateTime>,
+    pub last_backup_at: Option<time::OffsetDateTime>,
+    pub last_restore_drill_at: Option<time::OffsetDateTime>,
+    pub last_restore_drill_succeeded: Option<bool>,
+    pub consolidation_backlog: u64,
+    pub projection_lag_seconds: Option<u64>,
+    pub provider_failures: u64,
+    pub hook_latency_p50_ms: Option<u64>,
+    pub hook_latency_p95_ms: Option<u64>,
+    pub hook_latency_p99_ms: Option<u64>,
 }
 
 pub(crate) struct BatchHealthUpdate {

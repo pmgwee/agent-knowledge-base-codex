@@ -46,6 +46,10 @@ pub struct CaptureSupervisor {
     source_locks: HashMap<String, tokio::sync::Mutex<()>>,
     config: CaptureServiceConfig,
     health: Mutex<ServiceHealth>,
+    pressure: Mutex<crate::PressureController>,
+    disk_probe: Arc<dyn crate::DiskProbe>,
+    storage_roots: Vec<PathBuf>,
+    degradation_tx: tokio::sync::watch::Sender<crate::DegradationState>,
 }
 
 impl CaptureSupervisor {
@@ -56,6 +60,20 @@ impl CaptureSupervisor {
     pub fn with_config(
         bindings: Vec<CaptureBinding>,
         config: CaptureServiceConfig,
+    ) -> Result<Self> {
+        Self::with_config_and_disk_probe(
+            bindings,
+            config,
+            crate::PressurePolicy::default(),
+            Arc::new(crate::FilesystemDiskProbe),
+        )
+    }
+
+    pub fn with_config_and_disk_probe(
+        bindings: Vec<CaptureBinding>,
+        config: CaptureServiceConfig,
+        pressure_policy: crate::PressurePolicy,
+        disk_probe: Arc<dyn crate::DiskProbe>,
     ) -> Result<Self> {
         config.validate()?;
         let mut stores = HashMap::new();
@@ -140,16 +158,30 @@ impl CaptureSupervisor {
             .iter()
             .map(|binding| (binding.source_key(), tokio::sync::Mutex::new(())))
             .collect();
+        let mut storage_roots = bindings
+            .iter()
+            .filter_map(|binding| binding.ledger_path.parent().map(Path::to_path_buf))
+            .collect::<Vec<_>>();
+        storage_roots.sort();
+        storage_roots.dedup();
+        let (degradation_tx, _) = tokio::sync::watch::channel(crate::DegradationState::default());
         Ok(Self {
             bindings,
             stores,
             source_locks,
             config,
             health: Mutex::new(health),
+            pressure: Mutex::new(crate::PressureController::new(pressure_policy)?),
+            disk_probe,
+            storage_roots,
+            degradation_tx,
         })
     }
 
     pub async fn capture_once(&self) -> Result<()> {
+        if self.evaluate_pressure()? {
+            return Ok(());
+        }
         for binding in &self.bindings {
             let source_key = binding.source_key();
             let _source_guard = self
@@ -341,6 +373,49 @@ impl CaptureSupervisor {
                 .enqueue_inactivity_job(now, time::Duration::minutes(30))?;
         }
         Ok(())
+    }
+
+    fn evaluate_pressure(&self) -> Result<bool> {
+        let sample = self
+            .storage_roots
+            .iter()
+            .filter_map(|root| self.disk_probe.sample(root).ok())
+            .min_by(|left, right| {
+                left.available_percent()
+                    .total_cmp(&right.available_percent())
+                    .then_with(|| left.available_bytes.cmp(&right.available_bytes))
+            });
+        let mut pressure = self
+            .pressure
+            .lock()
+            .map_err(|_| anyhow::anyhow!("pressure controller lock is poisoned"))?;
+        let (state, error) = if let Some(sample) = sample {
+            (pressure.evaluate(sample), None)
+        } else if self.storage_roots.is_empty() {
+            (pressure.state(), None)
+        } else {
+            (
+                pressure.state(),
+                Some("disk free-space probe failed for every ledger root".to_owned()),
+            )
+        };
+        self.health
+            .lock()
+            .map_err(|_| anyhow::anyhow!("service health lock is poisoned"))?
+            .record_disk(sample, state, error);
+        self.degradation_tx.send_if_modified(|current| {
+            if *current == state {
+                false
+            } else {
+                *current = state;
+                true
+            }
+        });
+        Ok(state.capture_blocked)
+    }
+
+    pub fn degradation_receiver(&self) -> tokio::sync::watch::Receiver<crate::DegradationState> {
+        self.degradation_tx.subscribe()
     }
 
     pub async fn run(self: Arc<Self>, shutdown: tokio::sync::watch::Receiver<bool>) -> Result<()> {

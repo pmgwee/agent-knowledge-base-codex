@@ -126,7 +126,17 @@ impl GlobalPreferenceNoteWatcher {
 pub async fn run_notes_and_projections(
     config: crate::ServiceLaunchConfig,
     brain_home: PathBuf,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<()> {
+    let (_, pressure) = tokio::sync::watch::channel(crate::DegradationState::default());
+    run_notes_and_projections_with_pressure(config, brain_home, shutdown, pressure).await
+}
+
+pub async fn run_notes_and_projections_with_pressure(
+    config: crate::ServiceLaunchConfig,
+    brain_home: PathBuf,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
+    pressure: tokio::sync::watch::Receiver<crate::DegradationState>,
 ) -> Result<()> {
     let vault_root = brain_home.join("vault");
     let projector = brain_store::MarkdownProjector::new(&vault_root);
@@ -146,6 +156,9 @@ pub async fn run_notes_and_projections(
                 }
             }
             _ = interval.tick() => {
+                if pressure.borrow().markdown_projection_paused {
+                    continue;
+                }
                 match GlobalPreferenceStore::open(&global_store_path) {
                     Ok(mut store) => {
                         if let Err(error) = global_watcher.scan_once(&mut store, time::OffsetDateTime::now_utc()) {

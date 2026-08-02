@@ -3,8 +3,8 @@ use std::sync::Arc;
 use brain_domain::BrainConfig;
 use brain_service::{
     CaptureSupervisor, HookPipeServer, ProjectHookHandler, ServiceLaunchConfig,
-    build_capture_bindings, build_hook_bindings, run_configured_consolidation,
-    run_notes_and_projections,
+    build_capture_bindings, build_hook_bindings, run_configured_consolidation_with_pressure,
+    run_notes_and_projections_with_pressure,
 };
 
 #[tokio::main]
@@ -20,6 +20,8 @@ async fn main() -> anyhow::Result<()> {
     let brain_home = BrainConfig::brain_home()?;
     let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
     let capture = Arc::new(CaptureSupervisor::new(build_capture_bindings(&config)?)?);
+    let consolidation_pressure = capture.degradation_receiver();
+    let projection_pressure = capture.degradation_receiver();
     let mut hook_bindings = build_hook_bindings(&config);
     let global_preferences_path = brain_home
         .join("global-preferences")
@@ -48,8 +50,17 @@ async fn main() -> anyhow::Result<()> {
             async move { handler.handle(&envelope) }
         }),
         Arc::clone(&capture).run(shutdown_rx),
-        run_configured_consolidation(consolidation_config, consolidation_shutdown),
-        run_notes_and_projections(projection_config, brain_home, projection_shutdown)
+        run_configured_consolidation_with_pressure(
+            consolidation_config,
+            consolidation_shutdown,
+            consolidation_pressure,
+        ),
+        run_notes_and_projections_with_pressure(
+            projection_config,
+            brain_home,
+            projection_shutdown,
+            projection_pressure,
+        )
     )?;
     Ok(())
 }

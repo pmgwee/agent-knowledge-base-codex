@@ -93,7 +93,16 @@ impl ConsolidationWorker {
 
 pub async fn run_configured_consolidation(
     config: ServiceLaunchConfig,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<()> {
+    let (_, pressure) = tokio::sync::watch::channel(crate::DegradationState::default());
+    run_configured_consolidation_with_pressure(config, shutdown, pressure).await
+}
+
+pub async fn run_configured_consolidation_with_pressure(
+    config: ServiceLaunchConfig,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
+    pressure: tokio::sync::watch::Receiver<crate::DegradationState>,
 ) -> Result<()> {
     let Some(provider) = config.consolidation.clone() else {
         while shutdown.changed().await.is_ok() {
@@ -132,6 +141,9 @@ pub async fn run_configured_consolidation(
                 }
             }
             _ = interval.tick() => {
+                if pressure.borrow().consolidation_paused {
+                    continue;
+                }
                 for project in &config.projects {
                     let mut ledger = EventLedger::open(&project.ledger_path, project.project_id)?;
                     for _ in 0..8 {
