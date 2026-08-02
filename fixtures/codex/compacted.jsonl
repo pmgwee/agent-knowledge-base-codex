@@ -1,0 +1,4 @@
+{"timestamp":"2026-08-02T02:00:00Z","type":"session_meta","payload":{"id":"codex-session-compact","session_id":"codex-session-compact","timestamp":"2026-08-02T02:00:00Z","cwd":"C:\\fixture\\project","cli_version":"fixture","model_provider":"fixture"}}
+{"timestamp":"2026-08-02T02:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"continue OAuth callback","images":[],"local_images":[],"audio":[],"local_audio":[],"text_elements":[]}}
+{"timestamp":"2026-08-02T02:00:02Z","type":"event_msg","payload":{"type":"context_compacted"}}
+{"timestamp":"2026-08-02T02:00:03Z","type":"compacted","payload":{"message":"context compacted","replacement_history":[{"type":"message","role":"user","content":"redacted fixture history"}],"previous_window_id":"window-1","window_id":"window-2","window_number":2}}

@@ -78,6 +78,8 @@ pub enum EventType {
     TaskCompleted,
     #[serde(rename = "checkpoint.authored")]
     CheckpointAuthored,
+    #[serde(rename = "evidence.opaque")]
+    OpaqueEvidence,
     #[serde(rename = "schema.unknown")]
     SchemaUnknown,
     #[serde(rename = "capture.gap")]
@@ -115,6 +117,7 @@ impl EventType {
             Self::TaskReleased => "task.released",
             Self::TaskCompleted => "task.completed",
             Self::CheckpointAuthored => "checkpoint.authored",
+            Self::OpaqueEvidence => "evidence.opaque",
             Self::SchemaUnknown => "schema.unknown",
             Self::CaptureGap => "capture.gap",
         }
@@ -150,6 +153,7 @@ impl EventType {
             "task.released" => Self::TaskReleased,
             "task.completed" => Self::TaskCompleted,
             "checkpoint.authored" => Self::CheckpointAuthored,
+            "evidence.opaque" => Self::OpaqueEvidence,
             "schema.unknown" => Self::SchemaUnknown,
             "capture.gap" => Self::CaptureGap,
             _ => return None,

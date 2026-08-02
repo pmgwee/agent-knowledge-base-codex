@@ -1,5 +1,5 @@
 use brain_adapters::{
-    AdapterConformanceSubject, ClaudeAdapter, NormalizeContext, SourceDescriptor,
+    AdapterConformanceSubject, ClaudeAdapter, CodexAdapter, NormalizeContext, SourceDescriptor,
     assert_adapter_conformance,
 };
 use brain_domain::{ProjectId, WorktreeId};
@@ -26,10 +26,37 @@ fn claude_satisfies_the_source_adapter_contract() {
     assert_eq!(report.worktree_id, worktree_id);
 }
 
+#[test]
+fn codex_satisfies_the_source_adapter_contract() {
+    let root = codex_fixture_root();
+    let adapter = CodexAdapter::new(vec![root.clone()]);
+    let report = assert_adapter_conformance(AdapterConformanceSubject {
+        adapter: &adapter,
+        source: SourceDescriptor::file(root.join("rollout.jsonl")),
+        context: NormalizeContext {
+            project_id: ProjectId(uuid::Uuid::now_v7()),
+            worktree_id: WorktreeId(uuid::Uuid::now_v7()),
+            source_schema: "codex-rollout:conformance".to_owned(),
+        },
+    })
+    .expect("Codex adapter conforms");
+
+    assert!(report.raw_records > 0);
+    assert!(report.normalized_events > 0);
+}
+
 fn fixture_root() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
         .join("fixtures")
         .join("claude")
+}
+
+fn codex_fixture_root() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("fixtures")
+        .join("codex")
 }

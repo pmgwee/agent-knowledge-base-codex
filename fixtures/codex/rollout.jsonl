@@ -1,0 +1,7 @@
+{"timestamp":"2026-08-02T01:00:00Z","type":"session_meta","payload":{"id":"codex-session-1","session_id":"codex-session-1","timestamp":"2026-08-02T01:00:00Z","cwd":"C:\\fixture\\project","cli_version":"fixture","model_provider":"fixture","git":{"branch":"main","commit_hash":"abc123"}}}
+{"timestamp":"2026-08-02T01:00:01Z","type":"turn_context","payload":{"turn_id":"turn-1","cwd":"C:\\fixture\\project","model":"fixture-model","summary":"continue the registered task"}}
+{"timestamp":"2026-08-02T01:00:02Z","type":"event_msg","payload":{"type":"user_message","message":"implement auth callback","images":[],"local_images":[],"audio":[],"local_audio":[],"text_elements":[]}}
+{"timestamp":"2026-08-02T01:00:03Z","type":"response_item","payload":{"type":"message","role":"assistant","id":"message-1","content":[{"type":"output_text","text":"tests failed"}],"phase":"final_answer"}}
+{"timestamp":"2026-08-02T01:00:04Z","type":"response_item","payload":{"type":"function_call","name":"shell_command","arguments":"{\"command\":\"cargo test\"}","call_id":"call-1","id":"item-1"}}
+{"timestamp":"2026-08-02T01:00:05Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","id":"item-2","output":{"content":"exit code 1","success":false}}}
+{"timestamp":"2026-08-02T01:00:06Z","type":"world_state","payload":{"full":true,"state":{"checkpoint":"tests failed; next inspect callback"}}}
