@@ -227,14 +227,15 @@ impl EventLedger {
                 r#"
                 SELECT e.event_id, e.worktree_id, e.task_id, e.native_session_id,
                        e.harness, e.event_type, e.occurred_at_ns, e.observed_at_ns,
-                       coalesce(
+                       coalesce(nullif(c.path, ''),
                            json_extract(e.payload_json, '$.path'),
                            json_extract(e.payload_json, '$.file_path'),
                            e.source_locator
-                       ), e.payload_json,
+                       ), coalesce(nullif(c.search_text, ''), e.payload_json),
                        -bm25(event_search, 0.0, 1.0, 2.0, 2.0, 0.5)
                 FROM event_search
                 JOIN events e ON e.rowid = event_search.rowid
+                LEFT JOIN event_segment_catalog c ON c.event_id = e.event_id
                 WHERE e.project_id = ?1 AND event_search MATCH ?2
                   AND (?3 IS NULL OR e.occurred_at_ns >= ?3)
                   AND (?4 IS NULL OR e.occurred_at_ns < ?4)
@@ -251,12 +252,13 @@ impl EventLedger {
                 r#"
                 SELECT e.event_id, e.worktree_id, e.task_id, e.native_session_id,
                        e.harness, e.event_type, e.occurred_at_ns, e.observed_at_ns,
-                       coalesce(
+                       coalesce(nullif(c.path, ''),
                            json_extract(e.payload_json, '$.path'),
                            json_extract(e.payload_json, '$.file_path'),
                            e.source_locator
-                       ), e.payload_json, 0.0
+                       ), coalesce(nullif(c.search_text, ''), e.payload_json), 0.0
                 FROM events e
+                LEFT JOIN event_segment_catalog c ON c.event_id = e.event_id
                 WHERE e.project_id = ?1
                   AND (?3 IS NULL OR e.occurred_at_ns >= ?3)
                   AND (?4 IS NULL OR e.occurred_at_ns < ?4)

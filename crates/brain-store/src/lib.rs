@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 mod basic_memory;
+mod blob;
+mod catalog;
 mod cursor;
 mod jobs;
 mod ledger;
@@ -9,11 +11,14 @@ mod memory;
 mod migrations;
 mod notes;
 mod search;
+mod segment;
 
 pub use basic_memory::{
     BASIC_MEMORY_PINNED_VERSION, BasicMemoryCli, BasicMemoryIndexer, BasicMemoryReport,
     BasicMemoryState, ProcessBasicMemoryCli,
 };
+pub use blob::{BlobRecord, BlobStore};
+pub use catalog::{CatalogEvent, SegmentCatalog};
 pub use jobs::{ConsolidationJob, ConsolidationReason, JobStatus, RedactionManifestEntry};
 pub use ledger::{AppendResult, EventLedger, StoredEvent};
 pub use markdown::{
@@ -21,3 +26,6 @@ pub use markdown::{
 };
 pub use memory::GlobalPreferenceStore;
 pub use search::{SearchHit, SearchQuery, SearchSource, SearchSourceFilter, TimeRange};
+pub use segment::{
+    SEGMENT_FORMAT_VERSION, SegmentManifest, SegmentSealReport, SegmentStore, should_seal,
+};

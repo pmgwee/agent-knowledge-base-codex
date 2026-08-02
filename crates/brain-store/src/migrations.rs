@@ -285,6 +285,50 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_path_claims_project_active
             ON path_claims(project_id, released_at_ns, normalized_value);
 
+        CREATE TABLE IF NOT EXISTS sealed_segments (
+            segment_id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            manifest_path TEXT NOT NULL UNIQUE,
+            data_path TEXT NOT NULL UNIQUE,
+            first_event_id TEXT NOT NULL REFERENCES events(event_id),
+            last_event_id TEXT NOT NULL REFERENCES events(event_id),
+            event_count INTEGER NOT NULL CHECK(event_count > 0),
+            occurred_min_ns INTEGER NOT NULL,
+            occurred_max_ns INTEGER NOT NULL,
+            compressed_sha256 BLOB NOT NULL CHECK(length(compressed_sha256) = 32),
+            uncompressed_sha256 BLOB NOT NULL CHECK(length(uncompressed_sha256) = 32),
+            compressed_bytes INTEGER NOT NULL,
+            uncompressed_bytes INTEGER NOT NULL,
+            published_at_ns INTEGER NOT NULL,
+            UNIQUE(project_id, first_event_id, last_event_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sealed_segments_project_time
+            ON sealed_segments(project_id, occurred_min_ns, occurred_max_ns);
+
+        CREATE TABLE IF NOT EXISTS event_segment_catalog (
+            event_id TEXT PRIMARY KEY NOT NULL REFERENCES events(event_id),
+            project_id TEXT NOT NULL,
+            segment_id TEXT NOT NULL REFERENCES sealed_segments(segment_id),
+            line_number INTEGER NOT NULL CHECK(line_number >= 0),
+            raw_hash BLOB NOT NULL CHECK(length(raw_hash) = 32),
+            search_text TEXT NOT NULL DEFAULT '',
+            path TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_event_segment_catalog_project_segment
+            ON event_segment_catalog(project_id, segment_id, line_number);
+
+        CREATE TABLE IF NOT EXISTS project_blob_refs (
+            project_id TEXT NOT NULL,
+            raw_sha256 BLOB NOT NULL CHECK(length(raw_sha256) = 32),
+            mime TEXT NOT NULL,
+            raw_bytes INTEGER NOT NULL,
+            compressed_bytes INTEGER NOT NULL,
+            created_at_ns INTEGER NOT NULL,
+            PRIMARY KEY(project_id, raw_sha256)
+        );
+
         CREATE VIRTUAL TABLE IF NOT EXISTS event_search USING fts5(
             scope_token,
             content,
@@ -381,7 +425,43 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             VALUES (6, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (7, datetime('now'));
+        INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+            VALUES (8, datetime('now'));
         "#,
     )?;
+    ensure_column(
+        connection,
+        "events",
+        "archived",
+        "ALTER TABLE events ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_column(
+        connection,
+        "event_segment_catalog",
+        "search_text",
+        "ALTER TABLE event_segment_catalog ADD COLUMN search_text TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_column(
+        connection,
+        "event_segment_catalog",
+        "path",
+        "ALTER TABLE event_segment_catalog ADD COLUMN path TEXT NOT NULL DEFAULT ''",
+    )?;
+    Ok(())
+}
+
+fn ensure_column(
+    connection: &rusqlite::Connection,
+    table: &str,
+    column: &str,
+    statement: &str,
+) -> anyhow::Result<()> {
+    let mut query = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let names = query
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !names.iter().any(|name| name == column) {
+        connection.execute_batch(statement)?;
+    }
     Ok(())
 }

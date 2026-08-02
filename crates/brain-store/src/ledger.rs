@@ -22,7 +22,7 @@ pub struct AppendResult {
     pub capture_gaps: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct StoredEvent {
     pub event_id: uuid::Uuid,
     pub project_id: ProjectId,
