@@ -2,14 +2,12 @@ use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use anyhow::Result;
-use brain_domain::{EventType, MemoryRecord, ProjectId};
+use brain_context::{ConsolidationLlm, EvidencePacket, RedactedEvidence, validate_proposed_batch};
 use brain_store::{ConsolidationJob, EventLedger, JobStatus, RedactionManifestEntry, StoredEvent};
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
-pub trait MemoryProposer {
-    fn propose(&self, packet: &EvidencePacket) -> Result<Vec<MemoryRecord>>;
-}
+use crate::{ConsolidationProviderConfig, ServiceLaunchConfig};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConsolidationCrashPoint {
@@ -26,30 +24,6 @@ pub enum WorkerOutcome {
     SimulatedCrash(uuid::Uuid),
 }
 
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct EvidencePacket {
-    pub job_id: uuid::Uuid,
-    pub project_id: ProjectId,
-    pub events: Vec<RedactedEvidence>,
-    #[serde(skip)]
-    pub redactions: Vec<RedactionManifestEntry>,
-}
-
-impl EvidencePacket {
-    pub fn serialized(&self) -> String {
-        serde_json::to_string(self).expect("evidence packet serialization is infallible")
-    }
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct RedactedEvidence {
-    pub event_id: uuid::Uuid,
-    pub event_type: EventType,
-    pub occurred_at: time::OffsetDateTime,
-    pub payload: serde_json::Value,
-    pub raw: serde_json::Value,
-}
-
 pub struct ConsolidationWorker {
     worker_id: String,
     lease_duration: time::Duration,
@@ -63,10 +37,10 @@ impl ConsolidationWorker {
         }
     }
 
-    pub fn run_once(
+    pub async fn run_once(
         &self,
         ledger: &mut EventLedger,
-        proposer: &dyn MemoryProposer,
+        proposer: &dyn ConsolidationLlm,
         now: time::OffsetDateTime,
         crash_point: ConsolidationCrashPoint,
     ) -> Result<WorkerOutcome> {
@@ -76,10 +50,13 @@ impl ConsolidationWorker {
             return Ok(WorkerOutcome::Idle);
         };
         let events = ledger.events_between(job.first_event_id, job.last_event_id)?;
-        let packet = EvidencePacket::from_events(&job, events);
+        let packet = packet_from_events(&job, events);
         ledger.record_redaction_manifest(job.id, &packet.redactions)?;
-        let proposed = match proposer.propose(&packet) {
-            Ok(proposed) => proposed,
+        let proposed = match proposer.propose(&packet).await {
+            Ok(proposed) => match validate_proposed_batch(&packet, proposed) {
+                Ok(proposed) => proposed,
+                Err(error) => return self.fail(ledger, &job, &error.to_string(), now),
+            },
             Err(error) => return self.fail(ledger, &job, &error.to_string(), now),
         };
         for memory in &proposed {
@@ -114,27 +91,92 @@ impl ConsolidationWorker {
     }
 }
 
-impl EvidencePacket {
-    fn from_events(job: &ConsolidationJob, events: Vec<StoredEvent>) -> Self {
-        let mut redactions = Vec::new();
-        let events = events
-            .into_iter()
-            .map(|event| RedactedEvidence {
-                event_id: event.event_id,
-                event_type: event.event_type,
-                occurred_at: event.occurred_at,
-                payload: redact_value(event.payload, &mut redactions),
-                raw: redact_value(event.raw, &mut redactions),
-            })
-            .collect();
-        let mut seen = HashSet::new();
-        redactions.retain(|entry| seen.insert((entry.category.clone(), entry.token_hash)));
-        Self {
-            job_id: job.id,
-            project_id: job.project_id,
-            events,
-            redactions,
+pub async fn run_configured_consolidation(
+    config: ServiceLaunchConfig,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<()> {
+    let Some(provider) = config.consolidation.clone() else {
+        while shutdown.changed().await.is_ok() {
+            if *shutdown.borrow() {
+                break;
+            }
         }
+        return Ok(());
+    };
+    let llm: std::sync::Arc<dyn ConsolidationLlm> = match provider {
+        ConsolidationProviderConfig::Glm {
+            endpoint,
+            model,
+            api_key_env,
+            timeout_ms,
+            max_retries,
+        } => std::sync::Arc::new(brain_context::GlmClient::new(brain_context::GlmConfig {
+            endpoint,
+            model,
+            api_key_env,
+            timeout: std::time::Duration::from_millis(timeout_ms),
+            max_retries,
+        })?),
+    };
+    let worker = ConsolidationWorker::new(
+        format!("service-{}", std::process::id()),
+        time::Duration::minutes(2),
+    );
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            changed = shutdown.changed() => {
+                if changed.is_err() || *shutdown.borrow() {
+                    return Ok(());
+                }
+            }
+            _ = interval.tick() => {
+                for project in &config.projects {
+                    let mut ledger = EventLedger::open(&project.ledger_path, project.project_id)?;
+                    for _ in 0..8 {
+                        match worker
+                            .run_once(
+                                &mut ledger,
+                                llm.as_ref(),
+                                time::OffsetDateTime::now_utc(),
+                                ConsolidationCrashPoint::None,
+                            )
+                            .await?
+                        {
+                            WorkerOutcome::Idle => break,
+                            WorkerOutcome::Completed(_)
+                            | WorkerOutcome::RetryScheduled(_)
+                            | WorkerOutcome::DeadLetter(_)
+                            | WorkerOutcome::SimulatedCrash(_) => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn packet_from_events(job: &ConsolidationJob, events: Vec<StoredEvent>) -> EvidencePacket {
+    let mut redactions = Vec::new();
+    let events = events
+        .into_iter()
+        .map(|event| RedactedEvidence {
+            event_id: event.event_id,
+            event_type: event.event_type,
+            occurred_at: event.occurred_at,
+            payload: redact_value(event.payload, &mut redactions),
+            raw: redact_value(event.raw, &mut redactions),
+        })
+        .collect();
+    let mut seen = HashSet::new();
+    redactions.retain(|entry| seen.insert((entry.category.clone(), entry.token_hash)));
+    EvidencePacket {
+        job_id: job.id,
+        project_id: job.project_id,
+        events,
+        redactions,
+        allowed_supersession_ids: Vec::new(),
     }
 }
 

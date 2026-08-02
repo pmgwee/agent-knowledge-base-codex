@@ -158,6 +158,12 @@ impl EventLedger {
     pub fn current_memory(&self, memory_id: uuid::Uuid) -> Result<Option<MemoryRecord>> {
         Ok(self.memory_versions(memory_id)?.pop())
     }
+
+    pub fn memory_count(&self) -> Result<u64> {
+        Ok(self
+            .connection
+            .query_row("SELECT COUNT(*) FROM memory_records", [], |row| row.get(0))?)
+    }
 }
 
 pub struct GlobalPreferenceStore {

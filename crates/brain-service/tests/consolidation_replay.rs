@@ -1,84 +1,75 @@
 use brain_domain::{
-    Authority, EventBatch, EventType, Harness, MemoryKind, MemoryRecord, MemoryScope, MemoryStatus,
-    NormalizedEvent, ProjectId, SourceCursor, WorktreeId,
+    EventBatch, EventType, Harness, MemoryKind, NormalizedEvent, ProjectId, SourceCursor,
+    WorktreeId,
 };
 use brain_service::{
-    ConsolidationCrashPoint, ConsolidationWorker, EvidencePacket, MemoryProposer, WorkerOutcome,
+    ConsolidationCrashPoint, ConsolidationLlm, ConsolidationWorker, EvidencePacket, ProposedMemory,
+    ProposedMemoryBatch, WorkerOutcome,
 };
 use brain_store::{ConsolidationReason, EventLedger};
 
 struct FixtureProposer;
 
-impl MemoryProposer for FixtureProposer {
-    fn propose(&self, packet: &EvidencePacket) -> anyhow::Result<Vec<MemoryRecord>> {
+#[async_trait::async_trait]
+impl ConsolidationLlm for FixtureProposer {
+    async fn propose(&self, packet: &EvidencePacket) -> anyhow::Result<ProposedMemoryBatch> {
         assert!(!packet.serialized().contains("sk-super-secret-token"));
         assert!(!packet.redactions.is_empty());
-        let evidence = packet
-            .events
-            .iter()
-            .map(|event| event.event_id)
-            .collect::<Vec<_>>();
-        Ok(vec![MemoryRecord {
-            id: deterministic_id(packet.job_id, 1),
-            version_id: deterministic_id(packet.job_id, 2),
-            scope: MemoryScope::Project(packet.project_id),
-            worktree_id: None,
-            task_id: None,
-            kind: MemoryKind::Checkpoint,
-            title: "Consolidated checkpoint".to_owned(),
-            content: "OAuth callback implementation in progress".to_owned(),
-            valid_from: time::OffsetDateTime::UNIX_EPOCH,
-            valid_to: None,
-            recorded_at: time::OffsetDateTime::UNIX_EPOCH,
-            confidence: 0.9,
-            authority: Authority::DerivedMemory,
-            evidence_ids: evidence,
-            supersedes: Vec::new(),
-            status: MemoryStatus::Current,
-        }])
+        Ok(ProposedMemoryBatch {
+            memories: vec![ProposedMemory {
+                kind: MemoryKind::Checkpoint,
+                title: "Consolidated checkpoint".to_owned(),
+                content: "OAuth callback implementation in progress".to_owned(),
+                valid_from: time::OffsetDateTime::UNIX_EPOCH,
+                confidence: 0.9,
+                evidence_ids: packet.events.iter().map(|event| event.event_id).collect(),
+                supersedes: Vec::new(),
+            }],
+        })
     }
 }
 
-#[test]
-fn crash_after_memory_write_before_job_ack_does_not_duplicate_memory() {
+struct UnavailableProposer;
+
+#[async_trait::async_trait]
+impl ConsolidationLlm for UnavailableProposer {
+    async fn propose(&self, _packet: &EvidencePacket) -> anyhow::Result<ProposedMemoryBatch> {
+        anyhow::bail!("fixture provider is unavailable")
+    }
+}
+
+#[tokio::test]
+async fn crash_after_memory_write_before_job_ack_does_not_duplicate_memory() {
     let project = ProjectId(uuid::Uuid::now_v7());
     let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
-    let event = append_secret_event(&mut ledger, project);
+    let event = append_secret_event(&mut ledger, project, [1; 32]);
     let job = ledger
         .enqueue_consolidation_job(event, event, ConsolidationReason::ExplicitCheckpoint)
         .expect("enqueue consolidation");
     let worker = ConsolidationWorker::new("worker-a", time::Duration::seconds(5));
-    let started_at = job.available_at;
 
     let first = worker
         .run_once(
             &mut ledger,
             &FixtureProposer,
-            started_at,
+            job.available_at,
             ConsolidationCrashPoint::BeforeJobAck,
         )
+        .await
         .expect("simulate crash boundary");
     assert_eq!(first, WorkerOutcome::SimulatedCrash(job.id));
 
-    let restarted = ConsolidationWorker::new("worker-b", time::Duration::seconds(5));
-    let second = restarted
+    let second = ConsolidationWorker::new("worker-b", time::Duration::seconds(5))
         .run_once(
             &mut ledger,
             &FixtureProposer,
-            started_at + time::Duration::seconds(6),
+            job.available_at + time::Duration::seconds(6),
             ConsolidationCrashPoint::None,
         )
+        .await
         .expect("replay expired lease");
     assert_eq!(second, WorkerOutcome::Completed(job.id));
-
-    let memory_id = deterministic_id(job.id, 1);
-    assert_eq!(
-        ledger
-            .memory_versions(memory_id)
-            .expect("read memory")
-            .len(),
-        1
-    );
+    assert_eq!(ledger.memory_count().expect("count memory"), 1);
     assert!(
         ledger
             .redaction_manifest(job.id)
@@ -88,7 +79,33 @@ fn crash_after_memory_write_before_job_ack_does_not_duplicate_memory() {
     );
 }
 
-fn append_secret_event(ledger: &mut EventLedger, project: ProjectId) -> uuid::Uuid {
+#[tokio::test]
+async fn unavailable_provider_leaves_the_job_retryable() {
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    let event = append_secret_event(&mut ledger, project, [2; 32]);
+    let job = ledger
+        .enqueue_consolidation_job(event, event, ConsolidationReason::Inactivity)
+        .expect("enqueue consolidation");
+    let outcome = ConsolidationWorker::new("worker", time::Duration::seconds(5))
+        .run_once(
+            &mut ledger,
+            &UnavailableProposer,
+            job.available_at,
+            ConsolidationCrashPoint::None,
+        )
+        .await
+        .expect("provider outage is contained");
+    assert_eq!(outcome, WorkerOutcome::RetryScheduled(job.id));
+    assert_eq!(ledger.memory_count().expect("count memory"), 0);
+    assert_eq!(ledger.event_count().expect("raw evidence remains"), 1);
+}
+
+fn append_secret_event(
+    ledger: &mut EventLedger,
+    project: ProjectId,
+    idempotency_key: [u8; 32],
+) -> uuid::Uuid {
     let event_id = uuid::Uuid::now_v7();
     ledger
         .append_batch(&EventBatch {
@@ -107,8 +124,8 @@ fn append_secret_event(ledger: &mut EventLedger, project: ProjectId) -> uuid::Uu
                 source_locator: "fixture".to_owned(),
                 source_offset: 1,
                 source_schema: "fixture".to_owned(),
-                raw_hash: [1; 32],
-                idempotency_key: [1; 32],
+                raw_hash: idempotency_key,
+                idempotency_key,
                 git_head: None,
                 git_branch: None,
                 payload: serde_json::json!({"content": "API_KEY=sk-super-secret-token-1234567890"}),
@@ -120,10 +137,4 @@ fn append_secret_event(ledger: &mut EventLedger, project: ProjectId) -> uuid::Uu
         })
         .expect("append secret evidence");
     event_id
-}
-
-fn deterministic_id(seed: uuid::Uuid, discriminator: u8) -> uuid::Uuid {
-    let mut bytes = *seed.as_bytes();
-    bytes[15] ^= discriminator;
-    uuid::Uuid::from_bytes(bytes)
 }

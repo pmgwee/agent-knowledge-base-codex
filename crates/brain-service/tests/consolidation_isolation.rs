@@ -1,10 +1,13 @@
 use std::sync::Mutex;
 
 use brain_domain::{
-    Authority, EventBatch, EventType, Harness, MemoryKind, MemoryRecord, MemoryScope, MemoryStatus,
-    NormalizedEvent, ProjectId, SourceCursor, WorktreeId,
+    EventBatch, EventType, Harness, MemoryKind, NormalizedEvent, ProjectId, SourceCursor,
+    WorktreeId,
 };
-use brain_service::{ConsolidationCrashPoint, ConsolidationWorker, EvidencePacket, MemoryProposer};
+use brain_service::{
+    ConsolidationCrashPoint, ConsolidationLlm, ConsolidationWorker, EvidencePacket, ProposedMemory,
+    ProposedMemoryBatch,
+};
 use brain_store::{ConsolidationReason, EventLedger};
 
 #[derive(Default)]
@@ -12,40 +15,29 @@ struct RecordingProposer {
     projects: Mutex<Vec<ProjectId>>,
 }
 
-impl MemoryProposer for RecordingProposer {
-    fn propose(&self, packet: &EvidencePacket) -> anyhow::Result<Vec<MemoryRecord>> {
+#[async_trait::async_trait]
+impl ConsolidationLlm for RecordingProposer {
+    async fn propose(&self, packet: &EvidencePacket) -> anyhow::Result<ProposedMemoryBatch> {
         self.projects
             .lock()
             .expect("lock projects")
             .push(packet.project_id);
-        let content = packet.serialized();
-        let mut id_bytes = *packet.job_id.as_bytes();
-        id_bytes[15] ^= 1;
-        let memory_id = uuid::Uuid::from_bytes(id_bytes);
-        id_bytes[15] ^= 3;
-        Ok(vec![MemoryRecord {
-            id: memory_id,
-            version_id: uuid::Uuid::from_bytes(id_bytes),
-            scope: MemoryScope::Project(packet.project_id),
-            worktree_id: None,
-            task_id: None,
-            kind: MemoryKind::Timeline,
-            title: "Project timeline".to_owned(),
-            content,
-            valid_from: time::OffsetDateTime::UNIX_EPOCH,
-            valid_to: None,
-            recorded_at: time::OffsetDateTime::UNIX_EPOCH,
-            confidence: 1.0,
-            authority: Authority::DerivedMemory,
-            evidence_ids: packet.events.iter().map(|event| event.event_id).collect(),
-            supersedes: Vec::new(),
-            status: MemoryStatus::Current,
-        }])
+        Ok(ProposedMemoryBatch {
+            memories: vec![ProposedMemory {
+                kind: MemoryKind::Timeline,
+                title: "Project timeline".to_owned(),
+                content: packet.serialized(),
+                valid_from: time::OffsetDateTime::UNIX_EPOCH,
+                confidence: 1.0,
+                evidence_ids: packet.events.iter().map(|event| event.event_id).collect(),
+                supersedes: Vec::new(),
+            }],
+        })
     }
 }
 
-#[test]
-fn consolidation_packets_and_memories_never_mix_projects() {
+#[tokio::test]
+async fn consolidation_packets_and_memories_never_mix_projects() {
     let project_a = ProjectId(uuid::Uuid::now_v7());
     let project_b = ProjectId(uuid::Uuid::now_v7());
     let mut ledger_a = EventLedger::open_in_memory(project_a).expect("open A");
@@ -67,6 +59,7 @@ fn consolidation_packets_and_memories_never_mix_projects() {
             job_a.available_at,
             ConsolidationCrashPoint::None,
         )
+        .await
         .expect("consolidate A");
     worker
         .run_once(
@@ -75,6 +68,7 @@ fn consolidation_packets_and_memories_never_mix_projects() {
             job_b.available_at,
             ConsolidationCrashPoint::None,
         )
+        .await
         .expect("consolidate B");
 
     assert_eq!(

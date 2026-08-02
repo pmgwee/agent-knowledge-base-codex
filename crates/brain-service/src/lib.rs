@@ -9,12 +9,15 @@ mod pipe;
 mod reconcile;
 mod runtime;
 
-pub use capture::{CaptureBinding, CaptureSupervisor};
-pub use config::{CaptureServiceConfig, ServiceLaunchConfig, ServiceProjectConfig};
-pub use consolidation::{
-    ConsolidationCrashPoint, ConsolidationWorker, EvidencePacket, MemoryProposer, RedactedEvidence,
-    WorkerOutcome,
+pub use brain_context::{
+    ConsolidationLlm, EvidencePacket, ProposedMemory, ProposedMemoryBatch, RedactedEvidence,
 };
+pub use capture::{CaptureBinding, CaptureSupervisor};
+pub use config::{
+    CaptureServiceConfig, ConsolidationProviderConfig, ServiceLaunchConfig, ServiceProjectConfig,
+};
+pub use consolidation::run_configured_consolidation;
+pub use consolidation::{ConsolidationCrashPoint, ConsolidationWorker, WorkerOutcome};
 pub use health::{ProjectHealth, ServiceHealth, SourceHealth, source_health_key};
 pub use hook_handler::{ClaudeHookHandler, HookProjectBinding, ProjectHookHandler};
 pub use pipe::HookPipeServer;

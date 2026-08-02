@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use brain_service::{CaptureServiceConfig, ServiceLaunchConfig};
+use brain_service::{CaptureServiceConfig, ConsolidationProviderConfig, ServiceLaunchConfig};
 
 #[test]
 fn capture_timing_rejects_zero_intervals() {
@@ -52,4 +52,39 @@ fn service_launch_config_loads_the_explicit_project_scope() {
     assert_eq!(project.worktree_id.0, worktree_id);
     assert_eq!(project.claude_sources.len(), 1);
     assert_eq!(config.schema_version, 2);
+}
+
+#[test]
+fn glm_consolidation_defaults_are_explicit_and_opt_in() {
+    let temp = tempfile::tempdir().expect("create service config fixture");
+    let path = temp.path().join("service.json");
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "schema_version": 2,
+            "pipe_name": r"\\.\pipe\fixture-brain",
+            "consolidation": {
+                "provider": "glm",
+                "endpoint": "https://example.invalid/v1/chat/completions",
+                "model": "glm-fixture"
+            },
+            "projects": []
+        }))
+        .expect("serialize fixture config"),
+    )
+    .expect("write service config");
+
+    let config = ServiceLaunchConfig::load(&path).expect("load service config");
+    match config.consolidation.expect("GLM is configured") {
+        ConsolidationProviderConfig::Glm {
+            api_key_env,
+            timeout_ms,
+            max_retries,
+            ..
+        } => {
+            assert_eq!(api_key_env, "GLM_API_KEY");
+            assert_eq!(timeout_ms, 30_000);
+            assert_eq!(max_retries, 2);
+        }
+    }
 }

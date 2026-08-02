@@ -40,7 +40,24 @@ pub struct ServiceLaunchConfig {
     pub schema_version: u32,
     #[serde(default = "default_pipe_name")]
     pub pipe_name: String,
+    #[serde(default)]
+    pub consolidation: Option<ConsolidationProviderConfig>,
     pub projects: Vec<ServiceProjectConfig>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "provider", rename_all = "snake_case")]
+pub enum ConsolidationProviderConfig {
+    Glm {
+        endpoint: String,
+        model: String,
+        #[serde(default = "default_glm_key_env")]
+        api_key_env: String,
+        #[serde(default = "default_glm_timeout_ms")]
+        timeout_ms: u64,
+        #[serde(default = "default_glm_max_retries")]
+        max_retries: u32,
+    },
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -62,6 +79,7 @@ impl ServiceLaunchConfig {
         Self {
             schema_version: SERVICE_CONFIG_SCHEMA_VERSION,
             pipe_name: pipe_name.into(),
+            consolidation: None,
             projects: Vec::new(),
         }
     }
@@ -86,6 +104,7 @@ impl ServiceLaunchConfig {
             Self {
                 schema_version: SERVICE_CONFIG_SCHEMA_VERSION,
                 pipe_name: legacy.pipe_name,
+                consolidation: None,
                 projects: vec![ServiceProjectConfig {
                     project_root: legacy.project_root,
                     project_id: legacy.project_id,
@@ -171,4 +190,16 @@ const fn service_config_schema_version() -> u32 {
 
 fn default_pipe_name() -> String {
     r"\\.\pipe\agent-brain-v1".to_owned()
+}
+
+fn default_glm_key_env() -> String {
+    "GLM_API_KEY".to_owned()
+}
+
+const fn default_glm_timeout_ms() -> u64 {
+    30_000
+}
+
+const fn default_glm_max_retries() -> u32 {
+    2
 }

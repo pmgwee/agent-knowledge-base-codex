@@ -1,0 +1,11 @@
+{
+  "id": "fixture-response",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "{\"memories\":[{\"kind\":\"checkpoint\",\"title\":\"OAuth checkpoint\",\"content\":\"OAuth callback tests pass\",\"valid_from\":\"2026-08-02T01:00:00Z\",\"confidence\":0.95,\"evidence_ids\":[\"00000000-0000-0000-0000-000000000001\"],\"supersedes\":[]}]}"
+      }
+    }
+  ]
+}

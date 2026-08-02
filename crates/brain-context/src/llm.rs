@@ -1,0 +1,167 @@
+use std::collections::HashSet;
+
+use anyhow::{Context, Result, ensure};
+use async_trait::async_trait;
+use brain_domain::{
+    Authority, EventType, MemoryKind, MemoryRecord, MemoryScope, MemoryStatus, ProjectId,
+};
+use brain_store::RedactionManifestEntry;
+use sha2::{Digest, Sha256};
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct EvidencePacket {
+    pub job_id: uuid::Uuid,
+    pub project_id: ProjectId,
+    pub events: Vec<RedactedEvidence>,
+    #[serde(skip)]
+    pub redactions: Vec<RedactionManifestEntry>,
+    #[serde(skip)]
+    pub allowed_supersession_ids: Vec<uuid::Uuid>,
+}
+
+impl EvidencePacket {
+    pub fn serialized(&self) -> String {
+        serde_json::to_string(self).expect("evidence packet serialization is infallible")
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct RedactedEvidence {
+    pub event_id: uuid::Uuid,
+    pub event_type: EventType,
+    pub occurred_at: time::OffsetDateTime,
+    pub payload: serde_json::Value,
+    pub raw: serde_json::Value,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProposedMemoryBatch {
+    pub memories: Vec<ProposedMemory>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProposedMemory {
+    pub kind: MemoryKind,
+    pub title: String,
+    pub content: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub valid_from: time::OffsetDateTime,
+    pub confidence: f32,
+    pub evidence_ids: Vec<uuid::Uuid>,
+    #[serde(default)]
+    pub supersedes: Vec<uuid::Uuid>,
+}
+
+#[async_trait]
+pub trait ConsolidationLlm: Send + Sync {
+    async fn propose(&self, packet: &EvidencePacket) -> Result<ProposedMemoryBatch>;
+}
+
+pub fn validate_proposed_batch(
+    packet: &EvidencePacket,
+    batch: ProposedMemoryBatch,
+) -> Result<Vec<MemoryRecord>> {
+    ensure!(
+        batch.memories.len() <= 32,
+        "provider proposed more than 32 memories"
+    );
+    let evidence_ids = packet
+        .events
+        .iter()
+        .map(|event| event.event_id)
+        .collect::<HashSet<_>>();
+    let allowed_supersession = packet
+        .allowed_supersession_ids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
+    let earliest = packet
+        .events
+        .iter()
+        .map(|event| event.occurred_at)
+        .min()
+        .context("cannot validate memory without evidence events")?;
+    let latest = packet
+        .events
+        .iter()
+        .map(|event| event.occurred_at)
+        .max()
+        .context("cannot validate memory without evidence events")?;
+
+    batch
+        .memories
+        .into_iter()
+        .enumerate()
+        .map(|(index, proposed)| {
+            ensure!(
+                proposed.kind != MemoryKind::Preference,
+                "provider cannot propose global preferences"
+            );
+            ensure!(
+                !proposed.title.trim().is_empty() && proposed.title.len() <= 300,
+                "proposed memory title is empty or oversized"
+            );
+            ensure!(
+                !proposed.content.trim().is_empty() && proposed.content.len() <= 20_000,
+                "proposed memory content is empty or oversized"
+            );
+            ensure!(
+                proposed.confidence.is_finite() && (0.0..=1.0).contains(&proposed.confidence),
+                "proposed memory confidence is invalid"
+            );
+            ensure!(
+                proposed.valid_from >= earliest - time::Duration::days(365)
+                    && proposed.valid_from <= latest + time::Duration::minutes(5),
+                "proposed memory timestamp is outside the evidence interval"
+            );
+            ensure!(
+                !proposed.evidence_ids.is_empty(),
+                "proposed memory has no evidence citations"
+            );
+            for evidence_id in &proposed.evidence_ids {
+                ensure!(
+                    evidence_ids.contains(evidence_id),
+                    "unknown evidence ID {evidence_id} in provider output"
+                );
+            }
+            for superseded in &proposed.supersedes {
+                ensure!(
+                    allowed_supersession.contains(superseded),
+                    "unknown supersession ID {superseded} in provider output"
+                );
+            }
+            let index = u32::try_from(index)?;
+            Ok(MemoryRecord {
+                id: deterministic_id(packet.job_id, index, b"memory"),
+                version_id: deterministic_id(packet.job_id, index, b"version"),
+                scope: MemoryScope::Project(packet.project_id),
+                worktree_id: None,
+                task_id: None,
+                kind: proposed.kind,
+                title: proposed.title,
+                content: proposed.content,
+                valid_from: proposed.valid_from,
+                valid_to: None,
+                recorded_at: latest,
+                confidence: proposed.confidence,
+                authority: Authority::DerivedMemory,
+                evidence_ids: proposed.evidence_ids,
+                supersedes: proposed.supersedes,
+                status: MemoryStatus::Current,
+            })
+        })
+        .collect()
+}
+
+fn deterministic_id(seed: uuid::Uuid, index: u32, label: &[u8]) -> uuid::Uuid {
+    let mut hasher = Sha256::new();
+    hasher.update(seed.as_bytes());
+    hasher.update(index.to_le_bytes());
+    hasher.update(label);
+    let hash = hasher.finalize();
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&hash[..16]);
+    uuid::Uuid::from_bytes(bytes)
+}
