@@ -74,6 +74,8 @@ fn fixture_batch() -> EventBatch {
     EventBatch {
         source_id: "claude:fixture".to_owned(),
         events,
+        quarantined: Vec::new(),
+        capture_gaps: Vec::new(),
         next_cursor: SourceCursor::byte_offset(300),
     }
 }

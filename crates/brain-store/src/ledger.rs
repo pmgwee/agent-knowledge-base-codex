@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use anyhow::{Result, bail};
-use brain_domain::{EventBatch, NormalizedEvent, ProjectId, SourceCursor};
+use brain_domain::{
+    CaptureGapRecord, EventBatch, NormalizedEvent, ProjectId, QuarantinedRecord, SourceCursor,
+};
 use rusqlite::{Connection, TransactionBehavior, params};
 
 use crate::cursor::{load_cursor, save_cursor, timestamp_ns};
@@ -15,6 +17,8 @@ pub struct EventLedger {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AppendResult {
     pub inserted: usize,
+    pub quarantined: usize,
+    pub capture_gaps: usize,
 }
 
 impl EventLedger {
@@ -56,15 +60,55 @@ impl EventLedger {
         for event in &batch.events {
             inserted += insert_event(&transaction, event)?;
         }
+        let mut quarantined = 0;
+        for record in &batch.quarantined {
+            quarantined += insert_quarantine(&transaction, &batch.source_id, record)?;
+        }
+        let mut capture_gaps = 0;
+        for gap in &batch.capture_gaps {
+            capture_gaps += insert_capture_gap(&transaction, &batch.source_id, gap)?;
+        }
         save_cursor(&transaction, &batch.source_id, &batch.next_cursor)?;
         transaction.commit()?;
-        Ok(AppendResult { inserted })
+        Ok(AppendResult {
+            inserted,
+            quarantined,
+            capture_gaps,
+        })
     }
 
     pub fn event_count(&self) -> Result<u64> {
         Ok(self
             .connection
             .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?)
+    }
+
+    pub fn latest_event_at(&self) -> Result<Option<time::OffsetDateTime>> {
+        let timestamp =
+            self.connection
+                .query_row("SELECT MAX(occurred_at_ns) FROM events", [], |row| {
+                    row.get::<_, Option<i64>>(0)
+                })?;
+        timestamp
+            .map(|value| time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(value)))
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    pub fn quarantine_count(&self, source_id: &str) -> Result<u64> {
+        Ok(self.connection.query_row(
+            "SELECT COUNT(*) FROM quarantine WHERE source_id = ?1",
+            [source_id],
+            |row| row.get(0),
+        )?)
+    }
+
+    pub fn unresolved_capture_gap_count(&self, source_id: &str) -> Result<u64> {
+        Ok(self.connection.query_row(
+            "SELECT COUNT(*) FROM capture_gaps WHERE source_id = ?1 AND resolved_at_ns IS NULL",
+            [source_id],
+            |row| row.get(0),
+        )?)
     }
 
     pub fn cursor(&self, source_id: &str) -> Result<SourceCursor> {
@@ -85,6 +129,60 @@ impl EventLedger {
         let rows = statement.query_map([project_id.0.to_string()], |row| row.get(3))?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
+
+    pub fn raw_contains(&self, needle: &str) -> Result<bool> {
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM events WHERE instr(raw_json, ?1) > 0)",
+            [needle],
+            |row| row.get(0),
+        )?)
+    }
+}
+
+fn insert_quarantine(
+    transaction: &rusqlite::Transaction<'_>,
+    source_id: &str,
+    record: &QuarantinedRecord,
+) -> Result<usize> {
+    Ok(transaction.execute(
+        r#"
+        INSERT INTO quarantine(
+            source_id, source_locator, source_offset, raw_hash, error, observed_at_ns
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        "#,
+        params![
+            source_id,
+            record.source_locator,
+            record.source_offset,
+            record.raw_hash.as_slice(),
+            record.error,
+            timestamp_ns(record.observed_at)?,
+        ],
+    )?)
+}
+
+fn insert_capture_gap(
+    transaction: &rusqlite::Transaction<'_>,
+    source_id: &str,
+    gap: &CaptureGapRecord,
+) -> Result<usize> {
+    Ok(transaction.execute(
+        r#"
+        INSERT INTO capture_gaps(
+            source_id, expected_cursor_json, observed_cursor_json, reason, observed_at_ns
+        ) VALUES (?1, ?2, ?3, ?4, ?5)
+        "#,
+        params![
+            source_id,
+            serde_json::to_string(&gap.expected_cursor)?,
+            gap.observed_cursor
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?,
+            gap.reason,
+            timestamp_ns(gap.observed_at)?,
+        ],
+    )?)
 }
 
 fn insert_event(transaction: &rusqlite::Transaction<'_>, event: &NormalizedEvent) -> Result<usize> {

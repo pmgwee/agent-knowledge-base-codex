@@ -7,3 +7,16 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+brain-adapters = { path = "../brain-adapters" }
+brain-domain = { path = "../brain-domain" }
+brain-store = { path = "../brain-store" }
+notify.workspace = true
+serde.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+uuid.workspace = true

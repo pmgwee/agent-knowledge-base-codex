@@ -11,6 +11,8 @@ fn a_project_ledger_rejects_events_from_another_project_without_advancing() {
     let batch = EventBatch {
         source_id: "claude:foreign".to_owned(),
         events: vec![event_for(project_b)],
+        quarantined: Vec::new(),
+        capture_gaps: Vec::new(),
         next_cursor: SourceCursor::byte_offset(120),
     };
 

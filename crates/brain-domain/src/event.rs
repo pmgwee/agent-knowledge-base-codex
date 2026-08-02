@@ -178,5 +178,24 @@ impl SourceCursor {
 pub struct EventBatch {
     pub source_id: String,
     pub events: Vec<NormalizedEvent>,
+    pub quarantined: Vec<QuarantinedRecord>,
+    pub capture_gaps: Vec<CaptureGapRecord>,
     pub next_cursor: SourceCursor,
+}
+
+#[derive(Clone, Debug)]
+pub struct QuarantinedRecord {
+    pub source_locator: String,
+    pub source_offset: i64,
+    pub raw_hash: [u8; 32],
+    pub error: String,
+    pub observed_at: time::OffsetDateTime,
+}
+
+#[derive(Clone, Debug)]
+pub struct CaptureGapRecord {
+    pub expected_cursor: SourceCursor,
+    pub observed_cursor: Option<SourceCursor>,
+    pub reason: String,
+    pub observed_at: time::OffsetDateTime,
 }

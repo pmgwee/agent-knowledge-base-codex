@@ -12,6 +12,8 @@ fn cursor_does_not_advance_when_event_insert_fails() {
         .append_batch(&EventBatch {
             source_id: "claude:fixture".to_owned(),
             events: vec![original.clone()],
+            quarantined: Vec::new(),
+            capture_gaps: Vec::new(),
             next_cursor: SourceCursor::byte_offset(100),
         })
         .expect("append original event");
@@ -20,6 +22,8 @@ fn cursor_does_not_advance_when_event_insert_fails() {
     let result = ledger.append_batch(&EventBatch {
         source_id: "claude:fixture".to_owned(),
         events: vec![conflicting],
+        quarantined: Vec::new(),
+        capture_gaps: Vec::new(),
         next_cursor: SourceCursor::byte_offset(200),
     });
 
