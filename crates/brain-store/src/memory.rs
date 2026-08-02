@@ -159,6 +159,31 @@ impl EventLedger {
         Ok(self.memory_versions(memory_id)?.pop())
     }
 
+    pub fn memory_version(&self, version_id: uuid::Uuid) -> Result<Option<MemoryRecord>> {
+        let memory_id = self
+            .connection
+            .query_row(
+                r#"
+                SELECT v.memory_id
+                FROM memory_versions v
+                JOIN memory_records r ON r.memory_id = v.memory_id
+                WHERE v.version_id = ?1 AND r.project_id = ?2
+                "#,
+                params![version_id.to_string(), self.project_scope.0.to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|id| uuid::Uuid::parse_str(&id))
+            .transpose()?;
+        let Some(memory_id) = memory_id else {
+            return Ok(None);
+        };
+        Ok(self
+            .memory_versions(memory_id)?
+            .into_iter()
+            .find(|memory| memory.version_id == version_id))
+    }
+
     pub fn memory_count(&self) -> Result<u64> {
         Ok(self
             .connection

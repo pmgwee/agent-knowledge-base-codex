@@ -1,6 +1,6 @@
 use brain_domain::{Harness, MemoryRecord};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Citation {
     pub key: String,
     pub detail: String,

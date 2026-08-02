@@ -7,10 +7,11 @@ use brain_cli::{
     register_project_with_sources, uninstall_claude_hooks, uninstall_codex_hooks,
     verify_projections,
 };
-use brain_context::{ContextCompiler, ContextQuery};
 use brain_domain::{BrainConfig, ProjectId};
-use brain_service::ServiceLaunchConfig;
-use brain_store::EventLedger;
+use brain_service::{
+    BrainCheckpointRequest, BrainQueryService, BrainSearchRequest, BrainTimelineRequest,
+    SourceSelector, TimelineWindow,
+};
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
@@ -67,6 +68,38 @@ enum Command {
         #[arg(long)]
         project: String,
         text: String,
+        #[arg(long)]
+        as_of: Option<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+    Timeline {
+        #[arg(long)]
+        project: String,
+        #[arg(long, value_enum, default_value_t = CliTimelineWindow::Week)]
+        window: CliTimelineWindow,
+        #[arg(long)]
+        start: Option<String>,
+        #[arg(long)]
+        end: Option<String>,
+        #[arg(long)]
+        now: Option<String>,
+        #[arg(long)]
+        as_of: Option<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+    Checkpoint {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        prompt: Option<String>,
+        #[arg(long)]
+        path: Vec<String>,
+        #[arg(long)]
+        as_of: Option<String>,
+        #[arg(long)]
+        max_tokens: Option<usize>,
     },
     Diagnose {
         #[arg(long)]
@@ -111,6 +144,15 @@ enum HookHarness {
 #[derive(Clone, Copy, ValueEnum)]
 enum StatusHarness {
     Hermes,
+}
+
+#[derive(Clone, Copy, Default, ValueEnum)]
+enum CliTimelineWindow {
+    Day,
+    #[default]
+    Week,
+    Month,
+    Custom,
 }
 
 fn main() -> Result<()> {
@@ -253,18 +295,61 @@ fn main() -> Result<()> {
         }
         Command::Query {
             project,
-            text: _text,
+            text,
+            as_of,
+            limit,
         } => {
-            let project = parse_project_id(&project)?;
-            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
-            let project_config = config.project(Some(project))?;
-            let ledger = EventLedger::open(&project_config.ledger_path, project)?;
-            let compiler = ContextCompiler::from_ledger(&ledger, project, 500)?;
-            let context = compiler.compile(ContextQuery::for_worktree(
+            let response = BrainQueryService::open(&brain_home)?.search(BrainSearchRequest {
                 project,
-                project_config.worktree_id,
-            ))?;
-            println!("{}", context.text);
+                text,
+                as_of,
+                worktree_id: None,
+                task_id: None,
+                native_session_id: None,
+                paths: Vec::new(),
+                source: SourceSelector::All,
+                limit,
+            })?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::Timeline {
+            project,
+            window,
+            start,
+            end,
+            now,
+            as_of,
+            limit,
+        } => {
+            let response =
+                BrainQueryService::open(&brain_home)?.timeline(BrainTimelineRequest {
+                    project,
+                    window: window.into(),
+                    start,
+                    end,
+                    now,
+                    as_of,
+                    source: SourceSelector::All,
+                    limit,
+                })?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::Checkpoint {
+            project,
+            prompt,
+            path,
+            as_of,
+            max_tokens,
+        } => {
+            let response =
+                BrainQueryService::open(&brain_home)?.checkpoint(BrainCheckpointRequest {
+                    project,
+                    prompt,
+                    paths: path,
+                    as_of,
+                    max_tokens,
+                })?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
         }
         Command::Diagnose { project } => {
             let project = project.as_deref().map(parse_project_id).transpose()?;
@@ -294,6 +379,17 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+impl From<CliTimelineWindow> for TimelineWindow {
+    fn from(value: CliTimelineWindow) -> Self {
+        match value {
+            CliTimelineWindow::Day => Self::Day,
+            CliTimelineWindow::Week => Self::Week,
+            CliTimelineWindow::Month => Self::Month,
+            CliTimelineWindow::Custom => Self::Custom,
+        }
+    }
 }
 
 fn parse_project_id(value: &str) -> Result<ProjectId> {

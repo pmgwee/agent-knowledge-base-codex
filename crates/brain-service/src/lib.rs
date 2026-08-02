@@ -7,6 +7,7 @@ mod health;
 mod hook_handler;
 mod note_watcher;
 mod pipe;
+mod query_api;
 mod reconcile;
 mod runtime;
 
@@ -25,4 +26,10 @@ pub use note_watcher::{
     GlobalPreferenceNoteWatcher, NoteScanReport, NoteWatcher, run_notes_and_projections,
 };
 pub use pipe::HookPipeServer;
+pub use query_api::{
+    BrainCheckpointRequest, BrainCheckpointResponse, BrainCitation, BrainCorrectionRequest,
+    BrainCorrectionResponse, BrainEvidenceRequest, BrainEvidenceResponse, BrainItemsResponse,
+    BrainQueryService, BrainResultItem, BrainSearchRequest, BrainStatusRequest,
+    BrainStatusResponse, BrainTimelineRequest, SourceSelector, TimelineWindow,
+};
 pub use runtime::{build_capture_bindings, build_hook_bindings};

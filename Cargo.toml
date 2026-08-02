@@ -8,6 +8,7 @@ members = [
   "crates/brain-service",
   "crates/brain-hook",
   "crates/brain-cli",
+  "crates/brain-mcp",
 ]
 
 [workspace.package]

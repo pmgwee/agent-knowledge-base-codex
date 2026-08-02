@@ -326,6 +326,41 @@ impl EventLedger {
         Ok(events)
     }
 
+    pub fn event(&self, event_id: uuid::Uuid) -> Result<Option<StoredEvent>> {
+        let raw = self
+            .connection
+            .query_row(
+                r#"
+                SELECT event_id, worktree_id, task_id, harness, native_session_id, event_type,
+                       occurred_at_ns, observed_at_ns, source_locator, source_offset,
+                       git_head, git_branch, payload_json, raw_json
+                FROM events
+                WHERE project_id = ?1 AND event_id = ?2
+                "#,
+                params![self.project_scope.0.to_string(), event_id.to_string()],
+                |row| {
+                    Ok(RawStoredEvent {
+                        event_id: row.get(0)?,
+                        worktree_id: row.get(1)?,
+                        task_id: row.get(2)?,
+                        harness: row.get(3)?,
+                        native_session_id: row.get(4)?,
+                        event_type: row.get(5)?,
+                        occurred_at_ns: row.get(6)?,
+                        observed_at_ns: row.get(7)?,
+                        source_locator: row.get(8)?,
+                        source_offset: row.get(9)?,
+                        git_head: row.get(10)?,
+                        git_branch: row.get(11)?,
+                        payload_json: row.get(12)?,
+                        raw_json: row.get(13)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(raw.and_then(|raw| raw.parse(self.project_scope)))
+    }
+
     pub fn events_between(
         &self,
         first_event_id: uuid::Uuid,

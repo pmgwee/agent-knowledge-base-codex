@@ -222,6 +222,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "brain-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "brain-domain",
+ "brain-service",
+ "brain-store",
+ "clap",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "brain-service"
 version = "0.1.0"
 dependencies = [

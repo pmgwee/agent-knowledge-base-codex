@@ -153,6 +153,34 @@ impl ProjectRegistry {
         Ok(identity)
     }
 
+    pub fn resolve(&self, selector: &str) -> Result<ProjectId> {
+        if let Ok(id) = uuid::Uuid::parse_str(selector) {
+            let id = ProjectId(id);
+            if self
+                .data
+                .projects
+                .iter()
+                .any(|project| project.project_id == id)
+            {
+                return Ok(id);
+            }
+            bail!("project {} is not registered", id.0);
+        }
+
+        let candidate = Path::new(selector);
+        let normalized = if candidate.exists() {
+            normalized_path(candidate)?
+        } else {
+            selector.replace('/', "\\").to_lowercase()
+        };
+        self.data
+            .projects
+            .iter()
+            .find(|project| project.aliases.contains(&normalized))
+            .map(|project| project.project_id)
+            .with_context(|| format!("project selector {selector:?} is not registered"))
+    }
+
     fn save(&self) -> Result<()> {
         let bytes = serde_json::to_vec_pretty(&self.data)?;
         AtomicFile::new(&self.path, AllowOverwrite)

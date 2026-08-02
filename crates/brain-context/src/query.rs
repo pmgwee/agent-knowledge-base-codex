@@ -151,6 +151,9 @@ impl RetrievalQuery {
         };
         query.occurred = self.occurred;
         query.as_of = self.as_of;
+        query.worktree_id = self.worktree_id;
+        query.task_id = self.task_id;
+        query.native_session_id = self.native_session_id.clone();
         query.source_filter = self.source_filter;
         query.with_limit(self.limit.saturating_mul(4).max(20))
     }

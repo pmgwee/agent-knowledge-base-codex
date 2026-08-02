@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use brain_domain::{Authority, MemoryKind, MemoryStatus, ProjectId, WorktreeId};
+use brain_domain::{Authority, Harness, MemoryKind, MemoryStatus, ProjectId, WorktreeId};
 use rusqlite::{Row, params};
 
 use crate::EventLedger;
@@ -121,6 +121,7 @@ impl SearchQuery {
 pub struct SearchHit {
     pub source: SearchSource,
     pub source_id: uuid::Uuid,
+    pub harness: Option<Harness>,
     pub memory_id: Option<uuid::Uuid>,
     pub project_id: ProjectId,
     pub worktree_id: Option<WorktreeId>,
@@ -225,7 +226,7 @@ impl EventLedger {
             (
                 r#"
                 SELECT e.event_id, e.worktree_id, e.task_id, e.native_session_id,
-                       e.event_type, e.occurred_at_ns, e.observed_at_ns,
+                       e.harness, e.event_type, e.occurred_at_ns, e.observed_at_ns,
                        coalesce(
                            json_extract(e.payload_json, '$.path'),
                            json_extract(e.payload_json, '$.file_path'),
@@ -249,7 +250,7 @@ impl EventLedger {
             (
                 r#"
                 SELECT e.event_id, e.worktree_id, e.task_id, e.native_session_id,
-                       e.event_type, e.occurred_at_ns, e.observed_at_ns,
+                       e.harness, e.event_type, e.occurred_at_ns, e.observed_at_ns,
                        coalesce(
                            json_extract(e.payload_json, '$.path'),
                            json_extract(e.payload_json, '$.file_path'),
@@ -408,6 +409,7 @@ struct RawEventHit {
     worktree_id: String,
     task_id: Option<String>,
     native_session_id: String,
+    harness: String,
     event_type: String,
     occurred_at_ns: i64,
     observed_at_ns: i64,
@@ -422,12 +424,13 @@ fn parse_event_hit(row: &Row<'_>) -> rusqlite::Result<RawEventHit> {
         worktree_id: row.get(1)?,
         task_id: row.get(2)?,
         native_session_id: row.get(3)?,
-        event_type: row.get(4)?,
-        occurred_at_ns: row.get(5)?,
-        observed_at_ns: row.get(6)?,
-        source_locator: row.get(7)?,
-        payload_json: row.get(8)?,
-        bm25_score: row.get(9)?,
+        harness: row.get(4)?,
+        event_type: row.get(5)?,
+        occurred_at_ns: row.get(6)?,
+        observed_at_ns: row.get(7)?,
+        source_locator: row.get(8)?,
+        payload_json: row.get(9)?,
+        bm25_score: row.get(10)?,
     })
 }
 
@@ -438,6 +441,12 @@ impl RawEventHit {
         Ok(SearchHit {
             source: SearchSource::Event,
             source_id: uuid::Uuid::parse_str(&self.source_id)?,
+            harness: Some(match self.harness.as_str() {
+                "claude-code" => Harness::ClaudeCode,
+                "codex" => Harness::Codex,
+                "hermes" => Harness::Hermes,
+                other => Harness::Other(other.to_owned()),
+            }),
             memory_id: None,
             project_id,
             worktree_id: Some(WorktreeId(uuid::Uuid::parse_str(&self.worktree_id)?)),
@@ -504,6 +513,7 @@ impl RawMemoryHit {
         Ok(SearchHit {
             source: SearchSource::Memory,
             source_id: uuid::Uuid::parse_str(&self.version_id)?,
+            harness: None,
             memory_id: Some(uuid::Uuid::parse_str(&self.memory_id)?),
             project_id,
             worktree_id: self

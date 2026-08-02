@@ -30,7 +30,7 @@ pub struct ContextEvidence {
     pub raw: serde_json::Value,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct CompiledContext {
     pub text: String,
     pub token_count: usize,
