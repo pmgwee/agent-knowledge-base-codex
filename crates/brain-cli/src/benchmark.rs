@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use brain_domain::{
     EventBatch, EventType, Harness, NormalizedEvent, ProjectId, SourceCursor, WorktreeId,
 };
@@ -62,6 +62,14 @@ pub struct BenchmarkReport {
     pub scoped_query_p50_ms: f64,
     pub scoped_query_p95_ms: f64,
     pub scoped_query_p99_ms: f64,
+    /// Retrieval with an empty scoped-query cache, which is what actually exercises the
+    /// underlying FTS path as history grows. The warm figures above measure cache hits.
+    pub cold_query_p50_ms: f64,
+    pub cold_query_p95_ms: f64,
+    pub cold_query_p99_ms: f64,
+    /// Diagnostic only. At current performance both sides of this ratio are tens of
+    /// microseconds, where scheduling jitter swings it by 100% between identical runs, so
+    /// it is recorded for trend analysis and is not a gate. See `apply_gates`.
     pub baseline_query_p95_ms: f64,
     pub query_latency_degradation_percent: f64,
     pub historical_precision: f64,
@@ -174,6 +182,8 @@ pub fn benchmark_corpus(
     };
     drop(ledger);
     let (startup_p50, startup_p95, startup_p99) = startup_latencies(&ledger_path, project)?;
+    let (cold_query_p50, cold_query_p95, cold_query_p99) =
+        cold_query_latencies(&ledger_path, project, profile)?;
 
     let other_project = deterministic_project(seed, b"same-name-other-project");
     let other_path = brain_home.join("projects/other/ledger.sqlite");
@@ -233,6 +243,9 @@ pub fn benchmark_corpus(
         scoped_query_p50_ms: query_p50,
         scoped_query_p95_ms: query_p95,
         scoped_query_p99_ms: query_p99,
+        cold_query_p50_ms: cold_query_p50,
+        cold_query_p95_ms: cold_query_p95,
+        cold_query_p99_ms: cold_query_p99,
         baseline_query_p95_ms,
         query_latency_degradation_percent: degradation,
         historical_precision: precision,
@@ -288,13 +301,19 @@ fn apply_gates(report: &mut BenchmarkReport) {
             "new-session token reduction below 80%",
         ),
         (report.startup_p95_ms <= 500.0, "startup p95 exceeds 500 ms"),
+        // Retrieval is gated on absolute ceilings rather than a ratio against a smaller
+        // corpus. The scoped-query cache makes warm retrieval tens of microseconds, so a
+        // relative threshold compares two noise-dominated numbers and fails at random —
+        // measured at 0%, 2.8%, 33.6%, 0%, 0% across five identical smoke runs. Both
+        // ceilings below sit far above observed values and far below a user-visible delay,
+        // and the cold ceiling is what still detects retrieval scaling with history.
         (
-            report.scoped_query_p95_ms <= 1_000.0,
-            "scoped query p95 exceeds 1 second",
+            report.scoped_query_p95_ms <= 25.0,
+            "warm scoped query p95 exceeds 25 ms",
         ),
         (
-            report.query_latency_degradation_percent <= 20.0,
-            "query p95 degraded more than 20% from baseline",
+            report.cold_query_p95_ms <= 1_000.0,
+            "cold scoped query p95 exceeds 1 second",
         ),
         (
             report.rpo_within_one_hour,
@@ -501,6 +520,37 @@ fn comparison_marker_count(profile: BenchmarkProfile) -> u64 {
     quality_marker_count.min(baseline_marker_count)
 }
 
+/// Retrieval latency with a cold scoped-query cache.
+///
+/// `query_latencies` deliberately warms the cache and then measures repeated hits, which is
+/// what an agent experiences during a session. That path is constant-time by construction,
+/// so it cannot show whether retrieval itself still scales. Opening a fresh ledger per query
+/// leaves the cache empty and measures the FTS path underneath it.
+fn cold_query_latencies(
+    path: &Path,
+    project: ProjectId,
+    profile: BenchmarkProfile,
+) -> Result<(f64, f64, f64)> {
+    let marker_count = comparison_marker_count(profile);
+    let mut latencies = Vec::with_capacity(usize::try_from(marker_count)?);
+    for marker_id in 0..marker_count {
+        let ledger = EventLedger::open(path, project)?;
+        let began = Instant::now();
+        ledger.search(
+            &SearchQuery::text(project, marker(marker_id))
+                .events_only()
+                .with_limit(5),
+        )?;
+        latencies.push(began.elapsed().as_secs_f64() * 1_000.0);
+    }
+    latencies.sort_by(f64::total_cmp);
+    Ok((
+        percentile(&latencies, 0.50),
+        percentile(&latencies, 0.95),
+        percentile(&latencies, 0.99),
+    ))
+}
+
 fn startup_latencies(path: &Path, project: ProjectId) -> Result<(f64, f64, f64)> {
     let mut latencies = Vec::new();
     for _ in 0..20 {
@@ -586,11 +636,192 @@ fn write_report(path: PathBuf, report: &BenchmarkReport) -> Result<()> {
     Ok(())
 }
 
+/// Directory that release-gate reports are preserved into.
+///
+/// Defaults to the workspace `target` directory, which `.gitignore` already excludes.
+/// Set `BRAIN_BENCHMARK_REPORT_DIR` when the gate runs against a scratch volume and the
+/// measurements should land elsewhere.
+///
+/// The default is resolved from the crate manifest rather than the working directory:
+/// Cargo runs an integration test with its current directory set to the package root, so a
+/// relative `target` would silently land in `crates/brain-cli/target` instead — outside the
+/// root-anchored `/target/` ignore rule, and not where an operator looks for it.
+pub fn benchmark_report_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("BRAIN_BENCHMARK_REPORT_DIR") {
+        return PathBuf::from(dir);
+    }
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace = manifest.parent().and_then(Path::parent).unwrap_or(manifest);
+    workspace.join("target")
+}
+
+/// Copy a finished corpus report somewhere that outlives the corpus itself.
+///
+/// `benchmark_corpus` writes its report inside the caller's output root. Release gates put
+/// that root in a temporary directory, so the report is destroyed along with the corpus
+/// when the gate returns — including when it returns by failing a threshold. Copying before
+/// the assertion keeps the measurements either way.
+pub fn preserve_benchmark_report(
+    corpus_root: &Path,
+    destination_dir: &Path,
+    label: &str,
+) -> Result<PathBuf> {
+    let source = corpus_root.join("benchmark-report.json");
+    fs::create_dir_all(destination_dir)
+        .with_context(|| format!("creating report directory {}", destination_dir.display()))?;
+    let destination = destination_dir.join(format!("{label}-benchmark-report.json"));
+    fs::copy(&source, &destination).with_context(|| {
+        format!(
+            "preserving benchmark report {} to {}",
+            source.display(),
+            destination.display()
+        )
+    })?;
+    Ok(destination)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        BenchmarkProfile, baseline_event_boundary, comparison_marker_count, marker_interval,
+        BenchmarkProfile, BenchmarkReport, apply_gates, baseline_event_boundary,
+        benchmark_report_dir, comparison_marker_count, marker_interval, preserve_benchmark_report,
     };
+
+    /// A report whose every gate passes, so a test can move one measurement at a time.
+    fn passing_report() -> BenchmarkReport {
+        BenchmarkReport {
+            profile: BenchmarkProfile::Smoke,
+            seed: 42,
+            sessions: 100,
+            generated_events: 10_000,
+            captured_events: 10_000,
+            capture_completeness: 1.0,
+            explicit_gap_coverage: true,
+            replay_duplicate_rows: 0,
+            manifest_sha256: [0; 32],
+            ground_truth_sha256: [0; 32],
+            ingest_events_per_second: 2_000.0,
+            storage_bytes: 1_024,
+            peak_batch_bytes: 512,
+            startup_p50_ms: 3.0,
+            startup_p95_ms: 3.8,
+            startup_p99_ms: 3.8,
+            scoped_query_p50_ms: 0.02,
+            scoped_query_p95_ms: 0.03,
+            scoped_query_p99_ms: 0.04,
+            cold_query_p50_ms: 0.6,
+            cold_query_p95_ms: 4.9,
+            cold_query_p99_ms: 5.2,
+            baseline_query_p95_ms: 0.025,
+            query_latency_degradation_percent: 0.0,
+            historical_precision: 1.0,
+            historical_recall: 1.0,
+            supersession_fixtures_correct: true,
+            project_leakage_hits: 0,
+            new_session_token_reduction: 0.999,
+            backup_seconds: 1.0,
+            restore_seconds: 1.0,
+            rpo_within_one_hour: true,
+            rto_within_two_hours: true,
+            hook_contract_unchanged: true,
+            failures: Vec::new(),
+            passed: false,
+        }
+    }
+
+    #[test]
+    fn microsecond_scale_query_noise_does_not_fail_a_release_gate() {
+        // Five identical smoke runs measured 0%, 2.8%, 33.6%, 0%, 0% degradation. These are
+        // the numbers from the run that failed; nothing about them indicates a regression.
+        let mut report = passing_report();
+        report.baseline_query_p95_ms = 0.0244;
+        report.scoped_query_p95_ms = 0.0326;
+        report.query_latency_degradation_percent = 33.6;
+
+        apply_gates(&mut report);
+
+        assert!(report.passed, "{:#?}", report.failures);
+    }
+
+    #[test]
+    fn cold_retrieval_growing_past_one_second_still_fails() {
+        let mut report = passing_report();
+        report.cold_query_p95_ms = 1_500.0;
+
+        apply_gates(&mut report);
+
+        assert!(
+            report
+                .failures
+                .iter()
+                .any(|failure| failure.contains("cold scoped query")),
+            "{:#?}",
+            report.failures
+        );
+    }
+
+    #[test]
+    fn a_real_warm_retrieval_regression_still_fails() {
+        // 192 ms is the warm p95 actually measured when the FTS scope token was scanning
+        // every row of the six-million-event corpus.
+        let mut report = passing_report();
+        report.scoped_query_p95_ms = 192.0;
+
+        apply_gates(&mut report);
+
+        assert!(
+            report
+                .failures
+                .iter()
+                .any(|failure| failure.contains("warm scoped query")),
+            "{:#?}",
+            report.failures
+        );
+    }
+
+    #[test]
+    fn default_report_directory_does_not_depend_on_the_working_directory() {
+        // Cargo runs integration tests from the package root, so a relative default would
+        // resolve to `crates/brain-cli/target` and quietly escape the workspace ignore rule.
+        let dir = benchmark_report_dir();
+        assert!(
+            dir.is_absolute(),
+            "default report directory must be absolute, got {}",
+            dir.display()
+        );
+        assert!(
+            !dir.starts_with(env!("CARGO_MANIFEST_DIR")),
+            "default report directory must not nest inside the crate, got {}",
+            dir.display()
+        );
+    }
+
+    #[test]
+    fn report_is_preserved_outside_a_corpus_directory_that_is_later_removed() {
+        let corpus = tempfile::tempdir().expect("corpus");
+        let durable = tempfile::tempdir().expect("durable");
+        let corpus_root = corpus.path().join("stress");
+        std::fs::create_dir_all(&corpus_root).expect("corpus root");
+        std::fs::write(
+            corpus_root.join("benchmark-report.json"),
+            br#"{"profile":"stress","passed":true}"#,
+        )
+        .expect("seed report");
+
+        let saved = preserve_benchmark_report(&corpus_root, durable.path(), "stress")
+            .expect("preserve report");
+
+        // The corpus directory is destroyed exactly as `TempDir` destroys it after a gate run.
+        drop(corpus);
+
+        assert!(
+            saved.exists(),
+            "preserved report must outlive the corpus directory"
+        );
+        assert_eq!(saved, durable.path().join("stress-benchmark-report.json"));
+        let bytes = std::fs::read(&saved).expect("read preserved report");
+        assert_eq!(bytes, br#"{"profile":"stress","passed":true}"#);
+    }
 
     #[test]
     fn comparison_queries_all_exist_at_the_baseline_checkpoint() {

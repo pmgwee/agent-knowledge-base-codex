@@ -36,5 +36,6 @@ pub use task::TaskCommands;
 
 mod task;
 pub use benchmark::{
-    BenchmarkProfile, BenchmarkReport, CorpusHashes, benchmark_corpus, corpus_hashes,
+    BenchmarkProfile, BenchmarkReport, CorpusHashes, benchmark_corpus, benchmark_report_dir,
+    corpus_hashes, preserve_benchmark_report,
 };
