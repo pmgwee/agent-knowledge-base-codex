@@ -28,7 +28,7 @@ The deterministic seed-42 corpus passed every gate with no failures:
 | Startup p50 / p95 / p99 | 2.2786 / 3.2650 / 3.2650 ms |
 | Warm scoped query p50 / p95 / p99 | 0.0070 / 0.0078 / 0.0081 ms |
 | 1,000-session query p95 baseline | 0.0075 ms |
-| Query degradation | 4.0% (maximum 20%) |
+| Query degradation | 4.0% (then gated at 20%; now diagnostic only) |
 | Historical precision / recall | 100% / 100% |
 | Supersession fixtures | 100% correct |
 | Cross-project leakage | 0 hits |
@@ -49,22 +49,48 @@ The final release hook latency gate also passed with warm p95 9.46 ms and p99
 
 ## Ten-times stress gate
 
-The deterministic stress profile (120,000 sessions and 60,000,000 events) is
-implemented as an ignored/manual release-candidate test. It was not executed on
-this system drive. The primary run temporarily required about 22.58 GB for the
-source, verified backup, and isolated restore; the 10-times profile therefore
-requires approximately 226 GB of scratch space before safety margin. Only 88.1
-GB was free at final verification.
+**Status: attempted, terminated before reporting. Not yet qualified.**
 
-Run the stress gate only after directing temporary and benchmark storage to a
-scratch volume with at least 250 GB free:
+The deterministic stress profile (120,000 sessions and 60,000,000 events) is
+implemented as an ignored/manual release-candidate test. The primary run
+temporarily required about 22.58 GB for the source, verified backup, and
+isolated restore, so the 10-times profile needs roughly 226 GB of scratch space
+before safety margin. The system volume had only 88.1 GB free, but drive D: had
+about 347 GB, which is sufficient.
+
+An attempt ran on 2026-08-03 with temporary storage redirected to D::
 
 ```powershell
+$env:TEMP = 'D:\AgentBrainStress'; $env:TMP = $env:TEMP
 cargo test --release -p brain-cli --test stress `
   stress_corpus_keeps_startup_query_and_memory_bounds -- --ignored --nocapture
 ```
 
-Not running a disk-destructive workload on an undersized system volume is an
-explicit safety constraint, not a waived correctness gate. The same generator,
-assertions, bounded batches, startup/query limits, and recovery checks are
-present for execution on suitable hardware.
+It ingested for 8.9 hours, reaching about 74.95 GiB — roughly 92% of the
+expected corpus — with process memory flat near 24 MiB throughout, which is the
+bounded-memory behaviour the gate exists to demonstrate. It then stopped at
+13:32:57 without reaching the backup phase and without emitting a report. No
+cause appears in the Windows Application or System event logs. The temporary
+directory survived, which indicates abrupt termination rather than a normal
+return or a failed assertion, since either of those would have run the
+`TempDir` destructor.
+
+Two defects that attempt exposed are now fixed in `3998d9c`:
+
+- the report was written inside the temporary corpus directory, so any normal
+  completion would have deleted it along with the corpus;
+- the run was launched without redirecting stdout to a file, so its console
+  output had no durable destination once the launching session ended.
+
+Re-run with output redirected to a log so an interrupted attempt remains
+diagnosable, and check progress sparsely rather than in a polling loop:
+
+```powershell
+$env:TEMP = 'D:\AgentBrainStress'; $env:TMP = $env:TEMP
+cargo test --release -p brain-cli --test stress `
+  stress_corpus_keeps_startup_query_and_memory_bounds -- --ignored --nocapture `
+  *> D:\AgentBrainStress\stress-run.log
+```
+
+Not running a disk-destructive workload on an undersized system volume remains
+an explicit safety constraint, not a waived correctness gate.
