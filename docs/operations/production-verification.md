@@ -94,3 +94,41 @@ cargo test --release -p brain-cli --test stress `
 
 Not running a disk-destructive workload on an undersized system volume remains
 an explicit safety constraint, not a waived correctness gate.
+
+### Near-ten-times measurement from the interrupted corpus
+
+The interrupted attempt left a usable 73.5 GB ledger holding **58,218,000
+events**, about 97% of the stress target and 9.7 times the primary corpus. It
+was measured read-only on 2026-08-03 with the diagnostic described in
+`benchmark.rs` (`existing_corpus_startup_and_cold_retrieval`), run twice to
+separate one-time costs from steady state:
+
+| Measurement | 6,000,000 events | 58,218,000 events | Gate |
+| --- | ---: | ---: | ---: |
+| Startup p95 | 3.265 ms | 1.936 ms warm, 2.463 ms after reboot | 500 ms |
+| Cold query p95 | 4.92 ms | 23.28 ms warm, 162.53 ms after reboot | 1 second |
+| Full count scan | not measured | 3.96 s warm, ~80 s after reboot | not gated |
+
+Startup is flat across a tenfold increase in history, which is the property the
+architecture was designed around, and both gates pass with wide margin.
+
+Cold retrieval is not flat. It grew roughly 33 times for a 9.7-times increase in
+events, so it degrades faster than linearly while still sitting well inside the
+one-second ceiling. Interactive use is unaffected because the bounded
+scoped-query cache serves repeated retrieval in microseconds; the cold figure is
+what a first query after a restart costs. If the trend holds, the cold ceiling
+would be approached somewhere beyond a few hundred million events, which is the
+point at which segment sealing and partition routing would need to carry more of
+the load.
+
+Two one-time costs are worth knowing operationally. An uncheckpointed
+write-ahead log left by an unclean shutdown is recovered by whichever process
+opens the ledger next, and a 1.5 GB log took 193 seconds. An empty operating
+system page cache multiplied cold retrieval by seven and a full scan by twenty.
+Neither is on the startup path, and neither affects the gates above.
+
+This measurement covers the performance half of the stress profile only. Capture
+completeness, replay deduplication, project leakage, precision and recall, token
+reduction, and backup and restore at ten times scale still require a complete
+run, because they depend on ground truth the interrupted corpus never finished
+writing.

@@ -683,9 +683,77 @@ pub fn preserve_benchmark_report(
 #[cfg(test)]
 mod tests {
     use super::{
-        BenchmarkProfile, BenchmarkReport, apply_gates, baseline_event_boundary,
-        benchmark_report_dir, comparison_marker_count, marker_interval, preserve_benchmark_report,
+        BenchmarkProfile, BenchmarkReport, EventLedger, Instant, Path, ProjectId, SearchQuery,
+        apply_gates, baseline_event_boundary, benchmark_report_dir, comparison_marker_count,
+        marker, marker_interval, percentile, preserve_benchmark_report, startup_latencies,
     };
+
+    /// Measures startup and cold retrieval against a ledger that already exists, instead of
+    /// generating one, so a large corpus can be qualified without a multi-hour rebuild. It
+    /// opens only the named database and writes nothing.
+    ///
+    /// ```powershell
+    /// $env:BRAIN_DIAGNOSTIC_DB = 'D:\path\to\ledger.sqlite'
+    /// $env:BRAIN_DIAGNOSTIC_PROJECT = 'fb4deb19-bca1-55d3-bf2a-06d9a72d063e'
+    /// cargo test --release -p brain-cli --lib existing_corpus -- --ignored --nocapture
+    /// ```
+    ///
+    /// Two effects dominate the first execution against a large ledger, and both are one-time
+    /// rather than steady state. A ledger left by an abrupt termination carries an
+    /// uncheckpointed write-ahead log whose recovery is paid by whichever process opens it
+    /// next; a 1.5 GiB log took 193 seconds. Independently, the operating system page cache
+    /// starts empty, which on a 73 GiB ledger moved cold retrieval p95 from 23 ms to 163 ms
+    /// and a full count from 4 seconds to 80. Run this twice and report both: the first
+    /// execution is the after-reboot case, the second is the working case.
+    #[test]
+    #[ignore = "diagnostic: measures the existing corpus named by BRAIN_DIAGNOSTIC_DB"]
+    fn existing_corpus_startup_and_cold_retrieval() {
+        let raw_path = std::env::var("BRAIN_DIAGNOSTIC_DB").expect("set BRAIN_DIAGNOSTIC_DB");
+        let raw_project =
+            std::env::var("BRAIN_DIAGNOSTIC_PROJECT").expect("set BRAIN_DIAGNOSTIC_PROJECT");
+        let path = Path::new(&raw_path);
+        let project = ProjectId(uuid::Uuid::parse_str(&raw_project).expect("project uuid"));
+
+        let opened = Instant::now();
+        let ledger = EventLedger::open(path, project).expect("open ledger");
+        let first_open_ms = opened.elapsed().as_secs_f64() * 1_000.0;
+        // Timed separately: a full count scans every row and is not part of any startup path.
+        let counted = Instant::now();
+        let events = ledger.event_count().expect("event count");
+        let count_ms = counted.elapsed().as_secs_f64() * 1_000.0;
+        drop(ledger);
+
+        let (startup_p50, startup_p95, startup_p99) =
+            startup_latencies(path, project).expect("startup latencies");
+
+        let mut cold = Vec::new();
+        for marker_id in 0..30 {
+            let ledger = EventLedger::open(path, project).expect("open ledger");
+            let began = Instant::now();
+            ledger
+                .search(
+                    &SearchQuery::text(project, marker(marker_id))
+                        .events_only()
+                        .with_limit(5),
+                )
+                .expect("search");
+            cold.push(began.elapsed().as_secs_f64() * 1_000.0);
+        }
+        cold.sort_by(f64::total_cmp);
+
+        println!("events                 {events}");
+        println!("first open             {first_open_ms:.1} ms");
+        println!("full count scan        {count_ms:.1} ms");
+        println!(
+            "startup p50/p95/p99    {startup_p50:.3} / {startup_p95:.3} / {startup_p99:.3} ms"
+        );
+        println!(
+            "cold query p50/p95/p99 {:.3} / {:.3} / {:.3} ms",
+            percentile(&cold, 0.50),
+            percentile(&cold, 0.95),
+            percentile(&cold, 0.99)
+        );
+    }
 
     /// A report whose every gate passes, so a test can move one measurement at a time.
     fn passing_report() -> BenchmarkReport {
