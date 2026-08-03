@@ -69,11 +69,30 @@ cargo test --release -p brain-cli --test stress `
 It ingested for 8.9 hours, reaching about 74.95 GiB — roughly 92% of the
 expected corpus — with process memory flat near 24 MiB throughout, which is the
 bounded-memory behaviour the gate exists to demonstrate. It then stopped at
-13:32:57 without reaching the backup phase and without emitting a report. No
-cause appears in the Windows Application or System event logs. The temporary
-directory survived, which indicates abrupt termination rather than a normal
-return or a failed assertion, since either of those would have run the
-`TempDir` destructor.
+13:32:57 without reaching the backup phase and without emitting a report.
+
+A second attempt on 2026-08-03 17:49 behaved identically, stopping at 02:21:12
+after 8.5 hours and 68.52 GiB.
+
+**Both were killed by a system-initiated reboot, not by any fault in the
+system under test.** Its stdout and stderr contain no panic, assertion or
+backtrace; they simply stop. The System event log records
+`Microsoft-Windows-Kernel-Power` event 109, "the kernel power manager has
+initiated a shutdown transition", nine seconds after the first run's last write
+and ten seconds after the second's. The machine booted five times in the three
+days spanning both attempts.
+
+An eleven-hour gate cannot complete on a host that restarts roughly twice a
+day. Suspend automatic restarts for the duration of the run, or run the gate on
+a host that does not restart unattended. This is an environment constraint, not
+a defect, and it is why the run leaves a durable log: without one, two
+consecutive failures looked identical to an unexplained crash.
+
+Operationally this matters beyond the benchmark. A host that restarts twice a
+day will terminate the brain service abruptly at the same rate, so crash
+recovery is a routine path rather than an exceptional one. Each unclean stop
+leaves an uncheckpointed write-ahead log for the next process to recover, which
+was measured at 193 seconds for 1.5 GB.
 
 Two defects that attempt exposed are now fixed in `3998d9c`:
 
