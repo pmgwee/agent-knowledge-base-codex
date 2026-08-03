@@ -36,3 +36,34 @@ Every gate copies its report to `target/<profile>-benchmark-report.json` before
 asserting, so a run that fails a threshold still leaves its measurements behind.
 Set `BRAIN_BENCHMARK_REPORT_DIR` to redirect that copy when the corpus is built
 on a scratch volume.
+
+## Running a profile outside the test harness
+
+The same generator and gates are available from the CLI, which writes its report
+to a directory you choose rather than a temporary one:
+
+```powershell
+brain benchmark --profile primary --output D:\AgentBrainBench\primary --seed 42
+```
+
+`--output` must not already exist. `--profile` accepts `smoke`, `primary`, or
+`stress`, and `--seed` defaults to 42; an identical seed reproduces an identical
+corpus and identical known-answer markers. The command prints the report and
+exits non-zero if any gate fails.
+
+## Measuring a corpus that already exists
+
+To qualify a large ledger without regenerating it — an interrupted run, or a
+real brain that has grown over time — use the read-only diagnostic instead:
+
+```powershell
+$env:BRAIN_DIAGNOSTIC_DB = 'D:\path\to\ledger.sqlite'
+$env:BRAIN_DIAGNOSTIC_PROJECT = '<project-uuid>'
+cargo test --release -p brain-cli --lib existing_corpus -- --ignored --nocapture
+```
+
+It reports event count, open cost, startup percentiles, and cold retrieval
+percentiles, and writes nothing. Run it twice: the first execution pays
+write-ahead-log recovery and a cold operating system page cache, the second
+reports steady state. It covers the performance gates only, since correctness
+gates need ground truth that only a full generated run produces.

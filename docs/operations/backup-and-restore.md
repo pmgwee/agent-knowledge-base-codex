@@ -42,3 +42,21 @@ The drill command always writes a JSON success/failure report under
 `<work-root>\reports`. A successful isolated restore is removed only after its
 hashes and SQLite databases pass verification. The backup itself and active
 `BRAIN_HOME` are never modified.
+
+## Recovering for real
+
+`backup drill` rehearses recovery and deletes its copy afterwards. To recover
+after actual loss, restore into a new directory:
+
+```powershell
+brain restore --backup D:\AgentBrainBackups\<restore-point> --destination D:\AgentBrainRestored
+```
+
+`--destination` must not already exist; the command refuses rather than writing
+into a populated directory, which is what keeps a failed recovery from damaging
+a surviving brain. It verifies the source, stages, revalidates every file and
+database, then publishes atomically.
+
+Nothing is switched over automatically. Review the restored directory, then
+point `BRAIN_HOME` at it and keep the previous directory as the rollback target
+until the new one has served a few sessions.
