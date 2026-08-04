@@ -63,18 +63,18 @@ pub struct ServiceUninstallReport {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-struct InstallManifest {
-    schema_version: u32,
-    brain_home: PathBuf,
-    service_executable: PathBuf,
-    brain_executable: PathBuf,
-    backup_root: PathBuf,
-    drill_root: PathBuf,
-    hook_executable: Option<PathBuf>,
-    claude_settings: Option<PathBuf>,
-    codex_settings: Option<PathBuf>,
-    task_names: Vec<String>,
-    installed_at: time::OffsetDateTime,
+pub struct InstallManifest {
+    pub schema_version: u32,
+    pub brain_home: PathBuf,
+    pub service_executable: PathBuf,
+    pub brain_executable: PathBuf,
+    pub backup_root: PathBuf,
+    pub drill_root: PathBuf,
+    pub hook_executable: Option<PathBuf>,
+    pub claude_settings: Option<PathBuf>,
+    pub codex_settings: Option<PathBuf>,
+    pub task_names: Vec<String>,
+    pub installed_at: time::OffsetDateTime,
 }
 
 trait TaskScheduler {
@@ -521,7 +521,7 @@ fn canonical_file(path: &Path, label: &str) -> Result<PathBuf> {
     Ok(std::fs::canonicalize(path)?)
 }
 
-fn load_manifest(brain_home: &Path) -> Result<InstallManifest> {
+pub fn load_manifest(brain_home: &Path) -> Result<InstallManifest> {
     let manifest: InstallManifest =
         serde_json::from_slice(&std::fs::read(manifest_path(brain_home))?)?;
     ensure!(

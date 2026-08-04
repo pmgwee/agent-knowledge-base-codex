@@ -634,7 +634,7 @@ fn stable_uuid(seed: u64, index: u64, label: &[u8]) -> uuid::Uuid {
     uuid::Uuid::from_bytes(bytes)
 }
 
-fn directory_bytes(root: &Path) -> Result<u64> {
+pub fn directory_bytes(root: &Path) -> Result<u64> {
     let mut total = 0_u64;
     let mut pending = vec![PathBuf::from(root)];
     while let Some(directory) = pending.pop() {

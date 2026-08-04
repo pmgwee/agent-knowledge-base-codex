@@ -5,10 +5,10 @@ use brain_cli::{
     AgentSourceOptions, BenchmarkProfile, RegisterOptions, ServiceInstallOptions, TaskCommands,
     benchmark_corpus, configure_codegraph, configure_llm_wiki, disable_provider, index_codegraph,
     install_claude_hooks, install_codex_hooks, install_windows_service, provider_status,
-    read_diagnostics, read_hermes_status, read_status, rebuild_basic_memory, rebuild_markdown,
-    register_project_with_sources, remove_provider, start_windows_service, stop_windows_service,
-    uninstall_claude_hooks, uninstall_codex_hooks, uninstall_windows_service, verify_projections,
-    windows_service_status,
+    read_dashboard, read_diagnostics, read_hermes_status, read_status, rebuild_basic_memory,
+    rebuild_markdown, register_project_with_sources, remove_provider, start_windows_service,
+    stop_windows_service, uninstall_claude_hooks, uninstall_codex_hooks, uninstall_windows_service,
+    verify_projections, windows_service_status,
 };
 use brain_coordination::{ClaimKind, PathClaimInput, SessionIdentity};
 use brain_domain::{BrainConfig, Harness, ProjectId};
@@ -126,6 +126,7 @@ enum Command {
         #[arg(long)]
         project: Option<String>,
     },
+    Dashboard,
     Rebuild {
         #[command(subcommand)]
         target: RebuildCommand,
@@ -833,6 +834,10 @@ fn main() -> Result<()> {
             let project = project.as_deref().map(parse_project_id).transpose()?;
             let bundle = read_diagnostics(&brain_home, project)?;
             println!("{}", serde_json::to_string_pretty(&bundle)?);
+        }
+        Command::Dashboard => {
+            let snapshot = read_dashboard(&brain_home)?;
+            println!("{}", serde_json::to_string_pretty(&snapshot)?);
         }
         Command::Rebuild {
             target: RebuildCommand::Markdown { project },
