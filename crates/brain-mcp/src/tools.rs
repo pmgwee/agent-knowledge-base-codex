@@ -85,7 +85,9 @@ impl BrainTools {
                         "prompt": string("Optional current task question."),
                         "paths": {"type": "array", "items": {"type": "string"}},
                         "as_of": timestamp(),
-                        "max_tokens": {"type": "integer", "minimum": 1, "maximum": 3000}
+                        "max_tokens": {"type": "integer", "minimum": 1, "maximum": 3000},
+                        "harness": {"type": "string", "enum": ["claude-code", "codex", "hermes"], "description": "Which agent is requesting this orientation. Used for delivery metrics attribution."},
+                        "native_session_id": string("The caller's native session ID, for delivery metrics attribution.")
                     }),
                     &["project"],
                 ),

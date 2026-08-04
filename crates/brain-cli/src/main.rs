@@ -647,6 +647,8 @@ fn main() -> Result<()> {
                     paths: path,
                     as_of,
                     max_tokens,
+                    harness: None,
+                    native_session_id: None,
                 })?;
             println!("{}", serde_json::to_string_pretty(&response)?);
         }

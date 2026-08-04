@@ -75,6 +75,13 @@ pub struct BrainCheckpointRequest {
     pub as_of: Option<String>,
     #[serde(default)]
     pub max_tokens: Option<usize>,
+    /// Which agent is requesting this orientation. When omitted, the delivery is still
+    /// recorded but attributed to an unknown harness so it doesn't silently merge with
+    /// Claude Code's hook deliveries.
+    #[serde(default)]
+    pub harness: Option<Harness>,
+    #[serde(default)]
+    pub native_session_id: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -605,6 +612,8 @@ impl BrainQueryService {
                 paths: request.paths,
                 as_of: None,
                 max_tokens: request.max_tokens,
+                harness: Some(request.harness),
+                native_session_id: Some(request.native_session_id),
             },
             provider_results,
         )?;
@@ -640,15 +649,31 @@ impl BrainQueryService {
             compiler = compiler.with_provider_results(provider_results);
         }
         let mut query = ContextQuery::for_worktree(project.project_id, worktree_id);
-        query.prompt = request.prompt;
-        query.paths = request.paths;
+        query.prompt = request.prompt.clone();
+        query.paths = request.paths.clone();
         query.as_of = request.as_of.as_deref().map(parse_timestamp).transpose()?;
         if let Some(max_tokens) = request.max_tokens {
             query.max_tokens = max_tokens;
         }
+        let compiled = compiler.compile(query)?;
+        // Record what was delivered, mirroring the hook handler. MCP retrievals go through
+        // this path rather than through hook_handler, and without recording here the token
+        // baseline for CodeGraph/LLM Wiki evaluation would silently miss every Codex call.
+        // Fail-open: losing a metric must never cost an orientation.
+        let _ = ledger.record_context_delivery(&brain_store::ContextDelivery {
+            project_id: project.project_id,
+            harness: request.harness.unwrap_or(Harness::Codex),
+            native_session_id: request.native_session_id.clone(),
+            event_name: "brain_checkpoint".to_owned(),
+            delivered_at: time::OffsetDateTime::now_utc(),
+            total_tokens: compiled.token_count as u64,
+            memory_tokens: compiled.token_count as u64,
+            coordination_tokens: 0,
+            citation_count: compiled.citations.len() as u64,
+        });
         Ok(BrainCheckpointResponse {
             project_id: project.project_id,
-            context: compiler.compile(query)?,
+            context: compiled,
         })
     }
 
