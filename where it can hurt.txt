@@ -1,0 +1,5 @@
+Where it can hurt:
+
+Context pollution. Inject wrong or irrelevant memory and the model reasons from bad premises. This is the classic failure mode of memory systems. Guarded by hard project scoping before ranking, supersession so stale decisions never appear current, evidence citations, and explicit abstention when evidence is missing.
+Anchoring. If the brain says "we decided X," the model may not re-examine X when it should. Mitigated by labeling memory as evidence, not instruction, and by surfacing drift. Not eliminated. This is the genuine residual risk.
+Budget. 1,500 tokens is small but not free — versus uploading a whole exported session, overwhelmingly favorable
