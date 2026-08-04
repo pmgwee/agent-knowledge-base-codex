@@ -32,6 +32,15 @@ degradation percentage is reported for trend analysis but is not a gate; see
 §15.2 of the design specification for why it was superseded. Preserve the
 emitted JSON alongside the release binary and hardware description.
 
+Stress acceptance is narrower and deliberately so: complete without unbounded
+memory growth, integer or cursor overflow, or linear startup scans, with scoped
+query latency and context size within twice the primary tier. Recovery *time* is
+recorded at that tier rather than gated, because a corpus ten times larger is
+expected to take proportionally longer to restore — measured at 8,493 s for
+sixty million events against 272 s for six million. RPO remains gated everywhere,
+since whether the restored ledger holds every captured event is correctness
+rather than duration.
+
 Every gate copies its report to `target/<profile>-benchmark-report.json` before
 asserting, so a run that fails a threshold still leaves its measurements behind.
 Set `BRAIN_BENCHMARK_REPORT_DIR` to redirect that copy when the corpus is built

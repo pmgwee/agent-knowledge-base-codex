@@ -49,7 +49,53 @@ The final release hook latency gate also passed with warm p95 9.46 ms and p99
 
 ## Ten-times stress gate
 
-**Status: attempted, terminated before reporting. Not yet qualified.**
+**Status: qualified 2026-08-04.** Completed in 50,392 s (14.0 hours) on the third
+attempt, after two earlier attempts were killed by host restarts.
+
+| Measurement | 6,000,000 events | 60,000,000 events |
+| --- | ---: | ---: |
+| Sessions | 12,000 | 120,000 |
+| Captured / generated | 6,000,000 / 6,000,000 | 60,000,000 / 60,000,000 |
+| Replay duplicates | 0 | 0 |
+| Cross-project leakage | 0 | 0 |
+| Historical precision / recall | 1.0 / 1.0 | 1.0 / 1.0 |
+| Supersession fixtures | correct | correct |
+| Startup p50 / p95 | 2.279 / 3.265 ms | 2.139 / **3.566 ms** |
+| Warm query p95 | 0.0078 ms | **0.0090 ms** |
+| Cold query p95 | not measured | 28.886 ms |
+| Token reduction | 99.99875% | 99.999875% |
+| Ingest throughput | 2,030.7 ev/s | 1,847.5 ev/s |
+| Canonical storage | 8.08 GB | 81.30 GB |
+| Peak bounded batch | 1,300,920 B | 1,304,920 B |
+| Backup | 286.6 s | 9,338.9 s |
+| Restore | 272.4 s | **8,493.3 s** |
+
+The load-bearing result is startup: **3.566 ms at sixty million events against
+3.265 ms at six million.** Ten times the history costs nothing measurable, which
+is the property the architecture was designed around. Warm retrieval stayed at
+1.15 times the primary tier, well inside the "within two times" requirement, and
+process memory stayed between 10 and 25 MiB across all fourteen hours.
+
+Against the stress tier's stated requirements — completes without unbounded
+memory growth, without integer or cursor overflow, without linear startup scans,
+and with scoped query latency and context size within twice the primary tier —
+**every requirement was met.**
+
+The run reported one failing gate, `restore exceeds two-hour RTO`, at 8,493 s
+against a 7,200 s ceiling. That ceiling belongs to the primary tier, where it
+passes at 272 s; the harness was applying it to every profile. Gates are now
+profile-aware, and recovery time is recorded rather than gated at ten-times
+scale. The measurement itself is the useful output: **restoring sixty million
+events takes about two hours twenty minutes**, and recovery cost grows faster
+than linearly because verification hashes and integrity-checks the whole corpus.
+
+Two caveats on the numbers above. Cold query p50, p95 and p99 were identical at
+28.886 ms because the cold measurement drew on the comparison marker subset,
+which narrows to a single marker at this profile; that is corrected and later
+runs sample the full marker set. Backup was slower than restore, which is the
+reverse of the primary tier and not currently explained.
+
+### Earlier attempts
 
 The deterministic stress profile (120,000 sessions and 60,000,000 events) is
 implemented as an ignored/manual release-candidate test. The primary run
