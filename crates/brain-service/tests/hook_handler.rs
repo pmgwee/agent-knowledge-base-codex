@@ -6,6 +6,64 @@ use brain_service::{ClaudeHookHandler, HookProjectBinding};
 use brain_store::{EventLedger, GlobalPreferenceStore};
 
 #[test]
+fn session_start_records_the_size_of_what_it_delivered() {
+    // A hook reply is not an event and appears in no transcript, so unless it is recorded
+    // as it happens the cost of the brain's own orientation is unrecoverable.
+    let temp = tempfile::tempdir().expect("create delivery fixture");
+    let project_root = temp.path().join("project");
+    std::fs::create_dir_all(&project_root).expect("create project root");
+    let project_id = ProjectId(uuid::Uuid::now_v7());
+    let worktree_id = WorktreeId(uuid::Uuid::now_v7());
+    let ledger_path = temp.path().join("events.db");
+    let mut ledger = EventLedger::open(&ledger_path, project_id).expect("open delivery ledger");
+    ledger
+        .append_batch(&EventBatch {
+            source_id: "delivery-fixture".to_owned(),
+            events: vec![event(
+                project_id,
+                worktree_id,
+                EventType::UserPrompted,
+                1,
+                "continue prior auth task",
+            )],
+            quarantined: Vec::new(),
+            capture_gaps: Vec::new(),
+            next_cursor: SourceCursor::byte_offset(1),
+        })
+        .expect("append delivery evidence");
+    drop(ledger);
+
+    let handler = ClaudeHookHandler::new(HookProjectBinding {
+        project_root: project_root.clone(),
+        project_id,
+        worktree_id,
+        ledger_path: ledger_path.clone(),
+        global_preferences_path: None,
+    })
+    .expect("create delivery handler");
+
+    let window_start = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
+    let delivered = handler
+        .handle(&envelope("SessionStart", &project_root))
+        .expect("compile startup reply")
+        .additional_context
+        .expect("startup context");
+
+    let ledger = EventLedger::open(&ledger_path, project_id).expect("reopen delivery ledger");
+    let summary = ledger
+        .context_delivery_summary(window_start)
+        .expect("read delivery summary");
+
+    assert_eq!(summary.deliveries, 1, "the hook must record what it sent");
+    assert_eq!(
+        summary.max_tokens,
+        brain_context::token_count(&delivered) as u64,
+        "recorded size must equal the orientation actually delivered"
+    );
+    assert!(summary.mean_tokens() > 0.0);
+}
+
+#[test]
 fn session_start_returns_bounded_project_scoped_context() {
     let temp = tempfile::tempdir().expect("create hook handler fixture");
     let project_root = temp.path().join("project");

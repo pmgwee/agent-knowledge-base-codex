@@ -57,6 +57,25 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_events_type_occurred
             ON events(event_type, occurred_at_ns DESC);
 
+        -- What the brain actually injected into a session. Captured events record what the
+        -- agents did; nothing else records what this system handed them, and a reply is not
+        -- an event, so an unrecorded delivery is unrecoverable rather than merely unindexed.
+        CREATE TABLE IF NOT EXISTS context_deliveries (
+            delivery_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL,
+            harness TEXT NOT NULL,
+            native_session_id TEXT,
+            event_name TEXT NOT NULL,
+            delivered_at_ns INTEGER NOT NULL,
+            total_tokens INTEGER NOT NULL,
+            memory_tokens INTEGER NOT NULL,
+            coordination_tokens INTEGER NOT NULL,
+            citation_count INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_context_deliveries_project_time
+            ON context_deliveries(project_id, delivered_at_ns DESC);
+
         CREATE TABLE IF NOT EXISTS source_cursors (
             source_id TEXT PRIMARY KEY NOT NULL,
             cursor_json TEXT NOT NULL,

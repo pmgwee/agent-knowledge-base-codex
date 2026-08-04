@@ -4,6 +4,7 @@ mod backup;
 mod basic_memory;
 mod blob;
 mod catalog;
+mod context_metrics;
 mod cursor;
 mod jobs;
 mod ledger;
@@ -27,6 +28,7 @@ pub use basic_memory::{
 };
 pub use blob::{BlobRecord, BlobStore};
 pub use catalog::{CatalogEvent, SegmentCatalog};
+pub use context_metrics::{ContextDelivery, ContextDeliverySummary};
 pub use jobs::{ConsolidationJob, ConsolidationReason, JobStatus, RedactionManifestEntry};
 pub use ledger::{AppendResult, EventLedger, StoredEvent};
 pub use markdown::{

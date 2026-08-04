@@ -105,11 +105,12 @@ impl ProjectHookHandler {
         if coordination.is_some() {
             query.max_tokens = 1_000;
         }
-        query.native_session_id = envelope
+        let native_session_id = envelope
             .payload
             .get("session_id")
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned);
+        query.native_session_id = native_session_id.clone();
         let compiled = compiler.compile(query)?;
         if compiled.citations.is_empty() && coordination.is_none() && lease_warning.is_none() {
             return Ok(HookReply::default());
@@ -119,12 +120,30 @@ impl ProjectHookHandler {
             .flatten()
             .collect::<Vec<_>>()
             .join("\n");
+        // Measured before `compiled.text` is consumed below.
+        let memory_tokens = token_count(&compiled.text) as u64;
+        let coordination_tokens = token_count(&coordination) as u64;
+        let citation_count = compiled.citations.len() as u64;
         let additional_context = if coordination.is_empty() {
             compiled.text
         } else {
             format!("{coordination}\n\n{}", compiled.text)
         };
         debug_assert!(token_count(&additional_context) <= 1_500);
+        // What the brain handed over is not an event and appears in no transcript, so it is
+        // recorded as it happens or not at all. Deliberately fail-open: losing a metric must
+        // never cost a session its orientation.
+        let _ = ledger.record_context_delivery(&brain_store::ContextDelivery {
+            project_id: binding.project_id,
+            harness: envelope.harness.clone(),
+            native_session_id,
+            event_name: envelope.event_name.to_string(),
+            delivered_at: envelope.received_at,
+            total_tokens: token_count(&additional_context) as u64,
+            memory_tokens,
+            coordination_tokens,
+            citation_count,
+        });
         Ok(HookReply {
             additional_context: Some(additional_context),
             diagnostics_id: Some(envelope.nonce.to_string()),

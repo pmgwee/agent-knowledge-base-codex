@@ -133,6 +133,61 @@ impl EventLedger {
             .map_err(Into::into)
     }
 
+    /// Record an orientation as it is handed to an agent.
+    ///
+    /// Project-scoped like every other write here: a delivery belonging to another project
+    /// is refused rather than silently attributed to this one.
+    pub fn record_context_delivery(&self, delivery: &crate::ContextDelivery) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            delivery.project_id == self.project_scope,
+            "context delivery belongs to another project"
+        );
+        self.connection.execute(
+            r#"
+            INSERT INTO context_deliveries (
+                project_id, harness, native_session_id, event_name, delivered_at_ns,
+                total_tokens, memory_tokens, coordination_tokens, citation_count
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "#,
+            rusqlite::params![
+                delivery.project_id.0.to_string(),
+                delivery.harness.as_str(),
+                delivery.native_session_id.as_deref(),
+                delivery.event_name.as_str(),
+                i64::try_from(delivery.delivered_at.unix_timestamp_nanos())?,
+                i64::try_from(delivery.total_tokens)?,
+                i64::try_from(delivery.memory_tokens)?,
+                i64::try_from(delivery.coordination_tokens)?,
+                i64::try_from(delivery.citation_count)?,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Summarise deliveries at or after `since`. This is the shape a before-and-after
+    /// comparison needs when deciding whether an optional provider earned its place.
+    pub fn context_delivery_summary(
+        &self,
+        since: time::OffsetDateTime,
+    ) -> anyhow::Result<crate::ContextDeliverySummary> {
+        let since_ns = i64::try_from(since.unix_timestamp_nanos())?;
+        Ok(self.connection.query_row(
+            r#"
+            SELECT COUNT(*), COALESCE(SUM(total_tokens), 0), COALESCE(MAX(total_tokens), 0)
+            FROM context_deliveries
+            WHERE project_id = ?1 AND delivered_at_ns >= ?2
+            "#,
+            rusqlite::params![self.project_scope.0.to_string(), since_ns],
+            |row| {
+                Ok(crate::ContextDeliverySummary {
+                    deliveries: row.get::<_, i64>(0)?.max(0) as u64,
+                    total_tokens: row.get::<_, i64>(1)?.max(0) as u64,
+                    max_tokens: row.get::<_, i64>(2)?.max(0) as u64,
+                })
+            },
+        )?)
+    }
+
     pub fn quarantine_count(&self, source_id: &str) -> Result<u64> {
         Ok(self.connection.query_row(
             "SELECT COUNT(*) FROM quarantine WHERE source_id = ?1",
