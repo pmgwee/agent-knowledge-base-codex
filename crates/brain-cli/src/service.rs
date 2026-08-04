@@ -154,17 +154,16 @@ fn install_windows_service_with(
     let drill_xml = task_dir.join("restore-drill.xml");
     write_atomic(
         &service_xml,
-        service_task_xml(
+        &task_xml_bytes(&service_task_xml(
             &user_id,
             &options.service_executable,
             &options.brain_home,
             &log_dir,
-        )?
-        .as_bytes(),
+        )?),
     )?;
     write_atomic(
         &backup_xml,
-        hourly_task_xml(
+        &task_xml_bytes(&hourly_task_xml(
             &user_id,
             &options.brain_executable,
             &format!(
@@ -173,12 +172,11 @@ fn install_windows_service_with(
                 quoted(&options.backup_root)
             ),
             now,
-        )?
-        .as_bytes(),
+        )?),
     )?;
     write_atomic(
         &drill_xml,
-        monthly_task_xml(
+        &task_xml_bytes(&monthly_task_xml(
             &user_id,
             &options.brain_executable,
             &format!(
@@ -188,8 +186,7 @@ fn install_windows_service_with(
                 quoted(&options.drill_root)
             ),
             now,
-        )?
-        .as_bytes(),
+        )?),
     )?;
     let task_specs = [
         (SERVICE_TASK, service_xml.as_path()),
@@ -484,7 +481,7 @@ fn task_xml(
         ""
     };
     Ok(format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Task version=\"1.4\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><RegistrationInfo><Author>{user}</Author></RegistrationInfo><Triggers>{trigger}</Triggers><Principals><Principal id=\"Author\"><UserId>{user}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><AllowHardTerminate>true</AllowHardTerminate><ExecutionTimeLimit>{execution_limit}</ExecutionTimeLimit>{restart}</Settings><Actions Context=\"Author\"><Exec><Command>{command}</Command><Arguments>{arguments}</Arguments><WorkingDirectory>{working}</WorkingDirectory></Exec></Actions></Task>",
+        "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n<Task version=\"1.4\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><RegistrationInfo><Author>{user}</Author></RegistrationInfo><Triggers>{trigger}</Triggers><Principals><Principal id=\"Author\"><UserId>{user}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><AllowHardTerminate>true</AllowHardTerminate><ExecutionTimeLimit>{execution_limit}</ExecutionTimeLimit>{restart}</Settings><Actions Context=\"Author\"><Exec><Command>{command}</Command><Arguments>{arguments}</Arguments><WorkingDirectory>{working}</WorkingDirectory></Exec></Actions></Task>",
         user = xml_escape(user_id),
         command = xml_escape(&external(executable)),
         arguments = xml_escape(arguments),
@@ -542,6 +539,21 @@ fn manifest_path(brain_home: &Path) -> PathBuf {
     brain_home.join("runtime").join("install.json")
 }
 
+/// Encode task XML the way `schtasks /XML` requires: UTF-16 little-endian with a byte-order
+/// mark, matching what Task Scheduler's own export produces.
+///
+/// Handing it UTF-8 fails with `(1,40)::ERROR: unable to switch the encoding` — column 40 of
+/// the declaration being where the parser tries to adopt the declared codec and finds the
+/// bytes disagree. The declaration and the bytes must agree, so both are set here.
+fn task_xml_bytes(xml: &str) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(2 + xml.len() * 2);
+    bytes.extend_from_slice(&[0xFF, 0xFE]);
+    for unit in xml.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    bytes
+}
+
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path.parent().context("output has no parent")?;
     std::fs::create_dir_all(parent)?;
@@ -583,6 +595,42 @@ mod tests {
     use brain_service::{ServiceLaunchConfig, ServiceProjectConfig};
 
     use super::*;
+
+    #[test]
+    fn task_xml_is_utf16_le_with_a_bom_and_a_matching_declaration() {
+        // schtasks /XML rejects UTF-8 with "(1,40)::ERROR: unable to switch the encoding",
+        // column 40 being where it adopts the declared codec and finds the bytes disagree.
+        // The declaration and the bytes must therefore agree.
+        let xml = service_task_xml(
+            "MACHINE\\user",
+            Path::new("C:\\brain\\brain-service.exe"),
+            Path::new("C:\\AgentBrain"),
+            Path::new("C:\\AgentBrain\\runtime\\logs"),
+        )
+        .expect("build service task xml");
+        assert!(
+            xml.contains("encoding=\"UTF-16\""),
+            "declaration must name the encoding actually written"
+        );
+
+        let bytes = task_xml_bytes(&xml);
+        assert_eq!(
+            &bytes[..2],
+            &[0xFF, 0xFE],
+            "schtasks requires a UTF-16 little-endian byte-order mark"
+        );
+        assert_eq!(bytes.len(), 2 + xml.encode_utf16().count() * 2);
+
+        let units: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        assert_eq!(
+            String::from_utf16(&units).expect("round-trips as UTF-16"),
+            xml,
+            "encoding must not alter the document"
+        );
+    }
 
     #[test]
     fn install_and_uninstall_manage_only_owned_tasks_and_preserve_all_data() {
@@ -679,10 +727,21 @@ mod tests {
                 .lock()
                 .expect("tasks lock")
                 .insert(task_name.to_owned());
+            // Decode exactly as schtasks does, so this double rejects an encoding regression
+            // instead of quietly accepting bytes the real scheduler would refuse.
+            let bytes = std::fs::read(xml_path)?;
+            ensure!(
+                bytes.starts_with(&[0xFF, 0xFE]),
+                "task XML must be UTF-16 little-endian with a byte-order mark"
+            );
+            let units: Vec<u16> = bytes[2..]
+                .chunks_exact(2)
+                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                .collect();
             self.xml
                 .lock()
                 .expect("xml lock")
-                .insert(task_name.to_owned(), std::fs::read_to_string(xml_path)?);
+                .insert(task_name.to_owned(), String::from_utf16(&units)?);
             Ok(())
         }
 
