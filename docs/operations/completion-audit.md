@@ -49,5 +49,31 @@ precision and recall, token reduction, and backup and restore at that scale
 still require a complete generated run, because they depend on ground truth an
 interrupted corpus never finished writing.
 
-Nothing else is outstanding. The system is complete against every criterion that
-does not depend on that run.
+Nothing else is outstanding against the completion definition. The system is
+complete against every criterion that does not depend on that run.
+
+## Not a completion criterion, but needed before the optional providers
+
+Per-session context size is computed but never recorded. `CompiledContext`
+carries a `token_count`, and `hook_handler` uses it to bound and truncate, but
+no health field, metrics table or log line persists it. Nothing in
+`brain-store` stores it either.
+
+The consequence is narrow and specific: **the CodeGraph activation gate cannot
+be evaluated in real use.** That gate requires at least a 20% reduction in
+targeted-read tokens against a baseline, and `CodeGraphActivationReport` accepts
+`baseline_targeted_read_tokens` as an input it is given rather than one the
+system measures. Running the brain for a week produces no baseline to supply,
+so the comparison would come down to impression.
+
+Recording per-session context size, and code-reading tokens where they can be
+attributed, is a prerequisite for the provider evaluation rather than for
+completion. It should land before the first optional provider is enabled, not
+after, because a baseline cannot be reconstructed retroactively.
+
+A smaller related note: the 1,500-token ceiling on the assembled hook reply is
+checked with `debug_assert!`, which compiles out of release builds. The budget
+still holds by construction — the compiler is capped at 1,000 tokens whenever
+coordination is present, and coordination itself is bounded at 350 — so this is
+a missing safety net rather than a live overflow. The one input not explicitly
+bounded is the lease warning, which wraps an error string.
