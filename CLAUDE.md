@@ -125,6 +125,8 @@ events, stress = 120k / 60M). The stress gate takes hours — do not start one c
 | `~/AgentBrain/runtime/logs/` | Service and deploy logs |
 | `D:\AgentBrainBackups` | Backups (separate drive, by design) |
 | `../agent-brain-dashboard` | Next.js monitoring UI — separate project, separate toolchain |
+| `docs/registering-a-project.md` | How to register a new project — the full procedure |
+| `docs/storage-and-backup.md` | Storage sizing, retention, and the levers if the drive fills |
 
 Three Task Scheduler tasks run as the current user: `AgentBrain.Service` (logon trigger,
 restart 999× / 1 min), `AgentBrain.Backup`, `AgentBrain.RestoreDrill`.
@@ -141,6 +143,23 @@ field in `crates/brain-cli/src/dashboard.rs` or `deployment.rs` means updating t
 nothing enforces the correspondence, and a mismatch renders as plausible-looking wrong data.
 Note that `time::OffsetDateTime` serializes as a 9-element array, except in the deployment
 section, where timestamps originate as RFC 3339 strings in the deploy manifest.
+
+## Registering a project
+
+`brain register <path>` takes **only the local directory** — no repo URL, no project name.
+Transcripts are discovered from `~/.claude/projects` and `~/.codex/sessions`, and each one is
+claimed by the project whose root contains its own recorded `cwd`.
+
+The step that is easy to miss: **restart the service afterwards.** Capture bindings are built
+once, at startup (`build_capture_bindings` in `crates/brain-service/src/main.rs`), so until
+`schtasks /Run /TN "AgentBrain.Service"` runs, the project sits in the config with nothing
+capturing it — and everything looks fine while that is true.
+
+Then add `AGENTS.md` to the new project root so Codex knows the brain exists. Claude Code needs
+nothing: its hook is registered globally and resolves the project from the session's `cwd`.
+
+Full procedure, including verification and what to expect for storage:
+`docs/registering-a-project.md`.
 
 ## Secondary brain (this project's own memory)
 
