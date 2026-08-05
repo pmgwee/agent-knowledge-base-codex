@@ -151,7 +151,9 @@ impl BackupManager {
         fs::create_dir(&staging)?;
 
         let result = (|| {
-            let source_files = collect_files(&brain_home, Some(&backup_root))?;
+            let mut excluded = vec![backup_root.clone()];
+            excluded.extend(REBUILDABLE_DIRECTORIES.iter().map(|name| brain_home.join(name)));
+            let source_files = collect_files(&brain_home, &excluded)?;
             let mut files = Vec::with_capacity(source_files.len());
             for source in source_files {
                 let relative = source.strip_prefix(&brain_home)?.to_path_buf();
@@ -424,7 +426,16 @@ fn retained_indexes(
     retained
 }
 
-fn collect_files(root: &Path, excluded_root: Option<&Path>) -> Result<Vec<PathBuf>> {
+/// Directories under the brain home a backup deliberately skips.
+///
+/// `bin` holds the installed binaries. Those are build output — reproducible from the source
+/// tree at the commit the deploy manifest records, and hash-verified against it — so copying
+/// ~39 MB of them into every snapshot spends over 2 GB across a full retention cycle to
+/// protect something `scripts/deploy.ps1` regenerates with one command. A backup exists for
+/// what cannot be rebuilt; evidence qualifies and build artefacts do not.
+const REBUILDABLE_DIRECTORIES: [&str; 1] = ["bin"];
+
+fn collect_files(root: &Path, excluded: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut pending = vec![root.to_path_buf()];
     let mut files = Vec::new();
     while let Some(directory) = pending.pop() {
@@ -437,7 +448,7 @@ fn collect_files(root: &Path, excluded_root: Option<&Path>) -> Result<Vec<PathBu
                 "backup refuses symlink {}",
                 path.display()
             );
-            if excluded_root.is_some_and(|excluded| path.starts_with(excluded)) {
+            if excluded.iter().any(|excluded| path.starts_with(excluded)) {
                 continue;
             }
             if metadata.is_dir() {

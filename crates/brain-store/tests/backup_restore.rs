@@ -141,6 +141,57 @@ fn recovery_drill_records_success_or_failure_without_leaving_a_restore_copy() {
     assert!(failed.report_path.is_file());
 }
 
+#[test]
+fn backups_skip_rebuildable_binaries_but_keep_everything_else() {
+    // Binaries are build output: reproducible from the commit the deploy manifest records and
+    // hash-verified there. Copying them into all 66 retained snapshots spends gigabytes to
+    // protect something one command regenerates. Everything that is *not* rebuildable must
+    // still be captured, which is the half of this worth guarding against an over-broad rule.
+    let fixture = fixture();
+    std::fs::create_dir_all(fixture.brain_home.join("bin")).expect("bin");
+    std::fs::write(fixture.brain_home.join("bin/brain.exe"), b"MZ fake binary").expect("exe");
+    std::fs::write(fixture.brain_home.join("runtime.json"), "{}\n").expect("runtime");
+
+    let backup = BackupManager::create(
+        &fixture.brain_home,
+        fixture.temp.path().join("backups"),
+        fixture.now,
+    )
+    .expect("backup");
+
+    let captured: Vec<String> = backup
+        .inventory
+        .files
+        .iter()
+        .map(|file| file.relative_path.to_string_lossy().replace('\\', "/"))
+        .collect();
+
+    assert!(
+        !captured.iter().any(|path| path.starts_with("bin/")),
+        "bin/ must not be captured, got {captured:?}"
+    );
+    assert!(
+        captured.iter().any(|path| path == "runtime.json"),
+        "non-rebuildable files must still be captured, got {captured:?}"
+    );
+    assert!(
+        captured.iter().any(|path| path.ends_with("ledger.sqlite")),
+        "the ledger is the whole point of the backup, got {captured:?}"
+    );
+
+    // The inventory hash covers only what was captured, so verification must still pass.
+    BackupManager::verify(&backup.backup_path).expect("verify");
+    let restored = BackupManager::restore_isolated(
+        &backup.backup_path,
+        fixture.temp.path().join("restored"),
+    )
+    .expect("restore");
+    assert!(
+        !restored.destination.join("bin").exists(),
+        "a restore reinstates evidence; binaries come from a deploy"
+    );
+}
+
 struct Fixture {
     temp: tempfile::TempDir,
     brain_home: std::path::PathBuf,
