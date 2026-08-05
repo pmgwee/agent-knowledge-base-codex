@@ -173,8 +173,12 @@ once, at startup (`build_capture_bindings` in `crates/brain-service/src/main.rs`
 `schtasks /Run /TN "AgentBrain.Service"` runs, the project sits in the config with nothing
 capturing it — and everything looks fine while that is true.
 
-Then add `AGENTS.md` to the new project root so Codex knows the brain exists. Claude Code needs
-nothing: its hook is registered globally and resolves the project from the session's `cwd`.
+Then **append the brain section to the new project's `AGENTS.md`** — append, never overwrite,
+and substitute that project's own absolute path into the `brain_checkpoint(project: "...")`
+call. Both agents are already wired globally, so this is not wiring; it is the instruction that
+makes Codex *use* a tool it can already see, because its hook does not fire. Omitting it fails
+silently — Codex simply works without prior context and nothing looks wrong. Claude Code needs
+nothing: its hook is invoked by the harness and resolves the project from the session's `cwd`.
 
 Full procedure, including verification and what to expect for storage:
 `docs/registering-a-project.md`.
