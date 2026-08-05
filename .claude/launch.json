@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "brain-dashboard",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "C:\\Users\\quekm\\Desktop\\projects\\agent-brain-dashboard",
+        "dev"
+      ],
+      "port": 3000
+    }
+  ]
+}
