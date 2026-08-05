@@ -30,6 +30,9 @@ pub use health::{
     OperationalHealth, ProjectHealth, ServiceHealth, SourceHealth, source_health_key,
 };
 pub use hook_handler::{ClaudeHookHandler, HookProjectBinding, ProjectHookHandler};
+// Shared with `query_api` so the MCP `brain_checkpoint` path can prepend the same coordination
+// view (leases / path claims) the SessionStart hook injects for Claude Code.
+pub(crate) use hook_handler::coordination_context;
 pub use note_watcher::{
     GlobalPreferenceNoteWatcher, NoteScanReport, NoteWatcher, run_notes_and_projections,
     run_notes_and_projections_with_pressure,

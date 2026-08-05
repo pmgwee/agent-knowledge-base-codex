@@ -128,3 +128,34 @@ fn multiple_checkpoints_accumulate_in_the_delivery_log() {
     assert_eq!(summary.deliveries, 3, "each MCP call must be recorded");
     assert!(summary.total_tokens > 0);
 }
+
+#[test]
+fn checkpoint_prepends_coordination_context_so_codex_sees_active_state() {
+    // Codex's desktop app does not fire the SessionStart hook, so brain_checkpoint is the only
+    // channel through which it learns about leases and path claims. The checkpoint must prepend
+    // the same coordination view the hook injects for Claude Code.
+    let (_temp, service, project_id, _ledger_path) = service_with_project();
+
+    let response = service
+        .checkpoint(BrainCheckpointRequest {
+            project: project_id.0.to_string(),
+            prompt: None,
+            paths: Vec::new(),
+            as_of: None,
+            max_tokens: None,
+            harness: Some(Harness::Codex),
+            native_session_id: Some("codex-coord-test".to_owned()),
+        })
+        .expect("checkpoint");
+
+    assert!(
+        response.context.text.contains("Coordination state"),
+        "brain_checkpoint must prepend coordination context for Codex; got: {}",
+        response.context.text
+    );
+    assert!(
+        response.context.token_count <= 1_500,
+        "coordination + memory must stay within the token budget, got {}",
+        response.context.token_count
+    );
+}

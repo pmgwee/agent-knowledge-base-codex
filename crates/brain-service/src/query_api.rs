@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail, ensure};
 use brain_context::{
     CodeGraphProvider, CompiledContext, ContextCompiler, ContextQuery, LiveState, LlmWikiProvider,
     ProcessCodeGraphClient, ProviderConfig, ProviderResult, ProviderStatus, RankedCandidate,
-    RetrievalEngine, RetrievalQuery,
+    RetrievalEngine, RetrievalQuery, token_count,
 };
 use brain_coordination::{
     ClaimResult, CoordinationStore, MergePreflight, PathClaim, PathClaimInput, SessionIdentity,
@@ -20,7 +20,7 @@ use brain_store::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::{ServiceLaunchConfig, ServiceProjectConfig};
+use crate::{HookProjectBinding, ServiceLaunchConfig, ServiceProjectConfig, coordination_context};
 
 const DEFAULT_RESULT_LIMIT: usize = 20;
 const MAX_RESULT_LIMIT: usize = 100;
@@ -655,7 +655,36 @@ impl BrainQueryService {
         if let Some(max_tokens) = request.max_tokens {
             query.max_tokens = max_tokens;
         }
-        let compiled = compiler.compile(query)?;
+        // Codex reaches the brain through `brain_checkpoint` because its desktop app does not
+        // fire the SessionStart hook that delivers this view to Claude Code. Compute the same
+        // coordination state the hook prepends — active leases, path claims, overlaps, and the
+        // "no active task" warning — so a Codex session can see whether it is safe to edit
+        // before it touches anything. Read-only by design: pulling orientation must never
+        // acquire or mutate a lease. Fail-open on the coordination read so a coordination-store
+        // error cannot cost a session its orientation.
+        let now = time::OffsetDateTime::now_utc();
+        let coordination_binding = HookProjectBinding {
+            project_root: worktree_root.to_path_buf(),
+            project_id: project.project_id,
+            worktree_id,
+            ledger_path: project.ledger_path.clone(),
+            global_preferences_path: None,
+        };
+        let coordination_text = coordination_context(&coordination_binding, now)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let coordination_tokens = token_count(&coordination_text) as u64;
+        if !coordination_text.is_empty() {
+            // Leave room for coordination within the 1,000–1,500 token budget, mirroring the hook.
+            query.max_tokens = query.max_tokens.min(1_000);
+        }
+        let mut compiled = compiler.compile(query)?;
+        let memory_tokens = compiled.token_count as u64;
+        if !coordination_text.is_empty() {
+            compiled.text = format!("{coordination_text}\n\n{}", compiled.text);
+            compiled.token_count = token_count(&compiled.text);
+        }
         // Record what was delivered, mirroring the hook handler. MCP retrievals go through
         // this path rather than through hook_handler, and without recording here the token
         // baseline for CodeGraph/LLM Wiki evaluation would silently miss every Codex call.
@@ -665,10 +694,10 @@ impl BrainQueryService {
             harness: request.harness.unwrap_or(Harness::Codex),
             native_session_id: request.native_session_id.clone(),
             event_name: "brain_checkpoint".to_owned(),
-            delivered_at: time::OffsetDateTime::now_utc(),
+            delivered_at: now,
             total_tokens: compiled.token_count as u64,
-            memory_tokens: compiled.token_count as u64,
-            coordination_tokens: 0,
+            memory_tokens,
+            coordination_tokens,
             citation_count: compiled.citations.len() as u64,
         });
         Ok(BrainCheckpointResponse {

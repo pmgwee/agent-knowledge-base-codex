@@ -298,7 +298,7 @@ fn manage_lease_lifecycle(
     }
 }
 
-fn coordination_context(
+pub(crate) fn coordination_context(
     binding: &HookProjectBinding,
     now: time::OffsetDateTime,
 ) -> Result<Option<String>> {
