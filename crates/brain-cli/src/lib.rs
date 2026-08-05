@@ -2,6 +2,7 @@
 
 mod benchmark;
 mod dashboard;
+mod deployment;
 mod diagnose;
 mod install_hooks;
 mod providers;
@@ -11,6 +12,10 @@ mod service;
 mod status;
 
 pub use dashboard::{DashboardSnapshot, read_dashboard};
+pub use deployment::{
+    DEPLOY_MANIFEST, DEPLOYED_BINARIES, DeployManifest, DeployStatus, DeployedBinary,
+    DeploymentDashboard, read_deployment, read_head_commit,
+};
 pub use diagnose::{DiagnosticBundle, RedactedCursor, RedactedSchemaDrift, read_diagnostics};
 pub use install_hooks::{
     HookInstallResult, install_claude_hooks, install_codex_hooks, uninstall_claude_hooks,

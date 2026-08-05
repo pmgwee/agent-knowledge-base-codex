@@ -5,6 +5,7 @@ use brain_domain::{Harness, ProjectId};
 use brain_service::{DiskProbe, FilesystemDiskProbe, ServiceLaunchConfig};
 
 use crate::benchmark::directory_bytes;
+use crate::deployment::{DeploymentDashboard, read_deployment};
 use crate::providers::provider_status;
 use crate::status::read_status;
 
@@ -18,6 +19,10 @@ pub struct DashboardSnapshot {
     pub generated_at: time::OffsetDateTime,
     pub brain_home: PathBuf,
     pub service: ServiceDashboard,
+    /// Whether the installed binaries match the source they were built from. Rendered
+    /// separately from health: a stale deploy runs perfectly well, which is what makes it
+    /// worth showing.
+    pub deployment: DeploymentDashboard,
     pub projects: Vec<ProjectDashboard>,
     pub storage: StorageDashboard,
     pub health: HealthDashboard,
@@ -258,6 +263,7 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
             drill_root,
             recovery_command,
         },
+        deployment: read_deployment(brain_home),
         projects,
         storage: StorageDashboard {
             brain_home_bytes,

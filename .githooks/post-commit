@@ -1,0 +1,41 @@
+#!/bin/sh
+#
+# Deploy the brain whenever a commit changes its source.
+#
+# The binaries the system runs are copies in <brain-home>/bin, so committing a fix is not the
+# same as shipping it. Every reader keeps using the old binary until someone remembers to
+# rebuild and reinstall, and nothing about the running system looks wrong in the meantime.
+# This hook removes the remembering.
+#
+# Deploy runs detached and the commit returns immediately: a build takes far longer than a
+# commit should, and a hook that blocks is a hook that gets disabled. Progress and outcome land
+# in <brain-home>/runtime/deploy.json, which the dashboard renders.
+#
+# Enabled via `git config core.hooksPath .githooks`, so it is tracked in the repository rather
+# than living only in one clone's .git directory.
+
+# Only source changes need a deploy. Editing docs, the dashboard app, or the hooks themselves
+# does not change a binary, and rebuilding for those would make commits noisy for no gain.
+changed=$(git diff-tree --no-commit-id --name-only -r HEAD)
+echo "$changed" | grep -qE '^(crates/|Cargo\.toml$|Cargo\.lock$|rust-toolchain)' || exit 0
+
+root=$(git rev-parse --show-toplevel)
+# Git for Windows runs hooks under MSYS, where paths look like /c/Users/... . PowerShell needs
+# the native form.
+if command -v cygpath >/dev/null 2>&1; then
+    win_root=$(cygpath -w "$root")
+else
+    win_root=$(cd "$root" && pwd -W 2>/dev/null || echo "$root")
+fi
+
+script="$win_root\\scripts\\deploy.ps1"
+
+echo "brain: source changed, deploying in the background"
+echo "brain: watch it at the dashboard, or tail ~/AgentBrain/runtime/logs/deploy-*.log"
+
+# Start-Process detaches properly; a plain background job would be killed when git exits.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
+    "Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','$script','-Trigger','post-commit'" \
+    >/dev/null 2>&1
+
+exit 0
