@@ -1,4 +1,4 @@
-1) Start a Claude Code session in agent-knowledge-base-codex, then paste the template. (it cannot be codex session since everythings is setup in claude.md)
+1) Start a Claude Code/Codex session in agent-knowledge-base-codex, then paste the template. (it cannot be codex session since everythings is setup in claude.md)
 
 
 2) paste the template : Register a new project into the secondary brain:
