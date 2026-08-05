@@ -28,6 +28,13 @@ much history should appear, since registration ingests whatever transcripts alre
 | Which transcripts to capture | **No** | Discovered from `~/.claude/projects` and `~/.codex/sessions`. Ownership is decided by each transcript's own recorded `cwd`, never by folder proximity. |
 | Language, framework, tech stack | **No** | Nothing about capture is language-aware. |
 
+**Sessions opened in subfolders are claimed correctly.** Registering `Ai-community-channel`
+picked up 371 Claude sources, most of them recorded under
+`~/.claude/projects/c--…-Ai-community-channel-discord-mcp/` because the work happened in a
+subdirectory. That is right, not a mis-claim: ownership tests whether the transcript's recorded
+`cwd` is *contained by* the project root, not whether it equals it. Source paths that look
+unfamiliar are expected — there is nothing to fix.
+
 The only thing that matters is the **path**, and that it is the same path you actually open
 sessions in. A transcript is claimed by a project when its recorded `cwd` sits inside the
 project root — so if you sometimes work from a subfolder, that still resolves correctly, but a
@@ -90,6 +97,11 @@ different clone of the same repo elsewhere on disk is a *different* project by d
    A wrong path fails loudly (`project selector "..." is not registered`, exit 1), so a typo
    surfaces immediately. A *missing* section fails silently, which is why this step is required
    rather than suggested.
+
+   **Re-read the line after writing it.** On the first real registration the backslashes came
+   out singled — an escaping layer between the write and the file. Both forms happen to
+   resolve, so nothing failed; it simply did not match the other projects. Whatever tool wrote
+   the file, confirm what actually landed rather than what was sent.
 
    No Codex restart is needed — `AGENTS.md` is read at session start.
 
