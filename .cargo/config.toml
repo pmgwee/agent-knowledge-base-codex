@@ -1,0 +1,8 @@
+# Statically link the C runtime on Windows MSVC so the binaries have no external
+# DLL dependency (VCRUNTIME140.dll / MSVCP140.dll). The brain binaries are invoked
+# from restricted launch contexts — Codex's hook sandbox and Task Scheduler session 0 —
+# where the dynamic VC++ runtime is not always on the DLL search path, causing a silent
+# load failure (process exits before main, reported as exit code 1 / NTSTATUS 0xC000013x).
+# A static CRT makes each binary self-contained and loadable anywhere.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
