@@ -30,12 +30,17 @@ fi
 
 script="$win_root\\scripts\\deploy.ps1"
 
+# A deploy that dies before it can write its own manifest would otherwise leave the dashboard
+# showing the previous success, with the failure recorded nowhere at all. Capture the launch
+# stream so that case still leaves evidence.
+launch_log="$USERPROFILE\\AgentBrain\\runtime\\logs\\deploy-launch.err"
+
 echo "brain: source changed, deploying in the background"
 echo "brain: watch it at the dashboard, or tail ~/AgentBrain/runtime/logs/deploy-*.log"
 
 # Start-Process detaches properly; a plain background job would be killed when git exits.
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
-    "Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','$script','-Trigger','post-commit'" \
+    "Start-Process powershell -WindowStyle Hidden -RedirectStandardError '$launch_log' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','$script','-Trigger','post-commit'" \
     >/dev/null 2>&1
 
 exit 0

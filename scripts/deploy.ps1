@@ -31,13 +31,23 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$SourceRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$SourceRoot,
     [string]$BrainHome  = (Join-Path $env:USERPROFILE 'AgentBrain'),
     [string]$Trigger    = 'manual',
     [switch]$NoRestart
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Resolved here rather than as a param default: under `powershell -File`, which is how the
+# post-commit hook invokes this, $PSScriptRoot is still empty while param defaults are being
+# evaluated. Deriving it in the body is the difference between a deploy that runs and one that
+# dies before it writes a manifest anyone could look at.
+if (-not $SourceRoot) {
+    $scriptDir = $PSScriptRoot
+    if (-not $scriptDir) { $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+    $SourceRoot = Split-Path -Parent $scriptDir
+}
 
 $BINARIES     = @('brain.exe', 'brain-service.exe', 'brain-hook.exe', 'brain-mcp.exe')
 $SERVICE_TASK = 'AgentBrain.Service'
