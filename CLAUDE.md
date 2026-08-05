@@ -89,6 +89,24 @@ answer. The commit is still shown, for orientation.
 The deploy script records the fingerprint by invoking the binary it just built
 (`brain source-fingerprint`), so the two sides cannot disagree about what "unchanged" means.
 
+### Static CRT — do not remove `.cargo/config.toml`
+
+The binaries are invoked from restricted launch contexts — Codex's hook sandbox and
+Task Scheduler session 0 — where the dynamic VC++ runtime (`VCRUNTIME140.dll`) is not
+on the DLL search path. Without static linking, `brain-hook.exe` fails to load in
+Codex (reported as "hook exited with code 1") and `brain-service.exe` crashes on
+startup under Task Scheduler (`NTSTATUS 0xC000013A`).
+
+`.cargo/config.toml` sets `target-feature = +crt-static` for the MSVC target, baking the
+CRT into each binary so they are self-contained and loadable anywhere. **Do not remove or
+override this file.** A clean `cargo build` in an interactive shell will appear to work
+even without static linking (VCRUNTIME140.dll is present in dev sessions) — the failure
+is silent and only surfaces in production contexts.
+
+Note: the post-commit deploy hook triggers on `crates/` or `Cargo.*`, **not** on
+`.cargo/`-only commits. If you change `.cargo/config.toml`, run
+`scripts/deploy.ps1` manually — the hook won't fire on its own.
+
 ## Build and test
 
 ```bash

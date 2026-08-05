@@ -23,7 +23,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1
 
 To check what is actually installed, run `brain dashboard` and read the `deployment` section.
 
-See `CLAUDE.md` for the full contract, invariants, and layout.
+**Static CRT — do not remove `.cargo/config.toml`.** It sets `+crt-static` so the binaries
+don't depend on `VCRUNTIME140.dll`, which isn't available in Codex's hook sandbox or Task
+Scheduler session 0. Without it, `brain-hook` fails (Codex "exit 1") and `brain-service`
+crashes under Task Scheduler. A `.cargo/`-only commit doesn't trigger the auto-deploy hook —
+run `scripts/deploy.ps1` manually if you change it.
+
+## Invariants — do not break
+
+- **Cross-project isolation is absolute.** Zero leakage between projects. A transcript's
+  `cwd` decides ownership, never directory proximity.
+- **Evidence is append-only.** Supersede; never delete or rewrite.
+- **The context budget is a contract.** 1,000–1,500 tokens normal, 3,000 hard max.
+- **Cursors are keyed by source.** Append only to a project's source list; never reorder
+  or replace — that orphans cursors and re-ingests captured evidence.
+
+See `CLAUDE.md` for the full deploy contract, drift detection, paths, and the dashboard coupling.
 
 ## Build and test
 
