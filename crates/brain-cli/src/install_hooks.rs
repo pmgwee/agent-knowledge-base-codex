@@ -7,11 +7,30 @@ use atomicwrites::{AllowOverwrite, AtomicFile};
 const SESSION_MATCHER: &str = "startup|resume|clear|compact|fork";
 const CODEX_SESSION_MATCHER: &str = "^(startup|resume|clear|compact)$";
 
+/// Outer hook budget (seconds) the *harness* grants the hook process before killing it.
+/// Must comfortably exceed `brain_hook::HOOK_HARD_TIMEOUT` (the hook's own internal fail-open
+/// deadline), or the harness kills the hook before it can fail open on its own. Generous on
+/// purpose: the normal path returns in ~150 ms, and this only bites if the hook process itself
+/// hangs — strictly worse than a slow service.
+const CLAUDE_HOOK_TIMEOUT_SECONDS: u64 = 10;
+const CODEX_HOOK_TIMEOUT_SECONDS: u64 = 15;
+
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct HookInstallResult {
     pub changed: bool,
     pub settings_path: PathBuf,
     pub backup_path: Option<PathBuf>,
+}
+
+/// What the install found for brain-hook entries in a harness config.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HookPresence {
+    /// No brain-hook entry exists.
+    Missing,
+    /// The only brain-hook entry points at the current executable.
+    CurrentOnly,
+    /// A brain-hook entry exists at a different path, with or without the current one.
+    StalePresent,
 }
 
 pub fn install_claude_hooks(
@@ -22,7 +41,12 @@ pub fn install_claude_hooks(
     let hook_executable = canonical_hook_executable(hook_executable.as_ref())?;
     let mut settings = read_json_document(settings_path, "Claude settings")?;
     validate_hooks_shape(&settings, "Claude settings")?;
-    if contains_owned_hook(&settings, &hook_executable) {
+
+    // Idempotency keys off the binary *name*, not the path. Re-pointing the hook (e.g.
+    // target/ -> ~/AgentBrain/bin/) must REPLACE the stale entry rather than append a second
+    // one — a duplicate double-fires on every session start and doubles load on a pipe that
+    // serves one client at a time.
+    if claude_hook_presence(&settings, &hook_executable) == HookPresence::CurrentOnly {
         return Ok(HookInstallResult {
             changed: false,
             settings_path: settings_path.to_path_buf(),
@@ -30,29 +54,8 @@ pub fn install_claude_hooks(
         });
     }
 
-    let root = settings
-        .as_object_mut()
-        .expect("settings shape was validated as an object");
-    let hooks = root
-        .entry("hooks")
-        .or_insert_with(|| serde_json::json!({}))
-        .as_object_mut()
-        .expect("hooks shape was validated as an object");
-    let session_start = hooks
-        .entry("SessionStart")
-        .or_insert_with(|| serde_json::json!([]))
-        .as_array_mut()
-        .context("Claude hooks.SessionStart must be an array")?;
-    session_start.push(serde_json::json!({
-        "matcher": SESSION_MATCHER,
-        "hooks": [{
-            "type": "command",
-            "command": hook_executable,
-            "args": ["--harness", "claude-code"],
-            "timeout": 1
-        }]
-    }));
-
+    strip_claude_brain_hooks(&mut settings);
+    push_claude_hook_entry(&mut settings, &hook_executable)?;
     replace_with_backup(settings_path, &settings, "Claude settings")
 }
 
@@ -61,48 +64,15 @@ pub fn uninstall_claude_hooks(
     hook_executable: impl AsRef<Path>,
 ) -> Result<HookInstallResult> {
     let settings_path = settings_path.as_ref();
-    let hook_executable = canonical_hook_executable(hook_executable.as_ref())?;
+    let _ = canonical_hook_executable(hook_executable.as_ref())?;
     let mut settings = read_json_document(settings_path, "Claude settings")?;
     validate_hooks_shape(&settings, "Claude settings")?;
-    let mut changed = false;
 
-    if let Some(root) = settings.as_object_mut()
-        && let Some(hooks_value) = root.get_mut("hooks")
-    {
-        let hooks = hooks_value
-            .as_object_mut()
-            .expect("hooks shape was validated as an object");
-        if let Some(groups_value) = hooks.get_mut("SessionStart") {
-            let groups = groups_value
-                .as_array_mut()
-                .context("Claude hooks.SessionStart must be an array")?;
-            for group in groups.iter_mut() {
-                let Some(commands) = group
-                    .get_mut("hooks")
-                    .and_then(serde_json::Value::as_array_mut)
-                else {
-                    continue;
-                };
-                let before = commands.len();
-                commands.retain(|command| !is_owned_command(command, &hook_executable));
-                changed |= before != commands.len();
-            }
-            groups.retain(|group| {
-                group
-                    .get("hooks")
-                    .and_then(serde_json::Value::as_array)
-                    .is_none_or(|commands| !commands.is_empty())
-            });
-            if groups.is_empty() {
-                hooks.remove("SessionStart");
-            }
-        }
-        if hooks.is_empty() {
-            root.remove("hooks");
-        }
-    }
-
-    if !changed {
+    // Removal is also keyed by binary name: an uninstall must clean up a brain-hook entry no
+    // matter which path it was registered at, including paths left over from before a
+    // re-point. The executable argument is still required (its existence is the contract that
+    // the caller owns a real brain install) but does not select which entries are removed.
+    if !strip_claude_brain_hooks(&mut settings) {
         return Ok(HookInstallResult {
             changed: false,
             settings_path: settings_path.to_path_buf(),
@@ -120,7 +90,8 @@ pub fn install_codex_hooks(
     let hook_executable = canonical_hook_executable(hook_executable.as_ref())?;
     let mut document = read_json_document(hooks_path, "Codex hooks")?;
     validate_hooks_shape(&document, "Codex hooks")?;
-    if contains_owned_codex_hook(&document, &hook_executable) {
+
+    if codex_hook_presence(&document, &hook_executable) == HookPresence::CurrentOnly {
         return Ok(HookInstallResult {
             changed: false,
             settings_path: hooks_path.to_path_buf(),
@@ -128,32 +99,8 @@ pub fn install_codex_hooks(
         });
     }
 
-    let root = document
-        .as_object_mut()
-        .expect("Codex hook document was validated as an object");
-    let hooks = root
-        .entry("hooks")
-        .or_insert_with(|| serde_json::json!({}))
-        .as_object_mut()
-        .expect("Codex hooks were validated as an object");
-    let session_start = hooks
-        .entry("SessionStart")
-        .or_insert_with(|| serde_json::json!([]))
-        .as_array_mut()
-        .context("Codex hooks.SessionStart must be an array")?;
-    let command = codex_command(&hook_executable);
-    session_start.push(serde_json::json!({
-        "matcher": CODEX_SESSION_MATCHER,
-        "hooks": [{
-            "type": "command",
-            "command": command,
-            "commandWindows": command,
-            "timeout": 1,
-            "statusMessage": "Loading project memory",
-            "additionalContextLimit": 1500
-        }]
-    }));
-
+    strip_codex_brain_hooks(&mut document);
+    push_codex_hook_entry(&mut document, &hook_executable)?;
     replace_with_backup(hooks_path, &document, "Codex hooks")
 }
 
@@ -162,48 +109,11 @@ pub fn uninstall_codex_hooks(
     hook_executable: impl AsRef<Path>,
 ) -> Result<HookInstallResult> {
     let hooks_path = hooks_path.as_ref();
-    let hook_executable = canonical_hook_executable(hook_executable.as_ref())?;
+    let _ = canonical_hook_executable(hook_executable.as_ref())?;
     let mut document = read_json_document(hooks_path, "Codex hooks")?;
     validate_hooks_shape(&document, "Codex hooks")?;
-    let mut changed = false;
 
-    if let Some(root) = document.as_object_mut()
-        && let Some(hooks_value) = root.get_mut("hooks")
-    {
-        let hooks = hooks_value
-            .as_object_mut()
-            .expect("Codex hooks were validated as an object");
-        if let Some(groups_value) = hooks.get_mut("SessionStart") {
-            let groups = groups_value
-                .as_array_mut()
-                .context("Codex hooks.SessionStart must be an array")?;
-            for group in groups.iter_mut() {
-                let Some(commands) = group
-                    .get_mut("hooks")
-                    .and_then(serde_json::Value::as_array_mut)
-                else {
-                    continue;
-                };
-                let before = commands.len();
-                commands.retain(|command| !is_owned_codex_command(command, &hook_executable));
-                changed |= before != commands.len();
-            }
-            groups.retain(|group| {
-                group
-                    .get("hooks")
-                    .and_then(serde_json::Value::as_array)
-                    .is_none_or(|commands| !commands.is_empty())
-            });
-            if groups.is_empty() {
-                hooks.remove("SessionStart");
-            }
-        }
-        if hooks.is_empty() {
-            root.remove("hooks");
-        }
-    }
-
-    if !changed {
+    if !strip_codex_brain_hooks(&mut document) {
         return Ok(HookInstallResult {
             changed: false,
             settings_path: hooks_path.to_path_buf(),
@@ -257,27 +167,50 @@ fn validate_hooks_shape(settings: &serde_json::Value, label: &str) -> Result<()>
     Ok(())
 }
 
-fn contains_owned_hook(settings: &serde_json::Value, hook_executable: &Path) -> bool {
-    settings
-        .pointer("/hooks/SessionStart")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|group| group.get("hooks").and_then(serde_json::Value::as_array))
-        .flatten()
-        .any(|command| is_owned_command(command, hook_executable))
+fn claude_hook_presence(settings: &serde_json::Value, hook_executable: &Path) -> HookPresence {
+    let mut has_current = false;
+    let mut has_stale = false;
+    for command in brain_hook_commands(settings) {
+        let Some(candidate) = command.get("command").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if path_text_eq(candidate, hook_executable) {
+            has_current = true;
+        } else {
+            has_stale = true;
+        }
+    }
+    match (has_current, has_stale) {
+        (true, false) => HookPresence::CurrentOnly,
+        (false, false) => HookPresence::Missing,
+        _ => HookPresence::StalePresent,
+    }
 }
 
-fn is_owned_command(command: &serde_json::Value, hook_executable: &Path) -> bool {
-    command.get("type").and_then(serde_json::Value::as_str) == Some("command")
-        && command
-            .get("command")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|candidate| path_text_eq(candidate, hook_executable))
-        && command.get("args") == Some(&serde_json::json!(["--harness", "claude-code"]))
+fn codex_hook_presence(document: &serde_json::Value, hook_executable: &Path) -> HookPresence {
+    let expected = codex_command(hook_executable);
+    let mut has_current = false;
+    let mut has_stale = false;
+    for command in brain_hook_commands(document) {
+        let is_current = ["commandWindows", "command"]
+            .into_iter()
+            .filter_map(|key| command.get(key).and_then(serde_json::Value::as_str))
+            .any(|candidate| command_text_eq(candidate, &expected));
+        if is_current {
+            has_current = true;
+        } else {
+            has_stale = true;
+        }
+    }
+    match (has_current, has_stale) {
+        (true, false) => HookPresence::CurrentOnly,
+        (false, false) => HookPresence::Missing,
+        _ => HookPresence::StalePresent,
+    }
 }
 
-fn contains_owned_codex_hook(document: &serde_json::Value, hook_executable: &Path) -> bool {
+/// Iterate every command registered under `hooks.SessionStart`, regardless of group.
+fn brain_hook_commands(document: &serde_json::Value) -> Vec<&serde_json::Value> {
     document
         .pointer("/hooks/SessionStart")
         .and_then(serde_json::Value::as_array)
@@ -285,18 +218,154 @@ fn contains_owned_codex_hook(document: &serde_json::Value, hook_executable: &Pat
         .flatten()
         .filter_map(|group| group.get("hooks").and_then(serde_json::Value::as_array))
         .flatten()
-        .any(|command| is_owned_codex_command(command, hook_executable))
+        .filter(|command| command_invokes_brain_hook(command))
+        .collect()
 }
 
-fn is_owned_codex_command(command: &serde_json::Value, hook_executable: &Path) -> bool {
+/// True if this command entry invokes the brain-hook binary under *either* harness, keyed by
+/// the binary name (`brain-hook`) rather than its full path so a re-point is detectable.
+fn command_invokes_brain_hook(command: &serde_json::Value) -> bool {
     if command.get("type").and_then(serde_json::Value::as_str) != Some("command") {
         return false;
     }
-    let expected = codex_command(hook_executable);
+    let is_claude = command.get("args") == Some(&serde_json::json!(["--harness", "claude-code"]));
+    let codex_harness_in_text = ["commandWindows", "command"]
+        .into_iter()
+        .filter_map(|key| command.get(key).and_then(serde_json::Value::as_str))
+        .any(|text| text.to_lowercase().contains("--harness codex"));
+    if !(is_claude || codex_harness_in_text) {
+        return false;
+    }
     ["commandWindows", "command"]
         .into_iter()
         .filter_map(|key| command.get(key).and_then(serde_json::Value::as_str))
-        .any(|candidate| command_text_eq(candidate, &expected))
+        .any(points_at_brain_hook)
+}
+
+/// Extract the executable token from a command string (handling a quoted Windows path with
+/// trailing args) and report whether its file stem is `brain-hook`.
+fn points_at_brain_hook(command_text: &str) -> bool {
+    let trimmed = command_text.trim();
+    let executable = if let Some(rest) = trimmed.strip_prefix('"') {
+        rest.split('"').next().unwrap_or(rest)
+    } else {
+        trimmed.split_whitespace().next().unwrap_or(trimmed)
+    };
+    Path::new(executable)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .is_some_and(|stem| stem.eq_ignore_ascii_case("brain-hook"))
+}
+
+/// Remove every brain-hook command under `hooks.SessionStart`. Returns whether anything was
+/// removed. Cleans up the now-empty structures to keep the document tidy.
+fn strip_claude_brain_hooks(settings: &mut serde_json::Value) -> bool {
+    strip_brain_hooks(settings, command_invokes_brain_hook)
+}
+
+fn strip_codex_brain_hooks(document: &mut serde_json::Value) -> bool {
+    strip_brain_hooks(document, command_invokes_brain_hook)
+}
+
+fn strip_brain_hooks(
+    document: &mut serde_json::Value,
+    owns: fn(&serde_json::Value) -> bool,
+) -> bool {
+    let Some(root) = document.as_object_mut() else {
+        return false;
+    };
+    let Some(hooks_value) = root.get_mut("hooks") else {
+        return false;
+    };
+    let Some(hooks) = hooks_value.as_object_mut() else {
+        return false;
+    };
+    let Some(groups_value) = hooks.get_mut("SessionStart") else {
+        return false;
+    };
+    let Some(groups) = groups_value.as_array_mut() else {
+        return false;
+    };
+    let mut changed = false;
+    for group in groups.iter_mut() {
+        let Some(commands) = group
+            .get_mut("hooks")
+            .and_then(serde_json::Value::as_array_mut)
+        else {
+            continue;
+        };
+        let before = commands.len();
+        commands.retain(|command| !owns(command));
+        changed |= before != commands.len();
+    }
+    groups.retain(|group| {
+        group
+            .get("hooks")
+            .and_then(serde_json::Value::as_array)
+            .is_none_or(|commands| !commands.is_empty())
+    });
+    if groups.is_empty() {
+        hooks.remove("SessionStart");
+    }
+    if hooks.is_empty() {
+        root.remove("hooks");
+    }
+    changed
+}
+
+fn push_claude_hook_entry(settings: &mut serde_json::Value, hook_executable: &Path) -> Result<()> {
+    let root = settings
+        .as_object_mut()
+        .expect("settings shape was validated as an object");
+    let hooks = root
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .expect("hooks shape was validated as an object");
+    let session_start = hooks
+        .entry("SessionStart")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .context("Claude hooks.SessionStart must be an array")?;
+    session_start.push(serde_json::json!({
+        "matcher": SESSION_MATCHER,
+        "hooks": [{
+            "type": "command",
+            "command": hook_executable,
+            "args": ["--harness", "claude-code"],
+            "timeout": CLAUDE_HOOK_TIMEOUT_SECONDS
+        }]
+    }));
+    Ok(())
+}
+
+fn push_codex_hook_entry(document: &mut serde_json::Value, hook_executable: &Path) -> Result<()> {
+    let root = document
+        .as_object_mut()
+        .expect("Codex hook document was validated as an object");
+    let hooks = root
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .expect("Codex hooks were validated as an object");
+    let session_start = hooks
+        .entry("SessionStart")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .context("Codex hooks.SessionStart must be an array")?;
+    let command = codex_command(hook_executable);
+    session_start.push(serde_json::json!({
+        "matcher": CODEX_SESSION_MATCHER,
+        "hooks": [{
+            "type": "command",
+            "command": command,
+            "commandWindows": command,
+            "timeout": CODEX_HOOK_TIMEOUT_SECONDS,
+            "statusMessage": "Loading project memory",
+            "additionalContextLimit": 1500
+        }]
+    }));
+    Ok(())
 }
 
 fn codex_command(hook_executable: &Path) -> String {

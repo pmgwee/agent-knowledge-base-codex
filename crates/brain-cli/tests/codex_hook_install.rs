@@ -55,7 +55,9 @@ fn codex_hook_install_is_additive_idempotent_and_leaves_notify_untouched() {
             .is_some_and(|command| command.contains("--harness codex"))
     );
     assert_eq!(group["hooks"][0]["additionalContextLimit"], 1_500);
-    assert_eq!(group["hooks"][0]["timeout"], 1);
+    // Outer budget must comfortably exceed the hook's internal fail-open deadline; see
+    // CODEX_HOOK_TIMEOUT_SECONDS in install_hooks.rs.
+    assert_eq!(group["hooks"][0]["timeout"], 15);
 
     let repeated = install_codex_hooks(&hooks_path, &hook_exe).expect("repeat Codex install");
     assert!(!repeated.changed);

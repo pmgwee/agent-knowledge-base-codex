@@ -10,7 +10,22 @@ use std::time::Duration;
 use brain_domain::{HOOK_PROTOCOL_VERSION, Harness, HookEnvelope, HookReply};
 
 pub const DEFAULT_PIPE_NAME: &str = r"\\.\pipe\agent-brain-v1";
-pub const HOOK_HARD_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// The ceiling the hook waits for the service to compile and return an orientation.
+///
+/// This blocks session start, so the number is a real cost — but only when the service is
+/// slow or absent. A healthy service compiles in ~130 ms and replies through the pipe in
+/// ~150–300 ms, so a normal session never approaches this bound; it only bites when the
+/// service is unreachable, in which case the hook fails open to `{}` after this long.
+///
+/// 250 ms was correct when written and became wrong silently: the service serves the pipe
+/// on a reactor it shares with consolidation/projections/rediscovery, and blocking SQLite
+/// in those loops could starve the accept loop for ~1 s, so every hook hit the ceiling.
+/// The service now runs the pipe on its own task with the handler in `spawn_blocking`, so
+/// the pipe path is back to compile-bound (~150 ms). 3 s is ~10× that headroom, covering
+/// cold caches, disk contention, and a burst of concurrent session starts — while still
+/// bounding the damage when the service is genuinely down. Re-measure before lowering.
+pub const HOOK_HARD_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Debug)]
 pub struct HookOptions {

@@ -74,11 +74,41 @@ async fn main() -> anyhow::Result<()> {
     let consolidation_config = config.clone();
     let projection_config = config.clone();
     let pipe_handler = Arc::clone(&handler);
-    tokio::try_join!(
+    // The pipe server runs on its own task. `try_join!` polls every future on a single task,
+    // so when it shared that task with the capture/consolidation/projection/rediscovery loops
+    // below, any blocking SQLite call in those siblings stalled the pipe's accept loop for
+    // ~1 s — which is why every hook hit its 250 ms ceiling and failed open with `{}`. Giving
+    // the pipe its own task means a sibling holding the reactor no longer blocks hook delivery.
+    //
+    // The handler itself is moved to the blocking pool via `spawn_blocking`: compiling an
+    // orientation is ~130 ms of synchronous SQLite, and running it on a reactor worker would
+    // let one slow session block the accept loop the decoupling just freed. The blocking pool
+    // exists for exactly this.
+    let pipe_task = tokio::spawn(async move {
         pipe.run(pipe_shutdown, move |envelope| {
             let handler = Arc::clone(&pipe_handler);
-            async move { handler.handle(&envelope) }
-        }),
+            async move {
+                match tokio::task::spawn_blocking(move || handler.handle(&envelope)).await {
+                    Ok(outcome) => outcome,
+                    Err(join_error) => Err(anyhow::anyhow!(
+                        "hook handler blocking task failed: {join_error}"
+                    )),
+                }
+            }
+        })
+        .await
+    });
+
+    tokio::try_join!(
+        async {
+            match pipe_task.await {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(error)) => Err(error),
+                Err(join_error) => Err(anyhow::anyhow!(
+                    "hook pipe server task panicked: {join_error}"
+                )),
+            }
+        },
         Arc::clone(&capture).run(shutdown_rx),
         run_configured_consolidation_with_pressure(
             consolidation_config,

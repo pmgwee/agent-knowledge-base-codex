@@ -28,8 +28,8 @@ fn missing_service_exits_zero_emits_valid_empty_output_and_spools() {
 
     assert_eq!(output.status.code(), Some(0));
     assert!(
-        started.elapsed() < Duration::from_secs(1),
-        "missing service must fail open within the 250 ms hook timeout plus process overhead"
+        started.elapsed() < Duration::from_secs(4),
+        "missing service must fail open within the 3 s hook timeout plus process overhead"
     );
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("valid hook JSON"),
