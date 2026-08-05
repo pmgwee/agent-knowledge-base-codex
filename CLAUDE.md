@@ -164,6 +164,12 @@ section, where timestamps originate as RFC 3339 strings in the deploy manifest.
 
 ## Registering a project
 
+> **Mirrored section.** The same procedure appears under *Registering a project* in `AGENTS.md`,
+> so either agent can run it. **Changing one means changing the other** — nothing enforces the
+> correspondence, and an agent reading the stale copy follows stale instructions. The
+> authoritative long form is `docs/registering-a-project.md`; if the three ever disagree, that
+> file wins.
+
 `brain register <path>` takes **only the local directory** — no repo URL, no project name.
 Transcripts are discovered from `~/.claude/projects` and `~/.codex/sessions`, and each one is
 claimed by the project whose root contains its own recorded `cwd`.

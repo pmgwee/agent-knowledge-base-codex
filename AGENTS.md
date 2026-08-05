@@ -47,6 +47,33 @@ See `CLAUDE.md` for the full deploy contract, drift detection, paths, and the da
 - `cargo clippy --workspace --all-targets -- -D warnings` is a release gate.
 - Scale gates are ignored by default: `--ignored` runs them (primary = 12k sessions/6M events; stress = 120k/60M).
 
+## Registering a project
+
+> **Mirrored section.** The same procedure appears under *Registering a project* in `CLAUDE.md`,
+> so either agent can run it. **Changing one means changing the other** — nothing enforces the
+> correspondence, and an agent reading the stale copy follows stale instructions. The
+> authoritative long form is `docs/registering-a-project.md`; if the three ever disagree, that
+> file wins.
+
+`brain register <path>` takes **only the local directory** — no repo URL, no project name.
+Transcripts are discovered from `~/.claude/projects` and `~/.codex/sessions`, and each one is
+claimed by the project whose root contains its own recorded `cwd`.
+
+The step that is easy to miss: **restart the service afterwards.** Capture bindings are built
+once, at startup (`build_capture_bindings` in `crates/brain-service/src/main.rs`), so until
+`schtasks /Run /TN "AgentBrain.Service"` runs, the project sits in the config with nothing
+capturing it — and everything looks fine while that is true.
+
+Then **append the brain section to the new project's `AGENTS.md`** — append, never overwrite,
+and substitute that project's own absolute path into the `brain_checkpoint(project: "...")`
+call. Both agents are already wired globally, so this is not wiring; it is the instruction that
+makes Codex *use* a tool it can already see, because its hook does not fire. Omitting it fails
+silently — Codex simply works without prior context and nothing looks wrong. Claude Code needs
+nothing: its hook is invoked by the harness and resolves the project from the session's `cwd`.
+
+Full procedure, including verification and what to expect for storage:
+`docs/registering-a-project.md`.
+
 ## Secondary brain (project memory)
 
 This project is connected to a secondary brain via the `brain` MCP server. At the

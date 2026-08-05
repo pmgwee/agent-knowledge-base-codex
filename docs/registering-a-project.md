@@ -1,5 +1,10 @@
 # Registering a project into the secondary brain
 
+> **This file is authoritative.** `CLAUDE.md` and `AGENTS.md` each carry a short *Registering a
+> project* summary so both agents know the procedure without opening anything. Those two are
+> mirrors — when the procedure changes here, update both. If they ever disagree with this file,
+> this file wins.
+
 ## The prompt template
 
 Copy this, fill in the path, send it. Nothing else is needed.
