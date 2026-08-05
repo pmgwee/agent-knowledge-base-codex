@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use brain_domain::BrainConfig;
 use brain_service::{
-    CaptureSupervisor, HookPipeServer, ProjectHookHandler, ServiceLaunchConfig,
-    build_capture_bindings, build_hook_bindings, run_configured_consolidation_with_pressure,
-    run_notes_and_projections_with_pressure,
+    CaptureSupervisor, HookPipeServer, ProjectHookHandler, ServiceLaunchConfig, TranscriptRoots,
+    build_capture_bindings, build_hook_bindings, rediscover_once,
+    run_configured_consolidation_with_pressure, run_notes_and_projections_with_pressure,
+    run_rediscovery,
 };
 
 #[tokio::main]
@@ -39,7 +40,14 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let brain_home = arguments.brain_home;
-    let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+    let config_path = ServiceLaunchConfig::default_path(&brain_home);
+    // Pick up sessions created since the last run before building bindings, so a restart
+    // immediately captures work that arrived while the service was down.
+    let transcript_roots = TranscriptRoots::from_user_profile();
+    if let Err(error) = rediscover_once(&config_path, &transcript_roots) {
+        tracing::warn!(%error, "initial source rediscovery failed");
+    }
+    let config = ServiceLaunchConfig::load(&config_path)?;
     let capture = Arc::new(CaptureSupervisor::new(build_capture_bindings(&config)?)?);
     let consolidation_pressure = capture.degradation_receiver();
     let projection_pressure = capture.degradation_receiver();
@@ -62,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
     let pipe_shutdown = shutdown_rx.clone();
     let consolidation_shutdown = shutdown_rx.clone();
     let projection_shutdown = shutdown_rx.clone();
+    let rediscovery_shutdown = shutdown_rx.clone();
     let consolidation_config = config.clone();
     let projection_config = config.clone();
     let pipe_handler = Arc::clone(&handler);
@@ -81,7 +90,8 @@ async fn main() -> anyhow::Result<()> {
             brain_home,
             projection_shutdown,
             projection_pressure,
-        )
+        ),
+        run_rediscovery(config_path, transcript_roots, rediscovery_shutdown)
     )?;
     Ok(())
 }

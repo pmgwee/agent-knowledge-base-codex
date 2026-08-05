@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+atomicwrites.workspace = true
 brain-adapters = { path = "../brain-adapters" }
 brain-context = { path = "../brain-context" }
 brain-coordination = { path = "../brain-coordination" }

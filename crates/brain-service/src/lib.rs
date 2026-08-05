@@ -10,6 +10,7 @@ mod note_watcher;
 mod pipe;
 mod query_api;
 mod reconcile;
+mod rediscover;
 mod runtime;
 
 pub use backpressure::{
@@ -43,5 +44,9 @@ pub use query_api::{
     BrainPromptContextRequest, BrainPromptContextResponse, BrainProviderState, BrainQueryService,
     BrainReleaseClaimRequest, BrainResultItem, BrainSearchRequest, BrainStatusRequest,
     BrainStatusResponse, BrainTimelineRequest, SourceSelector, TimelineWindow,
+};
+pub use rediscover::{
+    DiscoveredSources, REDISCOVERY_INTERVAL, TranscriptRoots, apply_discovered_sources,
+    discover_new_sources, rediscover_all, rediscover_once, run_rediscovery,
 };
 pub use runtime::{build_capture_bindings, build_hook_bindings};

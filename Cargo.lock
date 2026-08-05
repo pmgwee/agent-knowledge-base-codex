@@ -262,6 +262,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "atomicwrites",
  "brain-adapters",
  "brain-context",
  "brain-coordination",
