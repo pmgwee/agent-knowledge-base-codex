@@ -159,6 +159,7 @@ try {
         branch            = $branch
         source_root       = $SourceRoot
         dirty             = $dirty
+        source_fingerprint = $null
         trigger           = $Trigger
         started_at        = (Get-Utc)
         finished_at       = $null
@@ -194,6 +195,19 @@ try {
     }
     Write-Log 'build ok'
 
+    # Fingerprint the build inputs using the binary just built, so the dashboard can tell
+    # whether rebuilding would differ without either side reimplementing the walk. Recorded
+    # before installing: it describes the source these artifacts came from.
+    $releaseDir  = Join-Path $SourceRoot 'target\release'
+    $fingerprint = $null
+    try {
+        $fingerprint = (& (Join-Path $releaseDir 'brain.exe') source-fingerprint --source-root $SourceRoot).Trim()
+        Write-Log "source fingerprint $($fingerprint.Substring(0,12))"
+    } catch {
+        Write-Log 'warning: could not fingerprint build inputs; drift will fall back to commits'
+    }
+    $manifest.source_fingerprint = $fingerprint
+
     # --- Install ----------------------------------------------------------------
     $serviceWasRunning = [bool](Get-Process brain-service -ErrorAction SilentlyContinue)
     if ($serviceWasRunning) {
@@ -201,7 +215,6 @@ try {
         & schtasks /End /TN $SERVICE_TASK | Out-Null
     }
 
-    $releaseDir = Join-Path $SourceRoot 'target\release'
     $installed  = @()
     $skipped    = @()
     foreach ($name in $BINARIES) {

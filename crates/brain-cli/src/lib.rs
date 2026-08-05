@@ -14,7 +14,7 @@ mod status;
 pub use dashboard::{DashboardSnapshot, read_dashboard};
 pub use deployment::{
     DEPLOY_MANIFEST, DEPLOYED_BINARIES, DeployManifest, DeployStatus, DeployedBinary,
-    DeploymentDashboard, read_deployment, read_head_commit,
+    DeploymentDashboard, read_deployment, read_head_commit, source_fingerprint,
 };
 pub use diagnose::{DiagnosticBundle, RedactedCursor, RedactedSchemaDrift, read_diagnostics};
 pub use install_hooks::{

@@ -6,9 +6,9 @@ use brain_cli::{
     benchmark_corpus, configure_codegraph, configure_llm_wiki, disable_provider, index_codegraph,
     install_claude_hooks, install_codex_hooks, install_windows_service, provider_status,
     read_dashboard, read_diagnostics, read_hermes_status, read_status, rebuild_basic_memory,
-    rebuild_markdown, register_project_with_sources, remove_provider, start_windows_service,
-    stop_windows_service, uninstall_claude_hooks, uninstall_codex_hooks, uninstall_windows_service,
-    verify_projections, windows_service_status,
+    rebuild_markdown, register_project_with_sources, remove_provider, source_fingerprint,
+    start_windows_service, stop_windows_service, uninstall_claude_hooks, uninstall_codex_hooks,
+    uninstall_windows_service, verify_projections, windows_service_status,
 };
 use brain_coordination::{ClaimKind, PathClaimInput, SessionIdentity};
 use brain_domain::{BrainConfig, Harness, ProjectId};
@@ -127,6 +127,15 @@ enum Command {
         project: Option<String>,
     },
     Dashboard,
+    /// Print a content hash of the build inputs.
+    ///
+    /// The deploy script records this so the dashboard can tell whether rebuilding would
+    /// produce different binaries. Computing it here rather than reimplementing the walk in
+    /// PowerShell keeps the two sides from ever disagreeing about what "unchanged" means.
+    SourceFingerprint {
+        #[arg(long)]
+        source_root: String,
+    },
     Rebuild {
         #[command(subcommand)]
         target: RebuildCommand,
@@ -838,6 +847,13 @@ fn main() -> Result<()> {
         Command::Dashboard => {
             let snapshot = read_dashboard(&brain_home)?;
             println!("{}", serde_json::to_string_pretty(&snapshot)?);
+        }
+        Command::SourceFingerprint { source_root } => {
+            let root = std::path::Path::new(&source_root);
+            let fingerprint = source_fingerprint(root).ok_or_else(|| {
+                anyhow::anyhow!("could not read build inputs under {}", root.display())
+            })?;
+            println!("{fingerprint}");
         }
         Command::Rebuild {
             target: RebuildCommand::Markdown { project },

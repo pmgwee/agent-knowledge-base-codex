@@ -70,16 +70,24 @@ binaries could not be replaced.
 ~/AgentBrain/bin/brain.exe --brain-home ~/AgentBrain dashboard
 ```
 
-The `deployment` section answers it: `up_to_date`, `deployed_commit` vs `head_commit`,
-`drifted_binaries`, `unreplaced_binaries`, and the last build error. The dashboard UI renders
-the same thing under **Deployment**.
+The `deployment` section answers it: `up_to_date`, `source_changed`, `drifted_binaries`,
+`unreplaced_binaries`, and the last build error. The dashboard UI renders the same thing under
+**Deployment**.
 
-### The one gap to know about
+### How drift is detected
 
-Drift is detected by comparing commits. A deploy from a **dirty working tree** installs code
-that is in no commit, so later edits to those same files cannot be detected that way — the
-snapshot flags it as `deployed_dirty` rather than pretending to certainty it does not have.
-Commit-driven deploys do not have this problem.
+By **hashing the build inputs** (`crates/`, `Cargo.toml`, `Cargo.lock`), not by comparing
+commits. Comparing commits is wrong in both directions and often enough to matter: a docs
+commit moves `HEAD` without changing any binary, and an uncommitted edit changes what a rebuild
+would produce while `HEAD` sits still. A signal that cries wolf on every README commit is one
+nobody reads.
+
+So `source_changed` means exactly *"rebuilding now would produce different binaries"* — which
+also means it catches uncommitted work in progress. That is intentional; it is the honest
+answer. The commit is still shown, for orientation.
+
+The deploy script records the fingerprint by invoking the binary it just built
+(`brain source-fingerprint`), so the two sides cannot disagree about what "unchanged" means.
 
 ## Build and test
 

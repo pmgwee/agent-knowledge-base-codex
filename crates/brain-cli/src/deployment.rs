@@ -9,8 +9,11 @@
 //!
 //! Three questions are answered here, each independently:
 //!
-//! - **Is the source ahead of what was deployed?** Compared by commit, read straight from the
-//!   git directory rather than by shelling out, so a dashboard poll stays a pure file read.
+//! - **Would rebuilding produce something different?** Compared by hashing the build inputs, not
+//!   by comparing commits — a docs commit moves `HEAD` without changing a binary, and an
+//!   uncommitted edit changes a binary without moving `HEAD`. Both readings are wrong often
+//!   enough to train someone to ignore the signal. The commit is still read from the git
+//!   directory, for display, without shelling out.
 //! - **Did the last deploy succeed?** A failed build must leave the previous binaries in place,
 //!   so "running fine" and "last deploy failed" are both true at once and both worth showing.
 //! - **Are the installed binaries the ones that deploy wrote?** Verified by hashing what is on
@@ -88,6 +91,10 @@ pub struct DeployManifest {
     /// code that is in no commit and `commit` only approximates what is installed.
     #[serde(default)]
     pub dirty: bool,
+    /// Content hash of the build inputs at deploy time. Absent in manifests written before
+    /// fingerprinting existed, which fall back to comparing commits.
+    #[serde(default)]
+    pub source_fingerprint: Option<String>,
     #[serde(default)]
     pub trigger: Option<String>,
     #[serde(default, with = "time::serde::rfc3339::option")]
@@ -129,14 +136,17 @@ pub struct DeploymentDashboard {
     pub deployed_at: Option<time::OffsetDateTime>,
     /// Current commit of the source tree the last deploy was built from.
     pub head_commit: Option<String>,
-    /// The source tree has moved on since the last successful deploy.
-    pub source_is_ahead: bool,
+    /// Rebuilding now would produce different binaries than the ones installed.
+    ///
+    /// Determined by content, not by commit, so a docs-only commit does not raise it and an
+    /// uncommitted edit does.
+    pub source_changed: bool,
     /// Built from a working tree with uncommitted changes.
     ///
     /// Deliberately kept out of `up_to_date`: such a deploy really did install what the tree
-    /// held at that moment, so calling it stale would be wrong. But the commit no longer
-    /// identifies what is running, and later edits to those same files cannot be detected by
-    /// comparing commits — so the caveat is worth showing on its own.
+    /// held at that moment, so calling it stale would be wrong. Drift is still detected — the
+    /// fingerprint covers uncommitted content — but `deployed_commit` no longer identifies what
+    /// is running, which is worth saying where a commit is displayed.
     pub deployed_dirty: bool,
     pub binaries: Vec<DeployedBinary>,
     /// Binaries whose on-disk content is not what the deploy recorded.
@@ -159,7 +169,7 @@ impl DeploymentDashboard {
             deployed_branch: None,
             deployed_at: None,
             head_commit: None,
-            source_is_ahead: false,
+            source_changed: false,
             deployed_dirty: false,
             binaries: Vec::new(),
             drifted_binaries: Vec::new(),
@@ -200,15 +210,28 @@ pub fn read_deployment(brain_home: &Path) -> DeploymentDashboard {
         .collect();
 
     let head_commit = manifest.source_root.as_deref().and_then(read_head_commit);
-    // Only claim the source moved on when both commits are known. An unreadable git directory
-    // means we cannot tell, and "cannot tell" must not render as "behind".
-    let source_is_ahead = match (&head_commit, &manifest.commit) {
-        (Some(head), Some(deployed)) => head != deployed,
-        _ => false,
+
+    // Prefer content over commits: it answers "would a rebuild differ?" directly, catching
+    // uncommitted edits and ignoring commits that touch no build input. Commits are the
+    // fallback only for manifests written before fingerprinting existed. Either way, an
+    // unreadable source tree means we cannot tell, and "cannot tell" must not render as drift.
+    let source_changed = match (
+        manifest
+            .source_root
+            .as_deref()
+            .and_then(source_fingerprint)
+            .as_ref(),
+        manifest.source_fingerprint.as_ref(),
+    ) {
+        (Some(now), Some(recorded)) => now != recorded,
+        _ => match (&head_commit, &manifest.commit) {
+            (Some(head), Some(deployed)) => head != deployed,
+            _ => false,
+        },
     };
 
     let up_to_date = manifest.status == DeployStatus::Succeeded
-        && !source_is_ahead
+        && !source_changed
         && drifted.is_empty()
         && unreplaced.is_empty();
 
@@ -219,7 +242,7 @@ pub fn read_deployment(brain_home: &Path) -> DeploymentDashboard {
         deployed_branch: manifest.branch,
         deployed_at: manifest.finished_at.or(manifest.started_at),
         head_commit,
-        source_is_ahead,
+        source_changed,
         deployed_dirty: manifest.dirty,
         binaries,
         drifted_binaries: drifted,
@@ -258,6 +281,70 @@ fn verify_binaries(bin_dir: &Path, manifest: &DeployManifest) -> Vec<DeployedBin
             }
         })
         .collect()
+}
+
+/// Paths whose content determines the built binaries, relative to the source root.
+///
+/// Everything else in the repository — docs, the dashboard app, the hooks, this file's own
+/// scripts — can change without producing a different binary.
+const SOURCE_PATHS: [&str; 3] = ["crates", "Cargo.toml", "Cargo.lock"];
+
+/// Directories that live under the source paths but are outputs rather than inputs.
+const SOURCE_SKIP: [&str; 2] = ["target", ".git"];
+
+/// A content hash of everything that determines the built binaries.
+///
+/// Compared against the value recorded at deploy time, this answers "would rebuilding produce
+/// something different?" — which is the question that actually matters, and which comparing
+/// commits answers badly in both directions. A docs commit moves `HEAD` without changing any
+/// binary, and would otherwise light the dashboard amber until the next unrelated source change,
+/// until nobody reads the signal at all. In the other direction, uncommitted edits change the
+/// binary a rebuild would produce while `HEAD` sits perfectly still.
+///
+/// Both the path and the content of every input are folded in, so a rename with compensating
+/// content is still a change. Traversal is ordered so the digest is stable across runs and
+/// filesystems.
+pub fn source_fingerprint(source_root: &Path) -> Option<String> {
+    let mut hasher = Sha256::new();
+    for entry in SOURCE_PATHS {
+        hash_source_path(&source_root.join(entry), entry, &mut hasher).ok()?;
+    }
+    Some(hex::encode(hasher.finalize()))
+}
+
+fn hash_source_path(path: &Path, relative: &str, hasher: &mut Sha256) -> std::io::Result<()> {
+    // A missing input contributes nothing rather than failing: the fingerprint should still be
+    // computable from a partial tree, and an absent path is itself reflected by its absence.
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return Ok(());
+    };
+
+    if metadata.is_file() {
+        hasher.update(relative.as_bytes());
+        hasher.update([0]);
+        let mut file = std::fs::File::open(path)?;
+        let mut content = Sha256::new();
+        std::io::copy(&mut file, &mut content)?;
+        hasher.update(content.finalize());
+        return Ok(());
+    }
+    if !metadata.is_dir() {
+        return Ok(());
+    }
+
+    let mut names: Vec<_> = std::fs::read_dir(path)?
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name())
+        .collect();
+    names.sort();
+    for name in names {
+        let name = name.to_string_lossy().into_owned();
+        if SOURCE_SKIP.contains(&name.as_str()) {
+            continue;
+        }
+        hash_source_path(&path.join(&name), &format!("{relative}/{name}"), hasher)?;
+    }
+    Ok(())
 }
 
 fn file_sha256(path: &Path) -> Option<String> {
@@ -338,7 +425,7 @@ mod tests {
         assert!(!state.configured);
         assert_eq!(state.status, "never");
         assert!(
-            !state.source_is_ahead,
+            !state.source_changed,
             "absence of a manifest is not evidence of drift"
         );
     }
@@ -388,8 +475,118 @@ mod tests {
         assert_eq!(read_head_commit(temp.path()), Some(id));
     }
 
+    /// Write a minimal source tree whose fingerprint is well-defined.
+    fn write_source_tree(root: &Path, lib: &str) {
+        write(&root.join("Cargo.toml"), "[workspace]\n");
+        write(&root.join("Cargo.lock"), "version = 4\n");
+        write(
+            &root.join("crates").join("a").join("src").join("lib.rs"),
+            lib,
+        );
+    }
+
+    fn manifest_with_fingerprint(source: &Path, fingerprint: &str) -> serde_json::Value {
+        serde_json::json!({
+            "schema_version": 1,
+            "status": "succeeded",
+            "commit": "a".repeat(40),
+            "source_root": source,
+            "source_fingerprint": fingerprint,
+            "binaries": [],
+        })
+    }
+
     #[test]
-    fn a_source_tree_ahead_of_the_deploy_is_not_up_to_date() {
+    fn a_commit_that_changes_no_build_input_is_not_drift() {
+        // The defect this guards: comparing HEAD made every docs or config commit light the
+        // dashboard amber until some unrelated source change happened to clear it. A signal
+        // that is wrong that often is one nobody reads.
+        let temp = tempfile::tempdir().expect("temp");
+        let source = temp.path().join("source");
+        let brain_home = temp.path().join("brain");
+        write_source_tree(&source, "pub fn f() {}\n");
+        let fingerprint = source_fingerprint(&source).expect("fingerprint");
+        write(
+            &brain_home.join("runtime").join(DEPLOY_MANIFEST),
+            &manifest_with_fingerprint(&source, &fingerprint).to_string(),
+        );
+
+        // Everything a commit could touch that is not a build input.
+        write(&source.join("README.md"), "# docs\n");
+        write(&source.join("scripts").join("deploy.ps1"), "# script\n");
+        write(&source.join(".githooks").join("post-commit"), "#!/bin/sh\n");
+
+        let state = read_deployment(&brain_home);
+        assert!(
+            !state.source_changed,
+            "changing files no binary depends on must not read as drift"
+        );
+        assert!(state.up_to_date);
+    }
+
+    #[test]
+    fn an_uncommitted_source_edit_is_drift() {
+        // The mirror case: HEAD never moves, so comparing commits would call this current while
+        // a rebuild would produce a different binary.
+        let temp = tempfile::tempdir().expect("temp");
+        let source = temp.path().join("source");
+        let brain_home = temp.path().join("brain");
+        write_source_tree(&source, "pub fn f() {}\n");
+        let fingerprint = source_fingerprint(&source).expect("fingerprint");
+        write(
+            &brain_home.join("runtime").join(DEPLOY_MANIFEST),
+            &manifest_with_fingerprint(&source, &fingerprint).to_string(),
+        );
+
+        write(
+            &source.join("crates").join("a").join("src").join("lib.rs"),
+            "pub fn f() { changed() }\n",
+        );
+
+        let state = read_deployment(&brain_home);
+        assert!(state.source_changed, "an edited build input must be drift");
+        assert!(!state.up_to_date);
+    }
+
+    #[test]
+    fn adding_a_source_file_is_drift_and_the_fingerprint_is_stable() {
+        let temp = tempfile::tempdir().expect("temp");
+        let source = temp.path().join("source");
+        write_source_tree(&source, "pub fn f() {}\n");
+
+        let first = source_fingerprint(&source).expect("fingerprint");
+        assert_eq!(
+            Some(&first),
+            source_fingerprint(&source).as_ref(),
+            "an unchanged tree must fingerprint identically, or every poll reads as drift"
+        );
+
+        // A new file with no content still changes the build.
+        write(
+            &source.join("crates").join("a").join("src").join("extra.rs"),
+            "",
+        );
+        assert_ne!(source_fingerprint(&source), Some(first));
+    }
+
+    #[test]
+    fn build_outputs_do_not_affect_the_fingerprint() {
+        // target/ churns constantly; folding it in would make the dashboard permanently amber.
+        let temp = tempfile::tempdir().expect("temp");
+        let source = temp.path().join("source");
+        write_source_tree(&source, "pub fn f() {}\n");
+        let before = source_fingerprint(&source).expect("fingerprint");
+
+        write(
+            &source.join("crates").join("target").join("out.bin"),
+            "junk",
+        );
+
+        assert_eq!(source_fingerprint(&source), Some(before));
+    }
+
+    #[test]
+    fn a_manifest_without_a_fingerprint_falls_back_to_comparing_commits() {
         // The defect this guards: source changed, deploy never ran, and every dashboard field
         // still renders plausibly against the older binary.
         let temp = tempfile::tempdir().expect("temp");
@@ -420,8 +617,8 @@ mod tests {
         let state = read_deployment(&brain_home);
         assert!(state.configured);
         assert!(
-            state.source_is_ahead,
-            "a newer commit must register as ahead"
+            state.source_changed,
+            "without a fingerprint, a newer commit must still register as drift"
         );
         assert!(!state.up_to_date);
     }
