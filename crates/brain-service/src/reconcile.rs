@@ -19,8 +19,36 @@ pub(crate) async fn run(
         .watched_paths()
         .filter_map(|path| path.parent().map(PathBuf::from))
         .collect::<HashSet<_>>();
+    // A source directory that has since been removed must not stop the service.
+    //
+    // Sources are recorded once and never withdrawn — cursors are keyed by source, so removing
+    // an entry would orphan its cursor and re-ingest captured evidence. Meanwhile the agents
+    // clean up their own session directories, so recorded paths go missing as a matter of
+    // course, and rediscovery records hundreds of them.
+    //
+    // `watch()` on a vanished directory returns "Input watch path is neither a file nor a
+    // directory". Propagated, that ends the whole service — the entire process runs under one
+    // `try_join!` — and it happens during startup, before the logger has recorded anything, so
+    // the only trace is Task Scheduler reporting exit code 1 and a log that simply stops. Every
+    // session started while the brain is down loses its orientation, silently.
+    //
+    // The evidence for those sources is already captured. A path that cannot be watched only
+    // means nothing new will arrive there, which for a finished session is true anyway.
+    let mut watched = 0_usize;
+    let mut unavailable = Vec::new();
     for parent in parents {
-        watcher.watch(&parent, RecursiveMode::NonRecursive)?;
+        match watcher.watch(&parent, RecursiveMode::NonRecursive) {
+            Ok(()) => watched += 1,
+            Err(error) => unavailable.push(format!("{}: {error}", parent.display())),
+        }
+    }
+    if !unavailable.is_empty() {
+        tracing::warn!(
+            watched,
+            unavailable = unavailable.len(),
+            examples = ?unavailable.iter().take(3).collect::<Vec<_>>(),
+            "some source directories could not be watched; capture continues for the rest"
+        );
     }
 
     capture_without_stopping(&supervisor).await;
