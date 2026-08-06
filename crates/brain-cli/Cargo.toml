@@ -53,5 +53,9 @@ name = "memory_quality"
 path = "../../tests/scale/memory_quality.rs"
 
 [[test]]
+name = "longmemeval"
+path = "../../tests/scale/longmemeval.rs"
+
+[[test]]
 name = "stress"
 path = "../../tests/scale/stress.rs"

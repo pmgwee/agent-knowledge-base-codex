@@ -430,6 +430,19 @@ impl EventLedger {
     }
 }
 
+/// Build the FTS5 match expression for a query's text.
+///
+/// Terms are joined with `OR`, not `AND`, because the result set is ranked. `ORDER BY
+/// bm25(...)` already places documents matching more of the query — and rarer parts of it —
+/// above documents matching one common word, which is what BM25 is for. Requiring every term
+/// instead turns the ranking off: nothing reaches it unless it already matched everything.
+///
+/// That distinction is invisible on the queries this was built for. `PREFS_ENABLED`, a commit
+/// sha, an `event:` uuid — one or two rare terms, where `AND` and `OR` return the same rows.
+/// It is decisive on the queries a memory system actually receives. Measured on LongMemEval-S,
+/// "What degree did I graduate with?" under `AND` demands that one event contain *what*, *did*,
+/// *I* and *with* together, and the benchmark scored **0.0% R@5** across every question type
+/// before this changed.
 fn match_expression(_project_id: ProjectId, text: Option<&str>) -> Option<String> {
     let terms = text?
         .split(|character: char| !character.is_alphanumeric())
@@ -441,7 +454,7 @@ fn match_expression(_project_id: ProjectId, text: Option<&str>) -> Option<String
     if terms.is_empty() {
         return None;
     }
-    Some(terms.join(" AND "))
+    Some(terms.join(" OR "))
 }
 
 fn estimated_cache_entry_bytes(query: &SearchQuery, hits: &[SearchHit]) -> usize {
@@ -631,8 +644,25 @@ mod tests {
 
         assert_eq!(
             match_expression(project, Some("OAuth PKCE")),
-            Some("\"OAuth\" AND \"PKCE\"".to_owned())
+            Some("\"OAuth\" OR \"PKCE\"".to_owned())
         );
+    }
+
+    #[test]
+    fn a_natural_language_question_does_not_require_every_word_to_co_occur() {
+        // The defect this guards was measured, not imagined: joined with AND, this question
+        // demanded a single event containing "What", "did", "I" and "with" together, and
+        // LongMemEval-S scored 0.0% R@5 across all six question types. Ranking is what
+        // separates a good hit from a weak one; AND stops anything reaching the ranking.
+        let project = ProjectId(uuid::Uuid::now_v7());
+        let expression = match_expression(project, Some("What degree did I graduate with?"))
+            .expect("a question produces terms");
+        assert!(
+            !expression.contains(" AND "),
+            "terms must not be conjunctive, got {expression}"
+        );
+        assert!(expression.contains("\"degree\" OR "));
+        assert!(expression.ends_with("\"with\""));
     }
 
     #[test]
