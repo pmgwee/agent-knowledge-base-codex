@@ -50,8 +50,23 @@ pub struct ProposedMemory {
     pub valid_from: time::OffsetDateTime,
     pub confidence: f32,
     pub evidence_ids: Vec<uuid::Uuid>,
-    #[serde(default)]
+    /// Absent, `[]`, and `null` all mean "supersedes nothing".
+    ///
+    /// A model asked for an array it has no members for will sometimes write `null`, and
+    /// `Vec` alone rejects that — discarding an otherwise valid batch over an empty field.
+    /// Tolerated here because the meaning is unambiguous; a wrong `kind` is not, and is still
+    /// rejected.
+    #[serde(default, deserialize_with = "null_as_default")]
     pub supersedes: Vec<uuid::Uuid>,
+}
+
+fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + serde::Deserialize<'de>,
+{
+    use serde::Deserialize as _;
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[async_trait]

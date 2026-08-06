@@ -54,7 +54,17 @@ impl ConsolidationLlm for GlmClient {
             "messages": [
                 {
                     "role": "system",
-                    "content": "Return only strict JSON matching {memories:[{kind,title,content,valid_from,confidence,evidence_ids,supersedes}]}. Cite only supplied evidence IDs. Never propose preferences or secrets."
+                    // The allowed `kind` values are spelled out because the schema is rejected
+                    // whole when one is wrong, and a model given only field names invents
+                    // plausible ones — "project" was the first thing GLM produced against real
+                    // evidence, and every memory in the batch was discarded for it.
+                    "content": "Return only strict JSON matching {\"memories\":[{\"kind\":..., \"title\":..., \"content\":..., \"valid_from\":..., \"confidence\":..., \"evidence_ids\":[...], \"supersedes\":[...]}]}.\n\
+        kind MUST be exactly one of: checkpoint, decision, fact, investigation, procedure, deployment, timeline, task. Use no other value; pick the closest one.\n\
+        valid_from MUST be RFC 3339, e.g. 2026-08-06T10:00:00Z.\n\
+        confidence MUST be a number between 0 and 1.\n\
+        evidence_ids MUST be a non-empty array of event_id values copied verbatim from the supplied evidence. Never invent one.\n\
+        supersedes MUST be an array, [] when nothing is superseded. Never null.\n\
+        Add no fields beyond those seven. Never propose preferences or secrets."
                 },
                 {"role": "user", "content": packet.serialized()}
             ]

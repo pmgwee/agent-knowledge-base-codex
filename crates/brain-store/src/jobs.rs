@@ -25,10 +25,16 @@ pub const MAX_JOB_EVENTS: usize = 200;
 /// count-only bound would therefore still admit wildly different packets, so cost is bounded by
 /// bytes as well and whichever limit is reached first ends the window.
 ///
-/// 400 KB is roughly 100k tokens. Measured against the provider directly, a 730 KB body with
-/// `response_format: json_object` answered in 9 s, so this leaves real headroom rather than
-/// sitting at the edge of what works.
-pub const MAX_JOB_PAYLOAD_BYTES: usize = 400_000;
+/// The stored columns are not the request. Serialising them into an evidence packet roughly
+/// doubles the bytes, and how those bytes tokenise varies with content — measured between 0.29
+/// and 0.66 tokens per character across two real packets, because dense JSON full of UUIDs
+/// tokenises far worse than prose. A job bounded at 400 KB of columns was measured arriving as
+/// a 831 KB body worth 558k prompt tokens.
+///
+/// 150 KB of columns therefore lands near 300 KB of body and comfortably inside a context
+/// window even at the worse tokenisation ratio. Chunk size barely moves total cost — the same
+/// evidence is sent either way — so it is chosen for reliability, not economy.
+pub const MAX_JOB_PAYLOAD_BYTES: usize = 150_000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConsolidationReason {
