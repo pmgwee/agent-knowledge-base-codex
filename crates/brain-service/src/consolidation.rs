@@ -158,7 +158,22 @@ pub async fn run_configured_consolidation_with_pressure(
                     continue;
                 }
                 for project in &config.projects {
-                    let mut ledger = EventLedger::open(&project.ledger_path, project.project_id)?;
+                    // Every failure below is contained to this project and this tick.
+                    //
+                    // The whole service runs under one `try_join!`, so an error escaping here
+                    // does not degrade consolidation — it takes down capture, the hook pipe,
+                    // rediscovery and projections with it, and the process exits 1 having
+                    // written nothing about why. That is the "service died again" this brain
+                    // has hit repeatedly: a transient SQLite lock or a single unusable job,
+                    // ending the run.
+                    //
+                    // Consolidation is the most failure-prone loop in the service — it is the
+                    // only one that depends on a network call to a third party — and it is also
+                    // the least urgent. It has no business deciding whether capture keeps
+                    // running.
+                    let outcome: anyhow::Result<()> = async {
+                        let mut ledger =
+                            EventLedger::open(&project.ledger_path, project.project_id)?;
                     // Chunk any uncovered backlog one bounded job at a time. Jobs are otherwise
                     // only enqueued when capture ingests new events, so a project whose history
                     // was ingested before this loop existed would never be consolidated at all.
@@ -185,6 +200,16 @@ pub async fn run_configured_consolidation_with_pressure(
                             | WorkerOutcome::DeadLetter(_)
                             | WorkerOutcome::SimulatedCrash(_) => {}
                         }
+                    }
+                        Ok(())
+                    }
+                    .await;
+                    if let Err(error) = outcome {
+                        tracing::warn!(
+                            project_id = %project.project_id.0,
+                            %error,
+                            "consolidation degraded for this project; the service continues"
+                        );
                     }
                 }
             }

@@ -81,9 +81,7 @@ impl MarkdownProjector {
                 file.sync_all()?;
             }
             verify_rendered_generation(&staging, &rendered)?;
-            std::fs::rename(&staging, &generation_root).with_context(|| {
-                format!("publish Markdown generation {}", generation_root.display())
-            })?;
+            publish_generation(&staging, &generation_root)?;
         }
 
         let manifest = ProjectionManifest {
@@ -187,6 +185,47 @@ pub struct ProjectionReport {
     pub file_count: usize,
     /// Superseded generations removed by this rebuild.
     pub pruned_generations: usize,
+}
+
+/// Move a verified staging directory into place, retrying briefly.
+///
+/// Windows refuses to rename a directory while anything holds a handle inside it, and something
+/// usually does: an editor watching the vault, an indexer, a virus scanner. Obsidian in
+/// particular begins reading notes the moment they appear, which is exactly the window this
+/// rename lands in — the live vault logged repeated "publish Markdown generation" failures once
+/// it was open, and every one of them abandoned that projection.
+///
+/// The handles are transient, so a few short retries clear almost all of them. Failing after
+/// that is correct: the staged content is verified and discarded rather than published
+/// half-moved, and the next tick rebuilds it.
+fn publish_generation(staging: &Path, destination: &Path) -> Result<()> {
+    const ATTEMPTS: u32 = 5;
+    let mut last = None;
+    for attempt in 0..ATTEMPTS {
+        match std::fs::rename(staging, destination) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                last = Some(error);
+                // Another writer may have published this very generation while we staged it.
+                // Identical content, so there is nothing left to do.
+                if destination.is_dir() {
+                    let _ = std::fs::remove_dir_all(staging);
+                    return Ok(());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(
+                    50 * u64::from(attempt + 1),
+                ));
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(staging);
+    Err(last
+        .map(anyhow::Error::from)
+        .unwrap_or_else(|| anyhow::anyhow!("rename failed"))
+        .context(format!(
+            "publish Markdown generation {} after {ATTEMPTS} attempts",
+            destination.display()
+        )))
 }
 
 /// Delete every generation the manifest no longer points at.
