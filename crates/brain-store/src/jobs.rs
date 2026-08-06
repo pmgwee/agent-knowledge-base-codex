@@ -14,15 +14,20 @@ use crate::cursor::timestamp_ns;
 /// carry all of it.
 pub const MAX_JOB_EVENTS: usize = 200;
 
-/// Most payload bytes a single consolidation job may span.
+/// Most evidence bytes a single consolidation job may span, counting `payload` *and* `raw`.
+///
+/// Both are counted because both are sent: `RedactedEvidence` carries each event's payload and
+/// its raw form, so a bound on payload alone understates the request. On the first job measured
+/// against the live ledger that gap was 2.6x — 277 KB bounded, 730 KB actually sent.
 ///
 /// Event sizes vary by three orders of magnitude here: a `tool.requested` runs ~2 KB while a
 /// `session.compacted` has been measured at 1.3 MB, and one captured event reached 3.7 MB. A
 /// count-only bound would therefore still admit wildly different packets, so cost is bounded by
 /// bytes as well and whichever limit is reached first ends the window.
 ///
-/// 400 KB is roughly 100k tokens — large enough that a job still sees a coherent stretch of
-/// work, small enough to sit inside a normal context window with room for the response.
+/// 400 KB is roughly 100k tokens. Measured against the provider directly, a 730 KB body with
+/// `response_format: json_object` answered in 9 s, so this leaves real headroom rather than
+/// sitting at the edge of what works.
 pub const MAX_JOB_PAYLOAD_BYTES: usize = 400_000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -429,14 +434,29 @@ impl EventLedger {
                 r#"
                 SELECT MAX(rowid) FROM (
                     SELECT rowid,
-                           SUM(LENGTH(COALESCE(payload_json, '')))
-                               OVER (ORDER BY rowid) AS running_bytes,
+                           SUM(bytes) OVER (ORDER BY rowid) AS running_bytes,
                            ROW_NUMBER() OVER (ORDER BY rowid) AS position
-                    FROM events
-                    WHERE project_id = ?1 AND rowid > ?2
+                    FROM (
+                        -- Bound the candidate set *before* the running sum. Without this LIMIT
+                        -- the window function reads every uncovered event on every call — on a
+                        -- freshly registered project that is tens of thousands of rows and
+                        -- hundreds of megabytes of payload text, recomputed each tick. That
+                        -- saturates a core and starves the runtime the provider call runs on,
+                        -- so consolidation appears to hang on a healthy connection.
+                        -- Both columns, because the evidence packet carries `payload` *and*
+                        -- `raw` for every event. Counting payload alone understated the real
+                        -- request body by 2.6x on the first measured job: 277 KB bounded,
+                        -- 730 KB actually sent.
+                        SELECT rowid,
+                               LENGTH(COALESCE(payload_json, ''))
+                             + LENGTH(COALESCE(raw_json, '')) AS bytes
+                        FROM events
+                        WHERE project_id = ?1 AND rowid > ?2
+                        ORDER BY rowid
+                        LIMIT ?3
+                    )
                 )
-                WHERE position = 1
-                   OR (position <= ?3 AND running_bytes <= ?4)
+                WHERE position = 1 OR running_bytes <= ?4
                 "#,
                 params![
                     self.project_scope.0.to_string(),

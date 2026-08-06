@@ -154,6 +154,45 @@ fn a_window_of_oversized_events_is_bounded_by_bytes_not_only_count() {
     );
 }
 
+#[test]
+fn enqueueing_against_a_large_backlog_does_not_rescan_the_whole_ledger() {
+    // The defect this guards cost an evening. The window that bounds a job was computed with a
+    // running SUM(LENGTH(...)) OVER (ORDER BY rowid) across *every* uncovered event, so each
+    // call re-read the entire backlog — on the live brain, tens of thousands of rows and
+    // hundreds of megabytes of payload text, once every two seconds per project.
+    //
+    // Nothing failed loudly. The service pegged a core, the async runtime was starved, and the
+    // provider request on it timed out at exactly 60 s against a connection that had opened in
+    // two. It looked like a network or model problem for hours; it was a query plan.
+    //
+    // So the guard is cost, not correctness: work must stay bounded by the window, not by the
+    // size of the backlog behind it. The margin is deliberately loose — this catches a return
+    // to full scans, not a modest slowdown.
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    for offset in 1..=2_000 {
+        append_large_event(&mut ledger, project, offset, 2_000);
+    }
+
+    let started = std::time::Instant::now();
+    let mut enqueued = 0;
+    while ledger
+        .enqueue_event_threshold_job(1)
+        .expect("evaluate threshold")
+        .is_some()
+    {
+        enqueued += 1;
+        assert!(enqueued <= 2_000, "enqueue must terminate, not loop");
+    }
+    let elapsed = started.elapsed();
+
+    assert!(enqueued > 1, "a 2,000 event backlog must need several jobs");
+    assert!(
+        elapsed < std::time::Duration::from_secs(20),
+        "draining a 2,000 event backlog took {elapsed:?}; the window is rescanning the backlog"
+    );
+}
+
 fn append_large_event(
     ledger: &mut EventLedger,
     project: ProjectId,
