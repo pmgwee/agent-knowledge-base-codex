@@ -64,6 +64,175 @@ fn projection_is_deterministic_verified_and_preserves_user_notes() {
     assert!(generated.contains("- [decision] Use SQLite as the canonical memory store."));
 }
 
+#[test]
+fn memories_sharing_evidence_link_to_each_other_and_never_dangle() {
+    // A vault of unlinked notes is a folder, not a graph — the projection wrote 1,265 files
+    // without a single wikilink between them. Edges are derived from the ledger rather than
+    // proposed: two memories citing the same event were distilled from the same moment, and
+    // that is a fact both notes already record in their Evidence section.
+    let temp = tempfile::tempdir().expect("vault fixture");
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let worktree = WorktreeId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    let shared = append_evidence(&mut ledger, project, worktree);
+
+    let first = memory(
+        project,
+        worktree,
+        "Bounded the job window",
+        vec![shared],
+        Vec::new(),
+    );
+    let second = memory(
+        project,
+        worktree,
+        "Counted raw bytes as well as payload",
+        vec![shared],
+        Vec::new(),
+    );
+    ledger.append_memory(&first).expect("append first");
+    ledger.append_memory(&second).expect("append second");
+
+    let projector = MarkdownProjector::new(temp.path());
+    projector
+        .rebuild_project(&ledger, project)
+        .expect("projection");
+    let verification = projector.verify_project(project).expect("verify");
+    assert!(verification.valid, "{:?}", verification.errors);
+
+    let notes: Vec<String> = verification
+        .files
+        .iter()
+        .map(|path| std::fs::read_to_string(path).expect("read note"))
+        .collect();
+    let joined = notes.join("\n");
+
+    assert!(
+        joined.contains(&format!("[[{}|Bounded the job window]]", first.id)),
+        "each note must link to the other by id, aliased to its title"
+    );
+    assert!(
+        joined.contains(&format!(
+            "[[{}|Counted raw bytes as well as payload]]",
+            second.id
+        )),
+        "the reciprocal link must exist too"
+    );
+    assert!(
+        joined.contains("## Related"),
+        "linked notes must carry a Related section"
+    );
+    assert!(
+        !joined.contains("## Supersedes"),
+        "neither memory supersedes anything, so that section must be absent"
+    );
+}
+
+#[test]
+fn a_link_to_a_superseded_memory_is_dropped_rather_than_left_dangling() {
+    // The projection renders only *current* memories, so a note that supersedes an older one
+    // names a memory the vault does not contain. Writing that link anyway would invite a reader
+    // — and Obsidian's graph — to chase a note that was deliberately not published.
+    let temp = tempfile::tempdir().expect("vault fixture");
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let worktree = WorktreeId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    let evidence = append_evidence(&mut ledger, project, worktree);
+
+    let old = memory(
+        project,
+        worktree,
+        "Bound by count only",
+        vec![evidence],
+        Vec::new(),
+    );
+    ledger.append_memory(&old).expect("append old");
+    let replacement = memory(
+        project,
+        worktree,
+        "Bound by count and bytes",
+        vec![evidence],
+        vec![old.version_id],
+    );
+    ledger
+        .append_memory(&replacement)
+        .expect("append replacement");
+
+    let projector = MarkdownProjector::new(temp.path());
+    projector
+        .rebuild_project(&ledger, project)
+        .expect("project");
+    let verification = projector.verify_project(project).expect("verify");
+    let joined = verification
+        .files
+        .iter()
+        .map(|path| std::fs::read_to_string(path).expect("read"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        !joined.contains(&format!("[[{}|", old.version_id)),
+        "a wikilink to a memory absent from the projection must not be written"
+    );
+}
+
+#[test]
+fn a_memory_that_shares_nothing_gets_no_empty_link_sections() {
+    // An empty "Related" heading reads as "checked, and there are none". Usually it means this
+    // is simply the only memory citing its evidence so far, which is not the same claim.
+    let temp = tempfile::tempdir().expect("vault fixture");
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let worktree = WorktreeId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    let evidence = append_evidence(&mut ledger, project, worktree);
+    let only = memory(
+        project,
+        worktree,
+        "Stands alone",
+        vec![evidence],
+        Vec::new(),
+    );
+    ledger.append_memory(&only).expect("append");
+
+    let projector = MarkdownProjector::new(temp.path());
+    projector
+        .rebuild_project(&ledger, project)
+        .expect("project");
+    let verification = projector.verify_project(project).expect("verify");
+    let note = std::fs::read_to_string(&verification.files[0]).expect("read");
+
+    assert!(!note.contains("## Related"));
+    assert!(!note.contains("## Supersedes"));
+    assert!(note.contains("## Evidence"), "citations still belong there");
+}
+
+fn memory(
+    project: ProjectId,
+    worktree: WorktreeId,
+    title: &str,
+    evidence_ids: Vec<uuid::Uuid>,
+    supersedes: Vec<uuid::Uuid>,
+) -> MemoryRecord {
+    MemoryRecord {
+        id: uuid::Uuid::now_v7(),
+        version_id: uuid::Uuid::now_v7(),
+        scope: MemoryScope::Project(project),
+        worktree_id: Some(worktree),
+        task_id: None,
+        kind: MemoryKind::Decision,
+        title: title.to_owned(),
+        content: format!("{title}."),
+        valid_from: time::OffsetDateTime::UNIX_EPOCH,
+        valid_to: None,
+        recorded_at: time::OffsetDateTime::UNIX_EPOCH,
+        confidence: 1.0,
+        authority: Authority::DerivedMemory,
+        evidence_ids,
+        supersedes,
+        status: MemoryStatus::Current,
+    }
+}
+
 fn append_evidence(
     ledger: &mut EventLedger,
     project: ProjectId,

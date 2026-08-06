@@ -38,10 +38,11 @@ impl MarkdownProjector {
         std::fs::create_dir_all(project_root.join("notes"))?;
         std::fs::create_dir_all(generated_root.join("generations"))?;
 
-        let mut rendered = ledger
-            .current_project_memories()?
+        let memories = ledger.current_project_memories()?;
+        let links = LinkIndex::build(&memories);
+        let mut rendered = memories
             .into_iter()
-            .map(|memory| render_memory(project_id, memory))
+            .map(|memory| render_memory(project_id, memory, &links))
             .collect::<Result<Vec<_>>>()?;
         rendered.sort_by(|left, right| left.logical_path.cmp(&right.logical_path));
         let generation = generation_id(&rendered);
@@ -201,7 +202,95 @@ struct RenderedMemory {
     version_id: uuid::Uuid,
 }
 
-fn render_memory(project_id: ProjectId, memory: MemoryRecord) -> Result<RenderedMemory> {
+/// Most related memories linked from one note.
+///
+/// A busy stretch of work can leave dozens of memories sharing evidence, and a note that links
+/// to all of them says nothing about which matter. The cap is applied after sorting, so the
+/// selection is deterministic and the generation hash stays stable.
+const MAX_RELATED_LINKS: usize = 8;
+
+/// Which memories link to which, derived from the ledger rather than proposed by a model.
+///
+/// Two relationships are represented, and both are facts already recorded:
+///
+/// - **Shared evidence.** Memories citing the same event were distilled from the same moment,
+///   so a reader following one has reason to see the other. Every such edge is backed by an
+///   `event:<uuid>` both notes already cite.
+/// - **Supersession.** A memory that replaces another names it in `supersedes`.
+///
+/// Nothing here is inferred from prose. Obsidian's graph is only worth trusting if every edge
+/// in it corresponds to something the ledger can prove.
+struct LinkIndex {
+    titles: std::collections::BTreeMap<uuid::Uuid, String>,
+    related: std::collections::BTreeMap<uuid::Uuid, Vec<uuid::Uuid>>,
+}
+
+impl LinkIndex {
+    fn build(memories: &[MemoryRecord]) -> Self {
+        let titles = memories
+            .iter()
+            .map(|memory| (memory.id, memory.title.clone()))
+            .collect();
+
+        // Group by evidence first: one pass over memories, then one pass per shared event.
+        let mut by_event: std::collections::BTreeMap<uuid::Uuid, Vec<uuid::Uuid>> =
+            std::collections::BTreeMap::new();
+        for memory in memories {
+            for evidence in &memory.evidence_ids {
+                by_event.entry(*evidence).or_default().push(memory.id);
+            }
+        }
+
+        let mut related: std::collections::BTreeMap<uuid::Uuid, std::collections::BTreeSet<_>> =
+            std::collections::BTreeMap::new();
+        for sharing in by_event.values() {
+            for left in sharing {
+                for right in sharing {
+                    if left != right {
+                        related.entry(*left).or_default().insert(*right);
+                    }
+                }
+            }
+        }
+
+        Self {
+            titles,
+            related: related
+                .into_iter()
+                .map(|(id, peers)| (id, peers.into_iter().take(MAX_RELATED_LINKS).collect()))
+                .collect(),
+        }
+    }
+
+    /// An Obsidian wikilink to a memory, aliased to its title.
+    ///
+    /// The target is the memory id because that is the note's filename; the alias is the title
+    /// so the graph reads as sentences rather than UUIDs. A link is only emitted for a memory
+    /// that exists in this projection — a dangling link is worse than an absent one, because it
+    /// invites a reader to look for a note that was never written.
+    fn wikilink(&self, id: uuid::Uuid) -> Option<String> {
+        let title = self.titles.get(&id)?;
+        Some(format!("[[{id}|{}]]", title.replace(['[', ']', '|'], " ")))
+    }
+
+    fn related_links(&self, id: uuid::Uuid) -> Vec<String> {
+        self.related
+            .get(&id)
+            .map(|peers| {
+                peers
+                    .iter()
+                    .filter_map(|peer| self.wikilink(*peer))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
+fn render_memory(
+    project_id: ProjectId,
+    memory: MemoryRecord,
+    links: &LinkIndex,
+) -> Result<RenderedMemory> {
     ensure!(
         memory.scope == MemoryScope::Project(project_id),
         "memory violates Markdown project scope"
@@ -262,6 +351,7 @@ fn render_memory(project_id: ProjectId, memory: MemoryRecord) -> Result<Rendered
             "- [{kind}] {observation}\n\n",
             "## Memory\n\n",
             "{body}\n\n",
+            "{relations}",
             "## Evidence\n\n",
             "{evidence_lines}\n"
         ),
@@ -284,6 +374,7 @@ fn render_memory(project_id: ProjectId, memory: MemoryRecord) -> Result<Rendered
         heading = memory.title,
         observation = observation,
         body = memory.content,
+        relations = render_relations(&memory, links),
         evidence_lines = evidence
             .iter()
             .map(|id| format!("- event:{id}"))
@@ -299,6 +390,39 @@ fn render_memory(project_id: ProjectId, memory: MemoryRecord) -> Result<Rendered
         memory_id: memory.id,
         version_id: memory.version_id,
     })
+}
+
+/// The wikilink sections, or nothing at all when a memory stands alone.
+///
+/// An empty "Related" heading is worse than no heading: it reads as a claim that the memory was
+/// checked for relatives and has none, when it usually means it is the only one citing its
+/// evidence so far. Sections appear only when they have contents.
+fn render_relations(memory: &MemoryRecord, links: &LinkIndex) -> String {
+    let mut out = String::new();
+
+    let superseded: Vec<String> = memory
+        .supersedes
+        .iter()
+        .filter_map(|id| links.wikilink(*id))
+        .collect();
+    if !superseded.is_empty() {
+        out.push_str("## Supersedes\n\n");
+        for link in &superseded {
+            out.push_str(&format!("- {link}\n"));
+        }
+        out.push('\n');
+    }
+
+    let related = links.related_links(memory.id);
+    if !related.is_empty() {
+        out.push_str("## Related\n\n");
+        for link in &related {
+            out.push_str(&format!("- {link}\n"));
+        }
+        out.push('\n');
+    }
+
+    out
 }
 
 fn yaml_string(value: &str) -> Result<String> {
