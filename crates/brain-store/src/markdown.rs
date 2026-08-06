@@ -11,7 +11,17 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::EventLedger;
 
-const PROJECTION_SCHEMA_VERSION: u32 = 1;
+/// Bumped to 2 when index pages joined the manifest, making `memory_id` optional. The projector
+/// rebuilds every few seconds, so a manifest at the old version is replaced rather than
+/// migrated — and `verify_project` refusing to read one is the correct outcome in the interval.
+const PROJECTION_SCHEMA_VERSION: u32 = 2;
+
+/// Memories listed under one kind on the project index before it summarises the rest.
+///
+/// An index is for finding your way in, not for reading everything: past a screen or two of
+/// links it stops being navigation. The total is always stated, so a truncated list never
+/// implies the vault holds less than it does.
+const MAX_INDEX_LINKS_PER_KIND: usize = 40;
 
 pub struct MarkdownProjector {
     vault_root: PathBuf,
@@ -40,10 +50,17 @@ impl MarkdownProjector {
 
         let memories = ledger.current_project_memories()?;
         let links = LinkIndex::build(&memories);
+        // No index for an empty projection. A vault with nothing in it should be empty, not hold
+        // a single page announcing that — and `current.json` already records that the projector
+        // ran.
+        let index = (!memories.is_empty())
+            .then(|| render_index(project_id, &memories, &links))
+            .transpose()?;
         let mut rendered = memories
             .into_iter()
             .map(|memory| render_memory(project_id, memory, &links))
             .collect::<Result<Vec<_>>>()?;
+        rendered.extend(index);
         rendered.sort_by(|left, right| left.logical_path.cmp(&right.logical_path));
         let generation = generation_id(&rendered);
         let generation_root = generated_root.join("generations").join(&generation);
@@ -189,8 +206,12 @@ struct ManifestEntry {
     logical_path: String,
     relative_path: String,
     sha256: String,
-    memory_id: uuid::Uuid,
-    version_id: uuid::Uuid,
+    /// Absent for generated index pages, which are navigation rather than memory. Optional so
+    /// the manifest can describe both without a second file listing to keep in step.
+    #[serde(default)]
+    memory_id: Option<uuid::Uuid>,
+    #[serde(default)]
+    version_id: Option<uuid::Uuid>,
 }
 
 struct RenderedMemory {
@@ -198,8 +219,32 @@ struct RenderedMemory {
     relative_path: PathBuf,
     content: String,
     sha256: String,
-    memory_id: uuid::Uuid,
-    version_id: uuid::Uuid,
+    memory_id: Option<uuid::Uuid>,
+    version_id: Option<uuid::Uuid>,
+}
+
+impl RenderedMemory {
+    /// A generated page that is not a memory — an index, a map of contents.
+    ///
+    /// Carried through the same staging, checksum, and manifest path as memories so a vault is
+    /// verified whole. An index that drifted from the notes it lists would be its own quiet
+    /// failure, and the existing generation hash already catches exactly that.
+    fn page(project_id: ProjectId, relative: &str, content: String) -> Result<Self> {
+        let relative_path = safe_relative_path(relative)?;
+        let logical_path = PathBuf::from("projects")
+            .join(project_id.0.to_string())
+            .join("generated")
+            .join(&relative_path);
+        let sha256 = hex::encode(Sha256::digest(content.as_bytes()));
+        Ok(Self {
+            logical_path,
+            relative_path,
+            content,
+            sha256,
+            memory_id: None,
+            version_id: None,
+        })
+    }
 }
 
 /// Most related memories linked from one note.
@@ -387,9 +432,79 @@ fn render_memory(
         relative_path,
         content,
         sha256,
-        memory_id: memory.id,
-        version_id: memory.version_id,
+        memory_id: Some(memory.id),
+        version_id: Some(memory.version_id),
     })
+}
+
+/// The project index — the note to open first.
+///
+/// Peer links alone make a graph you can only enter if you already know a note. This gives the
+/// vault a front door: what the project knows, grouped by kind, most recent first, every entry
+/// a link. Obsidian users would call it a map of contents.
+///
+/// It carries no claims of its own. Everything on it is a title and a link to a note that
+/// states its own evidence, so the index cannot become wrong independently of the memories.
+fn render_index(
+    project_id: ProjectId,
+    memories: &[MemoryRecord],
+    links: &LinkIndex,
+) -> Result<RenderedMemory> {
+    let mut by_kind: std::collections::BTreeMap<&'static str, Vec<&MemoryRecord>> =
+        std::collections::BTreeMap::new();
+    for memory in memories {
+        by_kind
+            .entry(memory.kind.as_str())
+            .or_default()
+            .push(memory);
+    }
+
+    let mut body = String::new();
+    body.push_str(&format!(
+        concat!(
+            "---\n",
+            "title: \"Project memory index\"\n",
+            "type: note\n",
+            "permalink: {permalink}\n",
+            "tags: [agent-brain, index]\n",
+            "brain_generated: true\n",
+            "project_id: \"{project_id}\"\n",
+            "memory_count: {count}\n",
+            "---\n\n",
+            "# Project memory index\n\n",
+            "{count} memories distilled from captured sessions. Every entry links to a note that\n",
+            "carries its own evidence citations; nothing is asserted here.\n\n"
+        ),
+        permalink = yaml_string(&format!("brain-index-{}", project_id.0))?,
+        project_id = project_id.0,
+        count = memories.len(),
+    ));
+
+    for (kind, mut group) in by_kind {
+        // Newest first: an index is read for what happened lately far more often than for what
+        // happened first. Ties break on id so the ordering — and the generation hash — is stable.
+        group.sort_by(|left, right| {
+            right
+                .valid_from
+                .cmp(&left.valid_from)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        body.push_str(&format!("## {kind} ({})\n\n", group.len()));
+        for memory in group.iter().take(MAX_INDEX_LINKS_PER_KIND) {
+            if let Some(link) = links.wikilink(memory.id) {
+                body.push_str(&format!("- {link}\n"));
+            }
+        }
+        if group.len() > MAX_INDEX_LINKS_PER_KIND {
+            body.push_str(&format!(
+                "- …and {} more, in `{kind}/`\n",
+                group.len() - MAX_INDEX_LINKS_PER_KIND
+            ));
+        }
+        body.push('\n');
+    }
+
+    RenderedMemory::page(project_id, "index.md", body)
 }
 
 /// The wikilink sections, or nothing at all when a memory stands alone.

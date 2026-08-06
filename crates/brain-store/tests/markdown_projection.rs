@@ -51,13 +51,14 @@ fn projection_is_deterministic_verified_and_preserves_user_notes() {
 
     assert_eq!(first.generation, second.generation);
     assert_eq!(first_manifest, second_manifest);
-    assert_eq!(first.file_count, 1);
+    // The memory, plus the generated project index.
+    assert_eq!(first.file_count, 2);
     assert!(user_note.is_file());
     let verification = projector
         .verify_project(project)
         .expect("verify projection");
     assert!(verification.valid, "{:?}", verification.errors);
-    let generated = std::fs::read_to_string(&verification.files[0]).expect("read generated note");
+    let generated = read_note_containing(&verification.files, &memory.id.to_string());
     assert!(generated.contains(&format!("memory_id: \"{}\"", memory.id)));
     assert!(generated.contains(&format!("version_id: \"{}\"", memory.version_id)));
     assert!(generated.contains(&format!("evidence_ids: [\"{evidence_id}\"]")));
@@ -204,6 +205,64 @@ fn a_memory_that_shares_nothing_gets_no_empty_link_sections() {
     assert!(!note.contains("## Related"));
     assert!(!note.contains("## Supersedes"));
     assert!(note.contains("## Evidence"), "citations still belong there");
+}
+
+#[test]
+fn the_index_lists_every_memory_and_asserts_nothing_of_its_own() {
+    // Peer links alone make a graph you can only enter if you already know a note. The index is
+    // the front door — and it must stay pure navigation, so it cannot contradict the notes it
+    // lists.
+    let temp = tempfile::tempdir().expect("vault fixture");
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let worktree = WorktreeId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    let evidence = append_evidence(&mut ledger, project, worktree);
+    let one = memory(
+        project,
+        worktree,
+        "First decision",
+        vec![evidence],
+        Vec::new(),
+    );
+    let two = memory(
+        project,
+        worktree,
+        "Second decision",
+        vec![evidence],
+        Vec::new(),
+    );
+    ledger.append_memory(&one).expect("append one");
+    ledger.append_memory(&two).expect("append two");
+
+    let projector = MarkdownProjector::new(temp.path());
+    projector
+        .rebuild_project(&ledger, project)
+        .expect("project");
+    let verification = projector.verify_project(project).expect("verify");
+    assert!(verification.valid, "{:?}", verification.errors);
+
+    let index = read_note_containing(&verification.files, "Project memory index");
+    assert!(
+        index.contains(&format!("[[{}|First decision]]", one.id)),
+        "the index must link every memory"
+    );
+    assert!(index.contains(&format!("[[{}|Second decision]]", two.id)));
+    assert!(
+        index.contains("2 memories"),
+        "the total must be stated so a truncated list never understates the vault"
+    );
+    assert!(
+        !index.contains("## Evidence"),
+        "the index carries no claims, so it cites nothing"
+    );
+}
+
+fn read_note_containing(files: &[std::path::PathBuf], needle: &str) -> String {
+    files
+        .iter()
+        .map(|path| std::fs::read_to_string(path).expect("read note"))
+        .find(|text| text.contains(needle))
+        .unwrap_or_else(|| panic!("no generated note contains {needle:?}"))
 }
 
 fn memory(
