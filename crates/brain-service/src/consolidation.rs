@@ -52,13 +52,26 @@ impl ConsolidationWorker {
         let events = ledger.events_between(job.first_event_id, job.last_event_id)?;
         let packet = packet_from_events(&job, events);
         ledger.record_redaction_manifest(job.id, &packet.redactions)?;
-        let proposed = match proposer.propose(&packet).await {
+        let validated = match proposer.propose(&packet).await {
             Ok(proposed) => match validate_proposed_batch(&packet, proposed) {
-                Ok(proposed) => proposed,
+                Ok(validated) => validated,
                 Err(error) => return self.fail(ledger, &job, &error.to_string(), now),
             },
             Err(error) => return self.fail(ledger, &job, &error.to_string(), now),
         };
+        if !validated.rejected.is_empty() {
+            // Surfaced, not retried. The request is made at `temperature: 0`, so a retry
+            // reproduces the same rejected proposal and spends another call to fail identically.
+            // What is worth knowing is which memories were dropped and why.
+            tracing::warn!(
+                job = %job.id,
+                accepted = validated.accepted.len(),
+                rejected = validated.rejected.len(),
+                reasons = ?validated.rejected,
+                "provider proposals rejected during validation"
+            );
+        }
+        let proposed = validated.accepted;
         for memory in &proposed {
             if let Err(error) = ledger.append_memory(memory) {
                 return self.fail(ledger, &job, &error.to_string(), now);

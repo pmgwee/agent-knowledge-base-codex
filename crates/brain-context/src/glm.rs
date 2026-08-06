@@ -114,8 +114,16 @@ pub fn parse_glm_chat_response(value: &str) -> Result<ProposedMemoryBatch> {
         response.choices.len() == 1,
         "GLM response must contain one choice"
     );
-    serde_json::from_str(&response.choices[0].message.content)
-        .context("GLM message content does not match the proposed-memory schema")
+    let content = &response.choices[0].message.content;
+    // Carry a slice of the offending output into the error. "does not match the schema" alone
+    // costs a reproduction run against the live provider to learn which field was wrong, and
+    // the failure is recorded on the job where nobody can re-ask the model what it said.
+    serde_json::from_str(content).with_context(|| {
+        format!(
+            "GLM message content does not match the proposed-memory schema; content was: {}",
+            crate::truncate_for_error(content, 400)
+        )
+    })
 }
 
 #[derive(serde::Deserialize)]

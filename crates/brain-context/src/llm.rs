@@ -74,10 +74,30 @@ pub trait ConsolidationLlm: Send + Sync {
     async fn propose(&self, packet: &EvidencePacket) -> Result<ProposedMemoryBatch>;
 }
 
+/// What survived validation, and what did not.
+///
+/// Rejections are returned rather than swallowed so a caller can record why a proposal was
+/// dropped. Without that, missing memories look like a model that had nothing to say.
+#[derive(Clone, Debug, Default)]
+pub struct ValidatedBatch {
+    pub accepted: Vec<MemoryRecord>,
+    pub rejected: Vec<String>,
+}
+
+/// Validate a proposed batch, keeping the memories that hold up.
+///
+/// Rejection is **per memory**, not per batch. A provider that returns six sound memories and
+/// one citing an invented event id previously lost all seven, and because the request is made
+/// at `temperature: 0` the retry produced the identical output — so the job burned its five
+/// attempts and dead-lettered, discarding work that was never in question.
+///
+/// The integrity rules are unchanged and still absolute: a memory citing evidence outside its
+/// packet, or proposing a global preference, never becomes a record. It is only the blast
+/// radius that shrinks, from the batch to the offending memory.
 pub fn validate_proposed_batch(
     packet: &EvidencePacket,
     batch: ProposedMemoryBatch,
-) -> Result<Vec<MemoryRecord>> {
+) -> Result<ValidatedBatch> {
     ensure!(
         batch.memories.len() <= 32,
         "provider proposed more than 32 memories"
@@ -105,11 +125,10 @@ pub fn validate_proposed_batch(
         .max()
         .context("cannot validate memory without evidence events")?;
 
-    batch
-        .memories
-        .into_iter()
-        .enumerate()
-        .map(|(index, proposed)| {
+    let mut validated = ValidatedBatch::default();
+    for (index, proposed) in batch.memories.into_iter().enumerate() {
+        let title = proposed.title.clone();
+        let outcome = (|| {
             ensure!(
                 proposed.kind != MemoryKind::Preference,
                 "provider cannot propose global preferences"
@@ -166,8 +185,29 @@ pub fn validate_proposed_batch(
                 supersedes: proposed.supersedes,
                 status: MemoryStatus::Current,
             })
-        })
-        .collect()
+        })();
+        match outcome {
+            Ok(record) => validated.accepted.push(record),
+            Err(error) => validated
+                .rejected
+                .push(format!("{title:?}: {error}", title = truncate(&title, 80))),
+        }
+    }
+    Ok(validated)
+}
+
+/// Keep a rejection reason readable when a provider returns a very long title.
+fn truncate(text: &str, limit: usize) -> String {
+    truncate_for_error(text, limit)
+}
+
+/// Bound provider text quoted into an error. Errors land in job records and logs, so an
+/// unbounded quote of a malformed response would bury the failure it is meant to explain.
+pub fn truncate_for_error(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_owned();
+    }
+    text.chars().take(limit).collect::<String>() + "…"
 }
 
 fn deterministic_id(seed: uuid::Uuid, index: u32, label: &[u8]) -> uuid::Uuid {

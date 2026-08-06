@@ -26,7 +26,7 @@ pub use glm::{GlmClient, GlmConfig, parse_glm_chat_response};
 pub use live_state::LiveState;
 pub use llm::{
     ConsolidationLlm, EvidencePacket, ProposedMemory, ProposedMemoryBatch, RedactedEvidence,
-    validate_proposed_batch,
+    ValidatedBatch, truncate_for_error, validate_proposed_batch,
 };
 pub use llm_wiki::{LlmWikiProvider, LlmWikiSourceStatus, validate_llm_wiki_vault};
 pub use providers::{
