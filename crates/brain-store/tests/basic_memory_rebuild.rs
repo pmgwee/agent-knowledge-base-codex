@@ -20,6 +20,7 @@ fn disposable_basic_memory_index_rebuilds_from_the_manifest() {
         generation_root: generation_root.clone(),
         manifest_path: project_root.join("generated").join("current.json"),
         file_count: 7,
+        pruned_generations: 0,
     };
     let runner = FixtureCli::available();
     let report = BasicMemoryIndexer::new(&runner).rebuild(&projection);
@@ -55,6 +56,7 @@ fn unavailable_basic_memory_is_degraded_not_fatal() {
             .join("fixture"),
         manifest_path: project_root.join("generated").join("current.json"),
         file_count: 3,
+        pruned_generations: 0,
     };
     let runner = FixtureCli::unavailable();
     let report = BasicMemoryIndexer::new(&runner).rebuild(&projection);

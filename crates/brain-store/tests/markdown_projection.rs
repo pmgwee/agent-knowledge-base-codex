@@ -109,15 +109,16 @@ fn memories_sharing_evidence_link_to_each_other_and_never_dangle() {
     let joined = notes.join("\n");
 
     assert!(
-        joined.contains(&format!("[[{}|Bounded the job window]]", first.id)),
-        "each note must link to the other by id, aliased to its title"
+        joined.contains("|Bounded the job window]]"),
+        "each note must link to the other, aliased to its title"
     );
     assert!(
-        joined.contains(&format!(
-            "[[{}|Counted raw bytes as well as payload]]",
-            second.id
-        )),
+        joined.contains("|Counted raw bytes as well as payload]]"),
         "the reciprocal link must exist too"
+    );
+    assert!(
+        joined.contains("[[bounded-the-job-window-"),
+        "links resolve by filename, which is the title slug"
     );
     assert!(
         joined.contains("## Related"),
@@ -243,10 +244,14 @@ fn the_index_lists_every_memory_and_asserts_nothing_of_its_own() {
 
     let index = read_note_containing(&verification.files, "Project memory index");
     assert!(
-        index.contains(&format!("[[{}|First decision]]", one.id)),
+        index.contains("|First decision]]"),
         "the index must link every memory"
     );
-    assert!(index.contains(&format!("[[{}|Second decision]]", two.id)));
+    assert!(index.contains("|Second decision]]"));
+    assert!(
+        index.contains("[[first-decision-"),
+        "index links resolve by filename too"
+    );
     assert!(
         index.contains("2 memories"),
         "the total must be stated so a truncated list never understates the vault"
@@ -254,6 +259,120 @@ fn the_index_lists_every_memory_and_asserts_nothing_of_its_own() {
     assert!(
         !index.contains("## Evidence"),
         "the index carries no claims, so it cites nothing"
+    );
+}
+
+#[test]
+fn notes_are_named_after_their_titles_so_the_graph_is_readable() {
+    // Obsidian labels every graph node with the filename — not the `title` front-matter, not
+    // the alias in `[[id|Title]]`. Naming notes by memory id produced a graph of several
+    // hundred UUIDs: structurally correct, completely unreadable.
+    let temp = tempfile::tempdir().expect("vault fixture");
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let worktree = WorktreeId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    let evidence = append_evidence(&mut ledger, project, worktree);
+    let one = memory(
+        project,
+        worktree,
+        "Bound the job window by bytes",
+        vec![evidence],
+        Vec::new(),
+    );
+    let two = memory(
+        project,
+        worktree,
+        "Counted raw as well as payload",
+        vec![evidence],
+        Vec::new(),
+    );
+    ledger.append_memory(&one).expect("append one");
+    ledger.append_memory(&two).expect("append two");
+
+    let projector = MarkdownProjector::new(temp.path());
+    projector
+        .rebuild_project(&ledger, project)
+        .expect("project");
+    let verification = projector.verify_project(project).expect("verify");
+
+    let names: Vec<String> = verification
+        .files
+        .iter()
+        .map(|path| path.file_name().expect("named").to_string_lossy().into())
+        .collect();
+    assert!(
+        names
+            .iter()
+            .any(|name| name.starts_with("bound-the-job-window-by-bytes-")),
+        "a note must be named after its title, got {names:?}"
+    );
+    assert!(
+        names.iter().all(|name| name.ends_with(".md")),
+        "got {names:?}"
+    );
+
+    // The links have to follow the filenames, or every one of them dangles.
+    let joined = verification
+        .files
+        .iter()
+        .map(|path| std::fs::read_to_string(path).expect("read"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        joined.contains("[[bound-the-job-window-by-bytes-"),
+        "wikilinks must target the note's filename, not its id"
+    );
+    assert!(
+        !joined.contains(&format!("[[{}|", one.id)),
+        "a link built from the id no longer resolves and must not be written"
+    );
+}
+
+#[test]
+fn superseded_generations_are_pruned_so_the_vault_holds_one_copy() {
+    // Generations are content-addressed, so every rebuild that changes anything leaves the old
+    // directory behind. Nothing collected them: the live vault reached 110 stale generations
+    // holding 10,911 files against 558 current ones, and Obsidian showed the same notes twenty
+    // times over as disconnected islands.
+    let temp = tempfile::tempdir().expect("vault fixture");
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let worktree = WorktreeId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    let evidence = append_evidence(&mut ledger, project, worktree);
+
+    let first = memory(project, worktree, "First", vec![evidence], Vec::new());
+    ledger.append_memory(&first).expect("append first");
+    let projector = MarkdownProjector::new(temp.path());
+    let one = projector.rebuild_project(&ledger, project).expect("first");
+
+    // A second memory changes the content, so a new generation is published.
+    let second = memory(project, worktree, "Second", vec![evidence], Vec::new());
+    ledger.append_memory(&second).expect("append second");
+    let two = projector.rebuild_project(&ledger, project).expect("second");
+    assert_ne!(one.generation, two.generation, "content changed");
+
+    let generations = temp
+        .path()
+        .join("projects")
+        .join(project.0.to_string())
+        .join("generated")
+        .join("generations");
+    let kept: Vec<String> = std::fs::read_dir(&generations)
+        .expect("list generations")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into())
+        .collect();
+    assert_eq!(
+        kept,
+        vec![two.generation.clone()],
+        "only the published generation survives"
+    );
+    assert_eq!(two.pruned_generations, 1);
+
+    // And the vault still verifies against what remains.
+    assert!(
+        projector.verify_project(project).expect("verify").valid,
+        "pruning must not break the published generation"
     );
 }
 

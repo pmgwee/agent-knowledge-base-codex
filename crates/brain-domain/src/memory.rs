@@ -166,6 +166,53 @@ impl MemoryRecord {
             .join(self.kind.as_str())
             .join(format!("{:04}", partition_time.year()))
             .join(format!("{:02}", u8::from(partition_time.month())))
-            .join(format!("{}.md", self.id))
+            .join(self.projection_file_name())
     }
+
+    /// The note's filename: a readable slug of its title, disambiguated by a short id.
+    ///
+    /// Obsidian labels every node in its graph view with the **filename**, ignoring both the
+    /// `title` front-matter and any `[[id|alias]]` used to link to it. Naming files by memory id
+    /// alone produced a graph of several hundred UUIDs — structurally correct and completely
+    /// unreadable.
+    ///
+    /// The id stays, shortened, as a suffix. Titles are neither unique nor path-safe, and two
+    /// memories that slug identically would otherwise collide and silently overwrite one
+    /// another inside a generation.
+    pub fn projection_file_name(&self) -> String {
+        let slug = slugify(&self.title);
+        let short = self.id.simple().to_string();
+        let short = &short[..8.min(short.len())];
+        if slug.is_empty() {
+            format!("{short}.md")
+        } else {
+            format!("{slug}-{short}.md")
+        }
+    }
+}
+
+/// Reduce a title to a filename-safe slug.
+///
+/// Bounded at 80 characters because a projection path already carries a vault root, a project
+/// UUID, a generation hash and a date partition, and Windows still enforces a 260-character
+/// path limit by default. A title truncated in the middle of a word is a smaller problem than a
+/// note that cannot be written at all.
+fn slugify(title: &str) -> String {
+    let mut slug = String::new();
+    let mut pending_dash = false;
+    for character in title.chars() {
+        if character.is_ascii_alphanumeric() {
+            if pending_dash && !slug.is_empty() {
+                slug.push('-');
+            }
+            pending_dash = false;
+            slug.extend(character.to_lowercase());
+            if slug.chars().count() >= 80 {
+                break;
+            }
+        } else {
+            pending_dash = true;
+        }
+    }
+    slug.trim_matches('-').to_owned()
 }

@@ -110,12 +110,15 @@ impl MarkdownProjector {
                 file.sync_all()
             })
             .with_context(|| format!("publish projection manifest {}", manifest_path.display()))?;
+        let pruned =
+            prune_superseded_generations(&generated_root.join("generations"), &generation)?;
         Ok(ProjectionReport {
             project_id,
             generation,
             generation_root,
             manifest_path,
             file_count: rendered.len(),
+            pruned_generations: pruned,
         })
     }
 
@@ -182,6 +185,40 @@ pub struct ProjectionReport {
     pub generation_root: PathBuf,
     pub manifest_path: PathBuf,
     pub file_count: usize,
+    /// Superseded generations removed by this rebuild.
+    pub pruned_generations: usize,
+}
+
+/// Delete every generation the manifest no longer points at.
+///
+/// Generations are content-addressed, so a rebuild that changes anything publishes a new
+/// directory and leaves the old one behind. Nothing ever collected them. On the live vault that
+/// reached 110 stale generations holding 10,911 Markdown files against 558 current ones — so a
+/// vault opened in Obsidian showed the same notes twenty times over, as disconnected islands,
+/// and its graph was mostly duplicates.
+///
+/// Only the published generation survives. A superseded one is unreachable by construction:
+/// `current.json` names exactly one, and any rebuild can recreate any of them from the ledger.
+/// Directories still being staged are left alone — they are named `staging-*` and are not
+/// generations yet.
+fn prune_superseded_generations(generations_root: &Path, keep: &str) -> Result<usize> {
+    let Ok(entries) = std::fs::read_dir(generations_root) else {
+        return Ok(0);
+    };
+    let mut pruned = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name == keep || name.starts_with("staging-") {
+            continue;
+        }
+        if entry.file_type().is_ok_and(|kind| kind.is_dir())
+            && std::fs::remove_dir_all(entry.path()).is_ok()
+        {
+            pruned += 1;
+        }
+    }
+    Ok(pruned)
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -266,7 +303,10 @@ const MAX_RELATED_LINKS: usize = 8;
 /// Nothing here is inferred from prose. Obsidian's graph is only worth trusting if every edge
 /// in it corresponds to something the ledger can prove.
 struct LinkIndex {
-    titles: std::collections::BTreeMap<uuid::Uuid, String>,
+    /// Memory id to (note stem, title). The stem is what a wikilink must name — Obsidian
+    /// resolves `[[…]]` against filenames, so a link built from the id stopped resolving the
+    /// moment notes were named after their titles.
+    titles: std::collections::BTreeMap<uuid::Uuid, (String, String)>,
     related: std::collections::BTreeMap<uuid::Uuid, Vec<uuid::Uuid>>,
 }
 
@@ -274,7 +314,11 @@ impl LinkIndex {
     fn build(memories: &[MemoryRecord]) -> Self {
         let titles = memories
             .iter()
-            .map(|memory| (memory.id, memory.title.clone()))
+            .map(|memory| {
+                let file = memory.projection_file_name();
+                let stem = file.trim_end_matches(".md").to_owned();
+                (memory.id, (stem, memory.title.clone()))
+            })
             .collect();
 
         // Group by evidence first: one pass over memories, then one pass per shared event.
@@ -314,8 +358,11 @@ impl LinkIndex {
     /// that exists in this projection — a dangling link is worse than an absent one, because it
     /// invites a reader to look for a note that was never written.
     fn wikilink(&self, id: uuid::Uuid) -> Option<String> {
-        let title = self.titles.get(&id)?;
-        Some(format!("[[{id}|{}]]", title.replace(['[', ']', '|'], " ")))
+        let (stem, title) = self.titles.get(&id)?;
+        Some(format!(
+            "[[{stem}|{}]]",
+            title.replace(['[', ']', '|'], " ")
+        ))
     }
 
     fn related_links(&self, id: uuid::Uuid) -> Vec<String> {
