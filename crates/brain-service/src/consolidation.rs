@@ -146,6 +146,16 @@ pub async fn run_configured_consolidation_with_pressure(
                 }
                 for project in &config.projects {
                     let mut ledger = EventLedger::open(&project.ledger_path, project.project_id)?;
+                    // Chunk any uncovered backlog one bounded job at a time. Jobs are otherwise
+                    // only enqueued when capture ingests new events, so a project whose history
+                    // was ingested before this loop existed would never be consolidated at all.
+                    //
+                    // Enqueuing one job per project per tick is also the rate limit: the drain
+                    // below can only ever consume what this produces, so a large backfill spends
+                    // an API call every couple of seconds instead of hundreds at once.
+                    if let Err(error) = ledger.enqueue_event_threshold_job(1) {
+                        tracing::warn!(%error, "backlog enqueue failed");
+                    }
                     for _ in 0..8 {
                         match worker
                             .run_once(

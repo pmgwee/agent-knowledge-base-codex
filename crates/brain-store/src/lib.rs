@@ -29,7 +29,10 @@ pub use basic_memory::{
 pub use blob::{BlobRecord, BlobStore};
 pub use catalog::{CatalogEvent, SegmentCatalog};
 pub use context_metrics::{ContextDelivery, ContextDeliverySummary};
-pub use jobs::{ConsolidationJob, ConsolidationReason, JobStatus, RedactionManifestEntry};
+pub use jobs::{
+    ConsolidationJob, ConsolidationReason, JobStatus, MAX_JOB_EVENTS, MAX_JOB_PAYLOAD_BYTES,
+    RedactionManifestEntry,
+};
 pub use ledger::{AppendResult, EventLedger, StoredEvent};
 pub use markdown::{
     MarkdownProjector, ProjectionReport, ProjectionVerification, project_vault_root,

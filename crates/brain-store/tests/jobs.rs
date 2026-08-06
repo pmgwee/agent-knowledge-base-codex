@@ -1,7 +1,9 @@
 use brain_domain::{
     EventBatch, EventType, Harness, NormalizedEvent, ProjectId, SourceCursor, WorktreeId,
 };
-use brain_store::{ConsolidationReason, EventLedger, JobStatus};
+use brain_store::{
+    ConsolidationReason, EventLedger, JobStatus, MAX_JOB_EVENTS, MAX_JOB_PAYLOAD_BYTES,
+};
 
 #[test]
 fn jobs_are_idempotent_leased_and_dead_lettered_after_five_failures() {
@@ -74,6 +76,124 @@ fn threshold_and_inactivity_triggers_cover_only_unqueued_ranges() {
     assert_eq!(inactivity.first_event_id, inactivity.last_event_id);
 }
 
+#[test]
+fn a_large_backlog_is_split_into_bounded_jobs_rather_than_one_unusable_one() {
+    // The defect this guards, measured on the live brain: registration ingests a project's whole
+    // transcript history in one burst, and the first threshold job then spanned 65,645 events —
+    // ~2.9 GB of payload in a single evidence packet. A job is sent to a model whole, so an
+    // unbounded range is not a large job, it is an impossible one. Draining the 223 jobs queued
+    // that way was priced at roughly 1.09 billion input tokens.
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    let backlog = MAX_JOB_EVENTS * 2 + 50;
+    for offset in 1..=backlog {
+        append_event(&mut ledger, project, i64::try_from(offset).expect("fits"));
+    }
+
+    let first = ledger
+        .enqueue_event_threshold_job(1)
+        .expect("evaluate threshold")
+        .expect("threshold job");
+    let spanned = ledger
+        .events_between(first.first_event_id, first.last_event_id)
+        .expect("load job events");
+    assert!(
+        spanned.len() <= MAX_JOB_EVENTS,
+        "a job must not span more than {MAX_JOB_EVENTS} events, got {}",
+        spanned.len()
+    );
+
+    // The remainder is not dropped — it becomes the next job, so a backlog drains in bounded
+    // pieces instead of being skipped.
+    let second = ledger
+        .enqueue_event_threshold_job(1)
+        .expect("evaluate threshold again")
+        .expect("second job");
+    assert_ne!(first.id, second.id, "the backlog must continue, not repeat");
+    let second_span = ledger
+        .events_between(second.first_event_id, second.last_event_id)
+        .expect("load second job events");
+    assert!(second_span.len() <= MAX_JOB_EVENTS);
+    assert_ne!(
+        spanned.last().expect("first job non-empty").event_id,
+        second_span.first().expect("second job non-empty").event_id,
+        "the second job must start after the first ends, not overlap it"
+    );
+}
+
+#[test]
+fn a_window_of_oversized_events_is_bounded_by_bytes_not_only_count() {
+    // Event sizes span three orders of magnitude — a session.compacted event was measured at
+    // 1.3 MB against ~2 KB for a tool call. Bounding on count alone would still admit packets
+    // far past any context window.
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    for offset in 1..=12 {
+        append_large_event(&mut ledger, project, offset, 80_000);
+    }
+
+    let job = ledger
+        .enqueue_event_threshold_job(1)
+        .expect("evaluate threshold")
+        .expect("threshold job");
+    let spanned = ledger
+        .events_between(job.first_event_id, job.last_event_id)
+        .expect("load job events");
+    let bytes: usize = spanned
+        .iter()
+        .map(|event| event.payload.to_string().len())
+        .sum();
+    assert!(
+        spanned.len() < 12,
+        "byte pressure must end the window early, got all {} events",
+        spanned.len()
+    );
+    assert!(
+        bytes <= MAX_JOB_PAYLOAD_BYTES * 2,
+        "packet payload {bytes} is far past the {MAX_JOB_PAYLOAD_BYTES} byte bound"
+    );
+}
+
+fn append_large_event(
+    ledger: &mut EventLedger,
+    project: ProjectId,
+    offset: i64,
+    payload_bytes: usize,
+) -> uuid::Uuid {
+    let id = uuid::Uuid::now_v7();
+    let filler = "x".repeat(payload_bytes);
+    ledger
+        .append_batch(&EventBatch {
+            source_id: "fixture".to_owned(),
+            events: vec![NormalizedEvent {
+                event_id: id,
+                project_id: project,
+                worktree_id: WorktreeId(uuid::Uuid::now_v7()),
+                task_id: None,
+                harness: Harness::ClaudeCode,
+                native_session_id: "session".to_owned(),
+                native_turn_id: None,
+                event_type: EventType::AgentResponded,
+                occurred_at: time::OffsetDateTime::UNIX_EPOCH,
+                observed_at: time::OffsetDateTime::UNIX_EPOCH,
+                source_locator: "fixture".to_owned(),
+                source_offset: offset,
+                source_schema: "fixture".to_owned(),
+                raw_hash: [u8::try_from(offset % 251).expect("small"); 32],
+                idempotency_key: [u8::try_from(offset % 251).expect("small"); 32],
+                git_head: None,
+                git_branch: None,
+                payload: serde_json::json!({ "content": filler }),
+                raw: serde_json::json!({ "content": "raw" }),
+            }],
+            quarantined: Vec::new(),
+            capture_gaps: Vec::new(),
+            next_cursor: SourceCursor::byte_offset(u64::try_from(offset).expect("positive")),
+        })
+        .expect("append large event");
+    id
+}
+
 fn append_event(ledger: &mut EventLedger, project: ProjectId, offset: i64) -> uuid::Uuid {
     let id = uuid::Uuid::now_v7();
     ledger
@@ -93,8 +213,8 @@ fn append_event(ledger: &mut EventLedger, project: ProjectId, offset: i64) -> uu
                 source_locator: "fixture".to_owned(),
                 source_offset: offset,
                 source_schema: "fixture".to_owned(),
-                raw_hash: [u8::try_from(offset).expect("small offset"); 32],
-                idempotency_key: [u8::try_from(offset).expect("small offset"); 32],
+                raw_hash: [u8::try_from(offset % 251).expect("small offset"); 32],
+                idempotency_key: [u8::try_from(offset % 251).expect("small offset"); 32],
                 git_head: None,
                 git_branch: None,
                 payload: serde_json::json!({"content": format!("event {offset}")}),

@@ -181,11 +181,9 @@ fn backups_skip_rebuildable_binaries_but_keep_everything_else() {
 
     // The inventory hash covers only what was captured, so verification must still pass.
     BackupManager::verify(&backup.backup_path).expect("verify");
-    let restored = BackupManager::restore_isolated(
-        &backup.backup_path,
-        fixture.temp.path().join("restored"),
-    )
-    .expect("restore");
+    let restored =
+        BackupManager::restore_isolated(&backup.backup_path, fixture.temp.path().join("restored"))
+            .expect("restore");
     assert!(
         !restored.destination.join("bin").exists(),
         "a restore reinstates evidence; binaries come from a deploy"

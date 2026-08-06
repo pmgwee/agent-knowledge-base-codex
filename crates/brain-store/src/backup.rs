@@ -152,7 +152,11 @@ impl BackupManager {
 
         let result = (|| {
             let mut excluded = vec![backup_root.clone()];
-            excluded.extend(REBUILDABLE_DIRECTORIES.iter().map(|name| brain_home.join(name)));
+            excluded.extend(
+                REBUILDABLE_DIRECTORIES
+                    .iter()
+                    .map(|name| brain_home.join(name)),
+            );
             let source_files = collect_files(&brain_home, &excluded)?;
             let mut files = Vec::with_capacity(source_files.len());
             for source in source_files {

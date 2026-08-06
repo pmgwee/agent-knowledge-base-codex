@@ -6,6 +6,25 @@ use sha2::{Digest, Sha256};
 use crate::EventLedger;
 use crate::cursor::timestamp_ns;
 
+/// Most events a single consolidation job may span.
+///
+/// A job is loaded whole into one evidence packet and handed to a model, so its size is an API
+/// request, not an internal detail. Registration ingests a project's entire transcript history
+/// in one burst — tens of thousands of events — and without a bound the first job tries to
+/// carry all of it.
+pub const MAX_JOB_EVENTS: usize = 200;
+
+/// Most payload bytes a single consolidation job may span.
+///
+/// Event sizes vary by three orders of magnitude here: a `tool.requested` runs ~2 KB while a
+/// `session.compacted` has been measured at 1.3 MB, and one captured event reached 3.7 MB. A
+/// count-only bound would therefore still admit wildly different packets, so cost is bounded by
+/// bytes as well and whichever limit is reached first ends the window.
+///
+/// 400 KB is roughly 100k tokens — large enough that a job still sees a coherent stretch of
+/// work, small enough to sit inside a normal context window with room for the response.
+pub const MAX_JOB_PAYLOAD_BYTES: usize = 400_000;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConsolidationReason {
     SessionStopped,
@@ -399,22 +418,61 @@ impl EventLedger {
             [self.project_scope.0.to_string()],
             |row| row.get(0),
         )?;
+        // Find where this window has to stop. Every event after `last_covered_row` is
+        // uncovered, but a job is eventually loaded whole into one evidence packet and sent to
+        // a model, so the range must be bounded here — at the only place that knows how far it
+        // is about to reach. Without this, ingesting a project's history in one burst enqueues
+        // a single job spanning the entire backlog, which no context window can hold.
+        let last_row_in_window: Option<i64> = self
+            .connection
+            .query_row(
+                r#"
+                SELECT MAX(rowid) FROM (
+                    SELECT rowid,
+                           SUM(LENGTH(COALESCE(payload_json, '')))
+                               OVER (ORDER BY rowid) AS running_bytes,
+                           ROW_NUMBER() OVER (ORDER BY rowid) AS position
+                    FROM events
+                    WHERE project_id = ?1 AND rowid > ?2
+                )
+                WHERE position = 1
+                   OR (position <= ?3 AND running_bytes <= ?4)
+                "#,
+                params![
+                    self.project_scope.0.to_string(),
+                    last_covered_row,
+                    i64::try_from(MAX_JOB_EVENTS)?,
+                    i64::try_from(MAX_JOB_PAYLOAD_BYTES)?,
+                ],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        let Some(last_row_in_window) = last_row_in_window else {
+            return Ok(None);
+        };
         let range: Option<(String, String, i64, i64)> = self
             .connection
             .query_row(
                 r#"
                 SELECT
                     (SELECT event_id FROM events
-                     WHERE project_id = ?1 AND rowid > ?2 ORDER BY rowid ASC LIMIT 1),
+                     WHERE project_id = ?1 AND rowid > ?2 AND rowid <= ?3
+                     ORDER BY rowid ASC LIMIT 1),
                     (SELECT event_id FROM events
-                     WHERE project_id = ?1 AND rowid > ?2 ORDER BY rowid DESC LIMIT 1),
+                     WHERE project_id = ?1 AND rowid > ?2 AND rowid <= ?3
+                     ORDER BY rowid DESC LIMIT 1),
                     COUNT(*),
                     MAX(observed_at_ns)
                 FROM events
-                WHERE project_id = ?1 AND rowid > ?2
+                WHERE project_id = ?1 AND rowid > ?2 AND rowid <= ?3
                 HAVING COUNT(*) > 0
                 "#,
-                params![self.project_scope.0.to_string(), last_covered_row],
+                params![
+                    self.project_scope.0.to_string(),
+                    last_covered_row,
+                    last_row_in_window
+                ],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()?;
