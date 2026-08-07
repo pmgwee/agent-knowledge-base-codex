@@ -3,8 +3,39 @@
 What is left in the secondary brain, what is deliberately not being built, how the value gets
 proved, and where the dashboard goes.
 
-Written 2026-08-08, against commit `b4ffb34`. Every status below was checked against the code or
-the live system on that date, not recalled.
+Written 2026-08-08. Every status below was checked against the code or the live system, not
+recalled.
+
+**Progress since:** Wave 0 and half of Wave 2 are built and deployed. Shipped items are struck
+through in the tables below and listed in *What has shipped*, immediately after this line.
+
+---
+
+## What has shipped
+
+| Item | Commit | Verified by |
+|---|---|---|
+| **0.1** Deliveries counted at receipt, not at compile | `407d345` | An outcome dropped without recording leaves zero rows; recording it leaves one |
+| **0.3** Consolidation queue and dead letters on the dashboard | `6d8c6cd` | Live snapshot shows pending / leased / completed / dead per project |
+| **2.1** `brain export` | `5c6eebc` | 2,045 memories, 3,382 events, 41 MB, zero unresolved citations |
+| **2.3** `brain verify memory` | `fa610b0` | Resolves a real claim to `…jsonl:1051092` with the originating turn quoted |
+| — Abandoned staging directories collected | `b4ffb34` | 5,834 orphaned vault files, and both directions pinned by test |
+| — Job failures record why, not just what | `6d8c6cd` | Parse errors now name the field; three dead letters had said nothing |
+
+**0.2 is quota-bound, not code-bound.** This project's queue drained to zero; the other two sit at
+1,691 and 373 pending. 290 of 294 provider deferrals were plain HTTP 429, and the deferral path is
+working exactly as designed — no attempt consumed, nothing lost. It finishes when quota allows.
+
+Two findings worth carrying forward:
+
+- **A dangling citation is unreachable through the supported path.** `append_memory` refuses a
+  memory citing an event the ledger does not hold, so the guarantee is enforced at write time
+  rather than checked at read time. `verify` keeps the branch as defence in depth, and a test now
+  pins the refusal that makes it dead code — a stronger property than the report assumed it had.
+- **Three dead-lettered jobs recorded 400 characters of plausible JSON and no reason.** `fail()`
+  stored `error.to_string()`, which takes anyhow's top-level message only, so serde's message
+  naming the offending field went on the floor. The classifier one function away already used
+  `{error:#}`. Same class of defect as 0.1: an instrument that reports confidently and wrongly.
 
 ---
 
@@ -50,7 +81,7 @@ pull path. Do not ship the LLM Wiki provider — adopt the methodology instead.*
 |---|---|---|
 | 1 | Auto-maintained `[[wikilinks]]` | **Shipped**, and stronger — links derive from evidence, not from a model's suggestion, and two tests pin that a link to a superseded memory is dropped rather than left dangling |
 | 2 | PostToolUse vault validation | **Obsolete** — see below |
-| 3 | Injection-size meter | **Gap, and it is a bug** — see 0.4 |
+| 3 | Injection-size meter | **Shipped** — the feature existed; the bug was that it measured the wrong side of the pipe (`407d345`) |
 | 4 | Entity pages | **Gap — the highest-value item remaining** |
 | 5 | Cross-linker for orphans / broken links | **Obsolete** |
 
@@ -71,8 +102,8 @@ derived. This tool would find almost nothing.
 
 | Item | Status | Note |
 |---|---|---|
-| **Governance: delete + export + audit trail** | **Gap — highest risk** | No delete, no export, no redaction command. On an append-only ledger holding every keystroke, this is the most serious gap on the list |
-| **`memory_verify` — provenance as a tool** | **Gap** | Citations exist in data; no command walks one back to its source events |
+| **Governance: delete + export + audit trail** | **Partly closed** | `brain export` ships (`5c6eebc`). `brain forget` (Wave 2.2) is the remaining half, and on an append-only ledger holding every keystroke it is still the most serious gap on the list |
+| **`memory_verify` — provenance as a tool** | **Shipped** | `brain verify memory` (`fa610b0`) resolves a claim to the transcript file and byte offset its evidence came from |
 | **Session replay** | **Gap** | Dashboard shows aggregates and cannot show you a single session |
 | Auto-forgetting (TTL, importance eviction) | **Gap** | Same item as decay/tiers |
 | Knowledge graph: entity extraction + BFS | **Gap** | Subsumed by entity pages (0.2 #4) |
@@ -119,9 +150,9 @@ this plan is now estimable; the one that was not is designed in Part 7.
 
 | | Work | Done when | Size |
 |---|---|---|---|
-| 0.1 | Record the delivery **after** the flush succeeds. `handle` returns the reply plus a pending `ContextDelivery`; the pipe records it once `flush()` returns `Ok` | A forced write failure produces **no** `context_deliveries` row, proven by a test; recorded count over a day equals hook invocations minus spool depth | M |
+| ~~0.1~~ | ~~Record the delivery **after** the flush succeeds.~~ **Shipped `407d345`.** `handle` returns the reply plus a pending `ContextDelivery`; the pipe records it once `flush()` returns `Ok` | A forced write failure produces **no** `context_deliveries` row, proven by a test; recorded count over a day equals hook invocations minus spool depth | M |
 | 0.2 | Drain the consolidation backlog — 2,328 pending against 2,026 completed | `consolidation_jobs` has zero `pending` for an hour with the service running, and the dead-letter count has an explanation | M |
-| 0.3 | Surface job queue depth and dead letters on the dashboard | The Projects panel shows pending / leased / dead per project, and a dead letter can be re-queued from the UI | M |
+| ~~0.3~~ | ~~Surface job queue depth and dead letters on the dashboard~~ **Shipped `6d8c6cd`.** | The Projects panel shows pending / leased / dead per project, and a dead letter can be re-queued from the UI | M |
 
 Nothing downstream is trustworthy without this wave.
 
@@ -135,9 +166,9 @@ states the sample size and who chose the tasks. **Size: L.**
 
 | | Work | Done when | Size |
 |---|---|---|---|
-| 2.1 | `brain export --project <p> [--since]` → JSON + Markdown bundle | A bundle restores into a fresh ledger and `brain verify` passes against it | M |
+| ~~2.1~~ | ~~`brain export --project <p> [--since]`~~ **Shipped `5c6eebc`.** | A bundle restores into a fresh ledger and `brain verify` passes against it | M |
 | 2.2 | `brain forget <selector>` — **tombstone, not deletion** | A forgotten memory disappears from search, orientation and the vault; its evidence chain is intact; the tombstone records who, when and why; `brain export` includes the tombstone, not the content | L |
-| 2.3 | `brain verify <memory-id>` — walk a claim back to its source events | Prints the memory, every cited `event:<uuid>`, each event's source file and offset, and flags any citation that no longer resolves | S |
+| ~~2.3~~ | ~~`brain verify memory` — walk a claim back to its source events~~ **Shipped `fa610b0`.** | Prints the memory, every cited `event:<uuid>`, each event's source file and offset, and flags any citation that no longer resolves | S |
 
 A hard delete would break the append-only invariant; a tombstone that retrieval and projection both
 honour gives the same user-visible result without breaking it.
@@ -602,4 +633,6 @@ depends on 3.3 (episodic summaries) for anything to decay meaningfully. Wave 5 t
 because a console is most useful once there is more to show.
 
 If only one wave gets built: **Wave 0 then Wave 2.** Instruments that lie and a brain you cannot
-export from are the two things that would make everything above it untrustworthy.
+export from are the two things that would make everything above it untrustworthy. Both are now
+done bar `brain forget` (2.2) and the quota-bound backlog (0.2), so the next real decision is
+Wave 1 against Wave 3 — proof, or the quality that proof would measure.
