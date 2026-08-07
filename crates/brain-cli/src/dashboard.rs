@@ -66,11 +66,29 @@ pub struct ProjectDashboard {
     pub unresolved_capture_gaps: u64,
     pub active_schema_drifts: u64,
     pub memory_records: u64,
+    /// How far the vector index has got. Retrieval quality depends on it while it is filling,
+    /// and a half-built index is indistinguishable from a complete one that simply misses things
+    /// unless something says so.
+    pub embeddings: EmbeddingCoverage,
     pub ledger_bytes: u64,
     pub providers: Vec<ProviderState>,
     pub deliveries_today: DeliverySummary,
     pub deliveries_7d: DeliverySummary,
     pub deliveries_30d: DeliverySummary,
+}
+
+/// Vector index coverage for one project.
+///
+/// `model_installed` is separate from the counts on purpose. Zero embedded with no model is a
+/// brain working exactly as designed on keyword search; zero embedded *with* a model is a
+/// backfill that is not running, and the two look identical in a count alone.
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+pub struct EmbeddingCoverage {
+    pub model_installed: bool,
+    pub memories_embedded: u64,
+    pub memories_remaining: u64,
+    pub events_embedded: u64,
+    pub events_remaining: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
@@ -195,6 +213,15 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
         };
 
         let memory_records = ledger.memory_count()?;
+        let (memories_embedded, memories_remaining) = ledger.embedding_coverage()?;
+        let (events_embedded, events_remaining) = ledger.event_embedding_coverage()?;
+        let embeddings = EmbeddingCoverage {
+            model_installed: brain_store::default_model_dir(brain_home).is_dir(),
+            memories_embedded,
+            memories_remaining,
+            events_embedded,
+            events_remaining,
+        };
         let ledger_bytes = directory_bytes(
             project_config
                 .ledger_path
@@ -233,6 +260,7 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
             unresolved_capture_gaps: status.unresolved_capture_gaps,
             active_schema_drifts: status.active_schema_drifts,
             memory_records,
+            embeddings,
             ledger_bytes,
             providers,
             deliveries_today,

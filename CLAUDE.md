@@ -119,6 +119,59 @@ cargo fmt --all -- --check                              # release gate
 Scale gates are `#[ignore]` by default; `--ignored` runs them (primary = 12k sessions / 6M
 events, stress = 120k / 60M). The stress gate takes hours — do not start one casually.
 
+## Retrieval
+
+Search is three channels fused by **Reciprocal Rank Fusion** (`crates/brain-store/src/search.rs`).
+
+| Channel | What it is | Weight |
+|---|---|---|
+| BM25 | FTS5 over events and memories | 0.4 |
+| Vector | cosine over `all-MiniLM-L6-v2` embeddings, 384-dim | 0.6 |
+| Graph | one hop across `memory_evidence`, both directions | 0.2 |
+
+BM25 and vector are *retrieval* — each answers the query independently. The graph channel is
+*association*, defined over what those two found, so fusion runs twice rather than once over
+three lists.
+
+RRF fuses by **rank, never by score**. A BM25 score and a cosine similarity are numbers on
+incompatible scales; combining them directly needs a normalisation that is itself a guess, and
+one that shifts as the corpus grows. `k = 60` is the constant from the original paper, kept so
+our fusion is the one everyone else measured.
+
+### Things worth knowing before changing this
+
+- **No model installed means nothing changes.** Fusing a single channel is the identity, since
+  RRF's score falls strictly with rank. There is no keyword-only branch to keep in step, and
+  there must not be one.
+- **Both layers are embedded** — memories *and* raw events. Memories drain first (thousands, ~10
+  minutes); events follow (~135k, a few hours). Embedding only memories was the original design
+  and it was wrong: the category this exists to fix is answered by a raw user turn, and the
+  benchmark's ledgers hold no memories at all.
+- **`rank_score`, not `bm25_score`.** A hit found only by meaning has a BM25 score of zero. Any
+  re-ranking caller that reads `bm25_score` scores it as worthless and silently undoes the
+  fusion — see the comment in `crates/brain-context/src/retrieval.rs`.
+- **The vector channel re-applies every caller filter.** Time range, worktree, task, session,
+  and — for memories — as-of and supersession. A channel that selected by id without those would
+  resurrect retracted memories as current, on machines with a model and not on machines without.
+- **The pull path has vectors; the push path does not.** `brain query` and the Codex MCP tools
+  encode the question (~77 ms). The session-start hook does not: it runs against a hard timeout
+  that has already failed silently once. Measure before changing that.
+- **`all-MiniLM-L6-v2` is a bi-encoder.** It scores whether two texts are *alike*, not whether
+  one *answers* the other. Measured: against a haystack sharing no vocabulary it lifts the
+  answering turn from rank 3 to rank 1; against a merely on-topic haystack a turn about
+  deployment *speed* scores 0.478 where the turn that actually answers scores 0.353. Reranking
+  with a cross-encoder is the honest next step, not a weight to be tuned.
+
+### Measuring a change
+
+```bash
+cargo test -p brain-cli --test longmemeval --release -- --ignored --nocapture
+```
+
+`LONGMEMEVAL_TYPES` scopes to a question category, `LONGMEMEVAL_BRAIN_HOME` turns on embedding
+and fusion, `LONGMEMEVAL_DIVERSIFY=1` turns on the per-session cap. The report states its own
+configuration; every switch changes the number, so never quote one without it.
+
 ## Invariants — do not break these
 
 - **Cross-project isolation is a locked release criterion.** Zero leakage between projects.
@@ -132,6 +185,10 @@ events, stress = 120k / 60M). The stress gate takes hours — do not start one c
   `event:<uuid>` citations. Adding a field to an orientation means removing one.
 - **Cursors are keyed by source.** Never reorder or replace an entry in a project's source
   list — that orphans its cursor and re-ingests captured evidence. Append only.
+- **Optional retrieval may only add.** The vector and graph channels are absent on a brain with
+  no model, and a missing optional index must never break search that already works. Every entry
+  point returns `None` or an empty channel rather than failing, and a query the model cannot
+  encode falls back to keyword rather than erroring.
 
 ## Where things live
 
