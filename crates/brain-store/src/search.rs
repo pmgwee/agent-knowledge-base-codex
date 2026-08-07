@@ -539,7 +539,17 @@ impl EventLedger {
         let task = query.task_id.map(|id| id.to_string());
         let limit = i64::try_from(depth.min(MAX_LIMIT))?;
         let restrict = restrict.map(id_list);
-        let text_match = match_expression(query.project_id, query.text.as_deref());
+        // An id restriction replaces the keyword selector rather than narrowing it. Keeping the
+        // MATCH would intersect the two, so a document the vector channel found *because* it
+        // shares no vocabulary with the question would be dropped on its way back — silently
+        // limiting that channel to documents keyword search had already matched, which is the one
+        // thing it exists not to be limited to. Terms are OR-joined and include words like "I",
+        // so the intersection is usually non-empty, and the bug would have hidden in plain sight.
+        let text_match = if restrict.is_some() {
+            None
+        } else {
+            match_expression(query.project_id, query.text.as_deref())
+        };
         let (sql, match_value) = if let Some(match_value) = text_match {
             (
                 r#"
@@ -640,7 +650,13 @@ impl EventLedger {
         let task = query.task_id.map(|id| id.to_string());
         let limit = i64::try_from(depth.min(MAX_LIMIT))?;
         let restrict = restrict.map(id_list);
-        let text_match = match_expression(query.project_id, query.text.as_deref());
+        // As in `search_events`: a restriction replaces the keyword selector, it does not narrow
+        // it. See the comment there for why intersecting the two is the failure that hides.
+        let text_match = if restrict.is_some() {
+            None
+        } else {
+            match_expression(query.project_id, query.text.as_deref())
+        };
         let (sql, match_value) = if let Some(match_value) = text_match {
             (
                 r#"

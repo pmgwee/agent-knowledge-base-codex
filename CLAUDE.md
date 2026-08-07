@@ -140,9 +140,16 @@ our fusion is the one everyone else measured.
 
 ### Things worth knowing before changing this
 
-- **No model installed means nothing changes.** Fusing a single channel is the identity, since
-  RRF's score falls strictly with rank. There is no keyword-only branch to keep in step, and
-  there must not be one.
+- **No model installed means no vector channel, and no vector channel means no reordering.**
+  Fusing a single channel is the identity, since RRF's score falls strictly with rank. There is
+  no keyword-only branch to keep in step, and there must not be one. Note the graph channel is
+  *not* gated on the model — it needs only `memory_evidence` — so a brain without a checkpoint
+  still gets evidence expansion.
+- **An id restriction replaces the keyword selector; it never narrows it.** The vector and graph
+  channels choose documents, then a keyword statement re-fetches their bodies. If that statement
+  keeps its `MATCH`, the two intersect and a document found *because* it shares no vocabulary
+  with the question is dropped on the way back. Terms are OR-joined and include words like "I",
+  so the intersection is nearly always non-empty and the bug reads as working code.
 - **Both layers are embedded** — memories *and* raw events. Memories drain first (thousands, ~10
   minutes); events follow (~135k, a few hours). Embedding only memories was the original design
   and it was wrong: the category this exists to fix is answered by a raw user turn, and the

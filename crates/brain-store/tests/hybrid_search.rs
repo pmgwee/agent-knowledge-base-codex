@@ -97,6 +97,54 @@ fn a_vector_reaches_evidence_that_shares_no_words_with_the_question() {
 
 #[test]
 #[ignore = "needs the all-MiniLM-L6-v2 checkpoint; see the module comment"]
+fn a_document_sharing_no_term_at_all_with_the_query_is_still_returned() {
+    // The regression this exists for: the vector channel decides *which* documents, and a
+    // keyword statement re-fetches their bodies. When that statement kept its FTS MATCH, the two
+    // selectors intersected, and the channel could only ever return documents keyword search had
+    // already matched — which is precisely what it exists not to be limited to.
+    //
+    // It hid because terms are OR-joined and include words like "I", so nearly every document
+    // shares something. This query and this document share nothing at all.
+    let (mut ledger, project, worktree) = fixture();
+    append(
+        &mut ledger,
+        vec![event(
+            project,
+            worktree,
+            0,
+            "no-overlap",
+            "canines bark loudly whenever strangers approach a fence",
+        )],
+    );
+    embed_all(&mut ledger);
+    assert!(ledger.enable_vector_search(&brain_home()));
+
+    let query = SearchQuery::text(project, "dogs make noise at visitors")
+        .events_only()
+        .with_limit(5);
+
+    assert!(
+        ledger
+            .search(
+                &SearchQuery::text(project, "dogs make noise at visitors")
+                    .events_only()
+                    .with_limit(5)
+            )
+            .expect("search")
+            .len()
+            <= 1,
+        "sanity: the fixture holds one document"
+    );
+    let hits = ledger.search(&query).expect("hybrid search");
+    assert_eq!(
+        rank_of(&hits, "no-overlap"),
+        Some(0),
+        "a document found only by meaning must survive hydration"
+    );
+}
+
+#[test]
+#[ignore = "needs the all-MiniLM-L6-v2 checkpoint; see the module comment"]
 fn the_vector_channel_still_obeys_the_caller_filters() {
     // A channel that ignored the caller's filters would return rows they explicitly excluded —
     // and because it only fires when a model is installed, it would do so on some machines and
