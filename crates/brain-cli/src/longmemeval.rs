@@ -49,8 +49,38 @@ pub struct Turn {
     pub content: String,
 }
 
+/// How a run is configured.
+///
+/// Every field here changes the number, so every field is reported alongside it. Two runs of this
+/// benchmark that differ in configuration produce results that cannot be compared, and the way
+/// that goes wrong is not malice — it is a number copied out of a terminal three days later with
+/// no record of which switches were on.
+#[derive(Clone, Debug, Default)]
+pub struct LongMemEvalOptions {
+    /// Score only these question types. Empty scores all of them.
+    ///
+    /// A category filter is how a change aimed at one category gets measured against that
+    /// category, instead of being averaged into invisibility across the other five.
+    pub question_types: Vec<String>,
+    /// Embed each instance's events and fuse the vector channel in. `None` is keyword-only.
+    ///
+    /// The path is a brain home holding `models/all-MiniLM-L6-v2`. Embedding is the expensive
+    /// part of a run by a wide margin — roughly 45 seconds per instance against under one for
+    /// keyword alone — which is why it is opt-in and why the category filter exists.
+    pub brain_home: Option<std::path::PathBuf>,
+    /// Cap how many results one session may contribute.
+    ///
+    /// Held separate from fusion so a delta can be attributed to one or the other. Turning both
+    /// on at once and reporting the difference measures their sum and explains neither.
+    pub diversify_sessions: bool,
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct LongMemEvalReport {
+    /// The configuration that produced these numbers, in words.
+    pub configuration: String,
+    /// Documents embedded across the run. Zero on a keyword-only run.
+    pub vectors_built: usize,
     pub instances_scored: usize,
     pub sessions_ingested: usize,
     pub turns_ingested: usize,
@@ -72,20 +102,30 @@ pub fn run_longmemeval(
     dataset: &Path,
     workspace: &Path,
     limit: Option<usize>,
+    options: &LongMemEvalOptions,
 ) -> Result<LongMemEvalReport> {
     let started = std::time::Instant::now();
     let raw = std::fs::read(dataset)
         .with_context(|| format!("read LongMemEval dataset {}", dataset.display()))?;
     let mut instances: Vec<LongMemEvalInstance> =
         serde_json::from_slice(&raw).context("parse LongMemEval dataset")?;
+    // Filter before truncating, so `limit` counts instances that will actually be scored rather
+    // than instances read — otherwise a category filter plus a limit silently scores nothing.
+    if !options.question_types.is_empty() {
+        instances.retain(|instance| options.question_types.contains(&instance.question_type));
+    }
     if let Some(limit) = limit {
         instances.truncate(limit);
     }
-    ensure!(!instances.is_empty(), "dataset contains no instances");
+    ensure!(
+        !instances.is_empty(),
+        "no instances matched; check the dataset and any question-type filter"
+    );
     std::fs::create_dir_all(workspace)?;
 
     let mut sessions_ingested = 0;
     let mut turns_ingested = 0;
+    let mut vectors_built = 0;
     let mut reciprocal_ranks = Vec::with_capacity(instances.len());
     let mut hits_at: Vec<usize> = vec![0; RECALL_AT.len()];
     let mut by_type: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
@@ -101,8 +141,19 @@ pub fn run_longmemeval(
         sessions_ingested += sessions;
         turns_ingested += turns;
 
+        if let Some(brain_home) = &options.brain_home {
+            vectors_built += embed_instance(&mut ledger, brain_home)?;
+            ensure!(
+                ledger.enable_vector_search(brain_home),
+                "no embedding model under {}; a hybrid run without vectors is a keyword run \
+                 reported as a hybrid one",
+                brain_home.display()
+            );
+        }
+
         let mut query = SearchQuery::text(project, instance.question.clone());
         query.limit = SEARCH_DEPTH;
+        query.diversify_sessions = options.diversify_sessions;
         let hits = ledger.search(&query)?;
 
         let evidence: HashSet<&str> = instance
@@ -138,6 +189,8 @@ pub fn run_longmemeval(
 
     let scored = instances.len() as f64;
     Ok(LongMemEvalReport {
+        configuration: describe(options),
+        vectors_built,
         instances_scored: instances.len(),
         sessions_ingested,
         turns_ingested,
@@ -153,6 +206,67 @@ pub fn run_longmemeval(
             .collect(),
         elapsed_seconds: started.elapsed().as_secs_f64(),
     })
+}
+
+fn describe(options: &LongMemEvalOptions) -> String {
+    let mut parts = vec![if options.brain_home.is_some() {
+        "BM25 + vector, RRF-fused".to_owned()
+    } else {
+        "BM25 only".to_owned()
+    }];
+    if options.diversify_sessions {
+        parts.push("session diversification on".to_owned());
+    }
+    if !options.question_types.is_empty() {
+        parts.push(format!("types: {}", options.question_types.join(", ")));
+    }
+    parts.join("; ")
+}
+
+/// Embed every event in one instance's haystack. Returns how many vectors were written.
+///
+/// The whole haystack, not a sample: a vector index covering nine tenths of the corpus scores
+/// somewhere between the two configurations and is honestly neither. This is what makes a hybrid
+/// run cost minutes where a keyword run costs a second, and it is the reason `question_types`
+/// exists — measuring the one category vectors were built for takes twenty minutes, measuring all
+/// five hundred instances takes most of a day.
+fn embed_instance(ledger: &mut EventLedger, brain_home: &Path) -> Result<usize> {
+    const BATCH: usize = 64;
+    let embedder = brain_store::shared_embedder(brain_home).with_context(|| {
+        format!(
+            "no embedding model under {}; expected models/all-MiniLM-L6-v2",
+            brain_home.display()
+        )
+    })?;
+    let now = time::OffsetDateTime::now_utc();
+    let mut written = 0;
+    loop {
+        let pending = ledger.events_awaiting_embedding(BATCH)?;
+        if pending.is_empty() {
+            return Ok(written);
+        }
+        let (embeddable, skipped): (Vec<_>, Vec<_>) = pending
+            .into_iter()
+            .partition(|item| EventLedger::is_embeddable_event_text(&item.text));
+        for item in &skipped {
+            ledger.store_event_embedding(item.event_id, None, now)?;
+        }
+        if embeddable.is_empty() {
+            continue;
+        }
+        let texts: Vec<&str> = embeddable.iter().map(|item| item.text.as_str()).collect();
+        let vectors = embedder.embed_batch(&texts)?;
+        ensure!(
+            vectors.len() == embeddable.len(),
+            "embedder returned {} vectors for {} inputs",
+            vectors.len(),
+            embeddable.len()
+        );
+        for (item, vector) in embeddable.iter().zip(vectors) {
+            ledger.store_event_embedding(item.event_id, Some(&vector), now)?;
+            written += 1;
+        }
+    }
 }
 
 /// Ingest one instance's haystack, tagging every event with the session it came from.

@@ -4,6 +4,7 @@ mod backpressure;
 mod capture;
 mod config;
 mod consolidation;
+mod embed;
 mod health;
 mod hook_handler;
 mod note_watcher;
@@ -26,6 +27,7 @@ pub use config::{
 };
 pub use consolidation::{ConsolidationCrashPoint, ConsolidationWorker, WorkerOutcome};
 pub use consolidation::{run_configured_consolidation, run_configured_consolidation_with_pressure};
+pub use embed::run_embedding_backfill;
 pub use health::{
     OperationalHealth, ProjectHealth, ServiceHealth, SourceHealth, source_health_key,
 };

@@ -1196,8 +1196,17 @@ impl BrainQueryService {
         self.config.project(Some(project_id))
     }
 
+    /// Open a ledger for querying, with the vector channel on when a model is installed.
+    ///
+    /// This is the pull path — `brain query`, and the MCP tools Codex calls — where the caller is
+    /// waiting on an answer and can afford the ~77 ms it costs to encode their question. The push
+    /// path is deliberately not wired the same way: the session-start hook runs against a hard
+    /// timeout that has already failed silently once, and adding an unmeasured cost to it would
+    /// trade a better answer for no answer at all.
     fn ledger(&self, project: &ServiceProjectConfig) -> Result<EventLedger> {
-        EventLedger::open(&project.ledger_path, project.project_id)
+        let mut ledger = EventLedger::open(&project.ledger_path, project.project_id)?;
+        ledger.enable_vector_search(&self.brain_home);
+        Ok(ledger)
     }
 }
 

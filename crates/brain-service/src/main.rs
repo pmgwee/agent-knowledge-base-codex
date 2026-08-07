@@ -4,8 +4,8 @@ use brain_domain::BrainConfig;
 use brain_service::{
     CaptureSupervisor, HookPipeServer, ProjectHookHandler, ServiceLaunchConfig, TranscriptRoots,
     build_capture_bindings, build_hook_bindings, rediscover_once,
-    run_configured_consolidation_with_pressure, run_notes_and_projections_with_pressure,
-    run_rediscovery,
+    run_configured_consolidation_with_pressure, run_embedding_backfill,
+    run_notes_and_projections_with_pressure, run_rediscovery,
 };
 
 #[tokio::main]
@@ -71,6 +71,10 @@ async fn main() -> anyhow::Result<()> {
     let consolidation_shutdown = shutdown_rx.clone();
     let projection_shutdown = shutdown_rx.clone();
     let rediscovery_shutdown = shutdown_rx.clone();
+    let embedding_shutdown = shutdown_rx.clone();
+    let embedding_pressure = capture.degradation_receiver();
+    let embedding_config = config.clone();
+    let embedding_home = brain_home.clone();
     let consolidation_config = config.clone();
     let projection_config = config.clone();
     let pipe_handler = Arc::clone(&handler);
@@ -112,7 +116,7 @@ async fn main() -> anyhow::Result<()> {
     // subsystem that returns is reported and mourned, and the others carry on. Losing
     // consolidation costs distilled memories; losing the process costs every session started
     // before anyone notices, which is the failure this brain exists to prevent.
-    let (pipe, capture_result, consolidation, projections, rediscovery) = tokio::join!(
+    let (pipe, capture_result, consolidation, projections, rediscovery, embedding) = tokio::join!(
         async {
             match pipe_task.await {
                 Ok(Ok(())) => Ok(()),
@@ -146,6 +150,14 @@ async fn main() -> anyhow::Result<()> {
                 transcript_roots.clone(),
                 rediscovery_shutdown.clone(),
             )
+        }),
+        supervise("memory embedding", embedding_shutdown.clone(), || {
+            run_embedding_backfill(
+                embedding_config.clone(),
+                embedding_home.clone(),
+                embedding_shutdown.clone(),
+                embedding_pressure.clone(),
+            )
         })
     );
 
@@ -159,6 +171,7 @@ async fn main() -> anyhow::Result<()> {
         ("consolidation", consolidation),
         ("notes and projections", projections),
         ("source rediscovery", rediscovery),
+        ("memory embedding", embedding),
     ] {
         if let Err(error) = result {
             failures += 1;
