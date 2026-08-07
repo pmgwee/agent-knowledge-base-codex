@@ -22,6 +22,41 @@ pub enum WorkerOutcome {
     RetryScheduled(uuid::Uuid),
     DeadLetter(uuid::Uuid),
     SimulatedCrash(uuid::Uuid),
+    /// The provider was unavailable — rate limited, timed out, unreachable.
+    ///
+    /// Deliberately not a failure. The job is untouched: its lease is left to expire so it
+    /// returns to the queue without consuming an attempt.
+    ProviderUnavailable(uuid::Uuid),
+}
+
+/// Whether an error means "this provider cannot answer right now" rather than "this job is bad".
+///
+/// The distinction decides whether a job survives an outage. Attempts back off as
+/// `1 << attempt` seconds — 2, 4, 8, 16, 32 — so five of them are spent in about a minute, and
+/// a job dead-letters permanently. A rate limit lasting hours would therefore destroy every
+/// job attempted during it, none of which was ever the problem.
+///
+/// Matching on message text is unlovely, but the alternative is threading a typed error through
+/// a trait that any provider may implement, and a provider that words its outage differently
+/// simply falls back to the old behaviour rather than misclassifying a real defect as transient.
+fn provider_unavailable(error: &anyhow::Error) -> bool {
+    let text = format!("{error:#}").to_lowercase();
+    [
+        "429",
+        "rate limit",
+        "too many requests",
+        "quota",
+        "timed out",
+        "timeout",
+        "connect",
+        "dns",
+        "502",
+        "503",
+        "504",
+        "temporarily unavailable",
+    ]
+    .iter()
+    .any(|marker| text.contains(marker))
 }
 
 pub struct ConsolidationWorker {
@@ -57,6 +92,18 @@ impl ConsolidationWorker {
                 Ok(validated) => validated,
                 Err(error) => return self.fail(ledger, &job, &error.to_string(), now),
             },
+            Err(error) if provider_unavailable(&error) => {
+                // Leave the job exactly as it was. Its lease expires on its own, returning it
+                // to the queue with its attempt count intact, so an outage costs time rather
+                // than evidence.
+                tracing::warn!(
+                    job = %job.id,
+                    attempt = job.attempt,
+                    %error,
+                    "provider unavailable; job deferred without consuming an attempt"
+                );
+                return Ok(WorkerOutcome::ProviderUnavailable(job.id));
+            }
             Err(error) => return self.fail(ledger, &job, &error.to_string(), now),
         };
         if !validated.rejected.is_empty() {
@@ -195,6 +242,10 @@ pub async fn run_configured_consolidation_with_pressure(
                             .await?
                         {
                             WorkerOutcome::Idle => break,
+                            // Stop the whole tick. The next job would reach the same
+                            // unavailable provider, and every extra call during a rate limit
+                            // only lengthens it.
+                            WorkerOutcome::ProviderUnavailable(_) => break,
                             WorkerOutcome::Completed(_)
                             | WorkerOutcome::RetryScheduled(_)
                             | WorkerOutcome::DeadLetter(_)
@@ -324,4 +375,45 @@ fn high_entropy_token() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
     PATTERN
         .get_or_init(|| Regex::new(r"\b[A-Za-z0-9+/=_-]{40,}\b").expect("entropy regex is valid"))
+}
+
+#[cfg(test)]
+mod outage_tests {
+    use super::provider_unavailable;
+
+    #[test]
+    fn a_rate_limit_is_an_outage_not_a_bad_job() {
+        // Attempts back off as 1<<attempt seconds, so five are spent in about a minute. A rate
+        // limit lasting hours would dead-letter every job it touched, none of which was ever
+        // the problem.
+        for text in [
+            "GLM request failed with HTTP status 429 Too Many Requests",
+            "GLM request failed: operation timed out",
+            "error sending request: tcp connect error",
+            "GLM request failed with HTTP status 503 Service Unavailable",
+            "quota exceeded for this window",
+        ] {
+            assert!(
+                provider_unavailable(&anyhow::anyhow!("{text}")),
+                "should be treated as an outage: {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_malformed_proposal_is_a_real_failure_and_still_counts() {
+        // The opposite mistake would be worse: a job that can never succeed would retry
+        // forever, holding a slot and spending a provider call every time.
+        for text in [
+            "GLM message content does not match the proposed-memory schema",
+            "unknown evidence ID 019fcd91 in provider output",
+            "provider proposed more than 32 memories",
+            "GLM API key is empty",
+        ] {
+            assert!(
+                !provider_unavailable(&anyhow::anyhow!("{text}")),
+                "should count as a real failure: {text}"
+            );
+        }
+    }
 }
