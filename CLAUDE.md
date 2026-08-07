@@ -172,15 +172,34 @@ our fusion is the one everyone else measured.
   deployment *speed* scores 0.478 where the turn that actually answers scores 0.353. Reranking
   with a cross-encoder is the honest next step, not a weight to be tuned.
 
+### Measured on LongMemEval-S
+
+| Category | Instances | BM25 R@5 | Hybrid R@5 | BM25 MRR | Hybrid MRR |
+|---|---|---|---|---|---|
+| `single-session-preference` | 30 (all) | 63.3% | **90.0%** | 0.509 | 0.779 |
+| `knowledge-update` | 10 | 100.0% | 100.0% | 0.933 | **1.000** |
+
+R@10 on the preference category goes 73.3% → 96.7%. The second row is the regression check, not
+a win: it is the category BM25 already tops out on, and the point is that fusion costs nothing
+there. Session diversification alone moves neither, measured separately.
+
+The full 500-instance number has **not** been run. Each hybrid instance costs ~25 s of embedding,
+so a full sweep is several hours and contends directly with the service's own backfill.
+
 ### Measuring a change
 
 ```bash
 cargo test -p brain-cli --test longmemeval --release -- --ignored --nocapture
 ```
 
-`LONGMEMEVAL_TYPES` scopes to a question category, `LONGMEMEVAL_BRAIN_HOME` turns on embedding
-and fusion, `LONGMEMEVAL_DIVERSIFY=1` turns on the per-session cap. The report states its own
-configuration; every switch changes the number, so never quote one without it.
+`LONGMEMEVAL_TYPES` scopes to a question category, `LONGMEMEVAL_LIMIT` caps instances,
+`LONGMEMEVAL_BRAIN_HOME` turns on embedding and fusion, `LONGMEMEVAL_DIVERSIFY=1` turns on the
+per-session cap. The report states its own configuration; every switch changes the number, so
+never quote one without it.
+
+Stop `AgentBrain.Service` first if the backfill is still draining. It is not politeness — with
+the backfill running, a hybrid run was measured taking **over three hours** for work that takes
+four minutes with the machine to itself, and capture resumes losslessly from its cursors.
 
 ## Invariants — do not break these
 
