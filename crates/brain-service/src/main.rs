@@ -99,7 +99,20 @@ async fn main() -> anyhow::Result<()> {
         .await
     });
 
-    tokio::try_join!(
+    // `join!`, not `try_join!`.
+    //
+    // Every subsystem used to share one fate: `try_join!` returns on the first error, so a
+    // transient failure anywhere ended the process. That was not theoretical — three separate
+    // instances were found by the service dying silently and exiting 1, each in a different
+    // loop, each a failure that mattered to one subsystem and to nothing else. A vanished
+    // transcript directory stopped hook delivery. A pipe accept error stopped capture.
+    //
+    // Those loops are individually contained now, but containment is a property someone has to
+    // keep re-establishing every time a `?` is added. This is the structural version: a
+    // subsystem that returns is reported and mourned, and the others carry on. Losing
+    // consolidation costs distilled memories; losing the process costs every session started
+    // before anyone notices, which is the failure this brain exists to prevent.
+    let (pipe, capture_result, consolidation, projections, rediscovery) = tokio::join!(
         async {
             match pipe_task.await {
                 Ok(Ok(())) => Ok(()),
@@ -109,21 +122,105 @@ async fn main() -> anyhow::Result<()> {
                 )),
             }
         },
-        Arc::clone(&capture).run(shutdown_rx),
-        run_configured_consolidation_with_pressure(
-            consolidation_config,
-            consolidation_shutdown,
-            consolidation_pressure,
-        ),
-        run_notes_and_projections_with_pressure(
-            projection_config,
-            brain_home,
-            projection_shutdown,
-            projection_pressure,
-        ),
-        run_rediscovery(config_path, transcript_roots, rediscovery_shutdown)
-    )?;
+        supervise("capture", shutdown_rx.clone(), || {
+            Arc::clone(&capture).run(shutdown_rx.clone())
+        }),
+        supervise("consolidation", consolidation_shutdown.clone(), || {
+            run_configured_consolidation_with_pressure(
+                consolidation_config.clone(),
+                consolidation_shutdown.clone(),
+                consolidation_pressure.clone(),
+            )
+        }),
+        supervise("notes and projections", projection_shutdown.clone(), || {
+            run_notes_and_projections_with_pressure(
+                projection_config.clone(),
+                brain_home.clone(),
+                projection_shutdown.clone(),
+                projection_pressure.clone(),
+            )
+        }),
+        supervise("source rediscovery", rediscovery_shutdown.clone(), || {
+            run_rediscovery(
+                config_path.clone(),
+                transcript_roots.clone(),
+                rediscovery_shutdown.clone(),
+            )
+        })
+    );
+
+    // Every subsystem has now returned, which only happens on shutdown or on failure. Report
+    // each one by name: "the service stopped" is not a diagnosis, and the three crashes above
+    // were all invisible precisely because the process left no statement of what had failed.
+    let mut failures = 0;
+    for (name, result) in [
+        ("hook pipe", pipe),
+        ("capture", capture_result),
+        ("consolidation", consolidation),
+        ("notes and projections", projections),
+        ("source rediscovery", rediscovery),
+    ] {
+        if let Err(error) = result {
+            failures += 1;
+            tracing::error!(subsystem = name, %error, "subsystem stopped with an error");
+        }
+    }
+    if failures > 0 {
+        anyhow::bail!("{failures} subsystem(s) stopped with an error; see the log for each");
+    }
     Ok(())
+}
+
+/// Run a subsystem, restarting it if it fails.
+///
+/// `join!` keeps one subsystem's failure from ending the others, but a subsystem that returned
+/// is simply gone — capture would stay dead until someone noticed, which is quieter than a
+/// crash and nearly as costly. Every one of these loops is idempotent on restart: cursors are
+/// persisted, jobs are leased, and the projection is content-addressed, so re-entering one
+/// resumes rather than repeats.
+///
+/// Backoff is capped so a subsystem failing on every attempt logs steadily instead of spinning
+/// a core, and a clean return (shutdown) ends the supervision rather than restarting into a
+/// service that is trying to stop.
+async fn supervise<F, Fut>(
+    name: &'static str,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+    mut make: F,
+) -> anyhow::Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<()>>,
+{
+    let mut restarts: u32 = 0;
+    loop {
+        match make().await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if *shutdown.borrow() {
+                    // Failing while stopping is not worth restarting for.
+                    tracing::warn!(subsystem = name, %error, "subsystem failed during shutdown");
+                    return Ok(());
+                }
+                restarts += 1;
+                let backoff = std::cmp::min(30, 1_u64 << std::cmp::min(restarts, 5));
+                tracing::error!(
+                    subsystem = name,
+                    restarts,
+                    backoff_seconds = backoff,
+                    %error,
+                    "subsystem failed; restarting"
+                );
+                tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(backoff)) => {}
+                    changed = shutdown.changed() => {
+                        if changed.is_err() || *shutdown.borrow() {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 struct LaunchArguments {
