@@ -93,3 +93,87 @@ fn load() -> Option<Embedder> {
         })?;
     Embedder::load_if_available(&default_model_dir(&brain_home))
 }
+
+#[test]
+#[ignore = "needs the all-MiniLM-L6-v2 checkpoint; see the module comment"]
+fn steady_state_throughput_is_measured_not_assumed() {
+    // The first embedding of a process pays for allocator warmup and lazily-initialised kernels.
+    // Sizing a backfill from that number would overstate the cost by an order of magnitude, so
+    // measure a warm loop instead — and measure it on text the length of real captured turns,
+    // since cost grows with sequence length.
+    let Some(embedder) = load() else {
+        panic!("model not installed");
+    };
+    let turn = "I refactored the consolidation worker so a provider outage defers the job \
+                instead of consuming one of its five attempts, then redeployed and watched \
+                the queue drain.";
+
+    let first = std::time::Instant::now();
+    embedder.embed(turn).expect("cold embed");
+    let cold = first.elapsed();
+
+    let n = 50;
+    let started = std::time::Instant::now();
+    for _ in 0..n {
+        embedder.embed(turn).expect("warm embed");
+    }
+    let per = started.elapsed() / n;
+
+    println!("  cold first call : {cold:?}");
+    println!("  warm per call   : {per:?}");
+    println!(
+        "  implied rate    : {:.0} embeddings/sec",
+        1.0 / per.as_secs_f64()
+    );
+    println!(
+        "  6,761 memories  : {:.1} min",
+        6_761.0 * per.as_secs_f64() / 60.0
+    );
+    println!(
+        "  246,750 turns   : {:.1} min",
+        246_750.0 * per.as_secs_f64() / 60.0
+    );
+    assert!(per.as_millis() < 500, "unusably slow at {per:?}");
+}
+
+#[test]
+#[ignore = "needs the all-MiniLM-L6-v2 checkpoint; see the module comment"]
+fn batching_amortises_the_per_call_cost() {
+    // Measured at ~1.2x, not the several-fold win batching usually gives: the cost here is
+    // the matmuls, not per-call overhead, because candle's CPU backend has no optimised BLAS.
+    // The bar is therefore "not slower", which still catches a regression that made batching
+    // pointless — and the printed figure is the number any backfill sizing must use, rather
+    // than an assumed speedup that would have been wrong by a factor of five.
+    let Some(embedder) = load() else {
+        panic!("model not installed");
+    };
+    let turn = "I refactored the consolidation worker so a provider outage defers the job \
+                instead of consuming one of its five attempts, then redeployed.";
+    let batch: Vec<&str> = std::iter::repeat_n(turn, 32).collect();
+
+    embedder.embed(turn).expect("warm up");
+
+    let started = std::time::Instant::now();
+    for text in &batch {
+        embedder.embed(text).expect("one at a time");
+    }
+    let looped = started.elapsed();
+
+    let started = std::time::Instant::now();
+    let vectors = embedder.embed_batch(&batch).expect("batched");
+    let batched = started.elapsed();
+
+    assert_eq!(vectors.len(), batch.len());
+    let speedup = looped.as_secs_f64() / batched.as_secs_f64();
+    println!("  32 one-at-a-time : {looped:?}");
+    println!("  32 batched       : {batched:?}");
+    println!("  speedup          : {speedup:.1}x");
+    println!(
+        "  246,750 turns    : {:.0} min batched",
+        246_750.0 * (batched.as_secs_f64() / 32.0) / 60.0
+    );
+    assert!(
+        speedup > 1.0,
+        "batching is now slower than looping: {speedup:.2}x"
+    );
+}

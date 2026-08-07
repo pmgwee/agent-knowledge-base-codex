@@ -118,13 +118,65 @@ impl Embedder {
         Ok(self.embed_batch(std::slice::from_ref(&text))?.remove(0))
     }
 
-    /// Embed several strings.
+    /// Embed several strings in one forward pass.
     ///
-    /// Encoded one at a time rather than as a padded batch: the inputs here vary from a few
-    /// tokens to the truncation limit, and padding them to a common width would spend most of
-    /// the compute on padding. Batching wins when lengths are uniform, which these are not.
+    /// **Measured at 1.2x against the same work done one call at a time** — worth having, but
+    /// far less than batching usually buys. The reason is that the cost here is not per-call
+    /// overhead but the matmuls themselves: candle's CPU backend runs them without an optimised
+    /// BLAS, so a batch of 32 does roughly 32 batches' worth of arithmetic. Padding to the
+    /// longest member gives some of that back.
+    ///
+    /// The lever that would actually matter is parallelism across cores, or linking an
+    /// optimised BLAS — neither of which this does today. Sizing a backfill from an assumed
+    /// batching speedup would have been wrong by a factor of five.
+    ///
+    /// Sequences are padded to the longest in the batch, and the attention mask keeps the
+    /// padding out of both the model and the pooling. Sorting by length before batching would
+    /// waste less on padding still, but the caller owns ordering here and returning results in a
+    /// different order than they were asked for is a far worse trap than some wasted compute.
     pub fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
-        texts.iter().map(|text| self.embed_one(text)).collect()
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut all_ids = Vec::with_capacity(texts.len());
+        let mut all_mask = Vec::with_capacity(texts.len());
+        for text in texts {
+            let encoding = self
+                .tokenizer
+                .encode(*text, true)
+                .map_err(|error| anyhow::anyhow!("tokenize for embedding: {error}"))?;
+            let mut ids = encoding.get_ids().to_vec();
+            let mut mask = encoding.get_attention_mask().to_vec();
+            ids.truncate(MAX_INPUT_TOKENS);
+            mask.truncate(MAX_INPUT_TOKENS);
+            anyhow::ensure!(!ids.is_empty(), "cannot embed an empty string");
+            all_ids.push(ids);
+            all_mask.push(mask);
+        }
+
+        let width = all_ids.iter().map(Vec::len).max().unwrap_or(0);
+        for (ids, mask) in all_ids.iter_mut().zip(all_mask.iter_mut()) {
+            ids.resize(width, 0);
+            // Zero in the mask is what keeps the padding out of attention and out of the mean.
+            mask.resize(width, 0);
+        }
+
+        let flat_ids: Vec<u32> = all_ids.concat();
+        let flat_mask: Vec<u32> = all_mask.concat();
+        let shape = (texts.len(), width);
+        let input = Tensor::from_vec(flat_ids, shape, &self.device)?;
+        let attention = Tensor::from_vec(flat_mask, shape, &self.device)?;
+        let token_types = input.zeros_like()?;
+        let hidden = self.model.forward(&input, &token_types, Some(&attention))?;
+
+        let mask_f = attention.to_dtype(DType::F32)?.unsqueeze(2)?;
+        let pooled = hidden
+            .broadcast_mul(&mask_f)?
+            .sum(1)?
+            .broadcast_div(&mask_f.sum(1)?)?;
+        let norm = pooled.sqr()?.sum_keepdim(1)?.sqrt()?;
+        Ok(pooled.broadcast_div(&norm)?.to_vec2::<f32>()?)
     }
 
     fn embed_one(&self, text: &str) -> Result<Vec<f32>> {
