@@ -1,8 +1,8 @@
-//! Embedding memories in the background.
+//! Embedding in the background.
 //!
-//! Consolidation produces memories; this gives each one a vector so retrieval can match meaning
-//! as well as words. It is a backfill and a steady state at once — the same loop drains the
-//! ~6,800 memories that already exist and picks up each new one as it is written.
+//! Gives every memory and every event a vector, so retrieval can match meaning as well as words.
+//! It is a backfill and a steady state at once — the same loop drains the ~8,500 memories and
+//! ~136,000 events that already exist, then picks up each new one as it is written.
 //!
 //! Two properties matter more than speed here.
 //!
@@ -22,7 +22,7 @@ use brain_store::{Embedder, EventLedger, shared_embedder};
 
 use crate::ServiceLaunchConfig;
 
-/// Memories embedded per project per pass.
+/// Documents embedded per project per pass.
 ///
 /// At ~11 embeddings a second a pass of 64 takes about six seconds, which is long enough to
 /// make real progress and short enough that a shutdown does not wait on it. The bound also
@@ -59,7 +59,7 @@ pub async fn run_embedding_backfill(
         }
         return Ok(());
     }
-    tracing::info!("embedding model loaded; backfilling memory vectors");
+    tracing::info!("embedding model loaded; backfilling memory and event vectors");
 
     let mut delay = BUSY_INTERVAL;
     loop {
@@ -86,7 +86,7 @@ pub async fn run_embedding_backfill(
                             tracing::debug!(
                                 project_id = %project.project_id.0,
                                 count,
-                                "embedded memory vectors"
+                                "embedded vectors"
                             );
                         }
                         Err(error) => tracing::warn!(

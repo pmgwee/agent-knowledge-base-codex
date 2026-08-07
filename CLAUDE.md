@@ -160,9 +160,12 @@ our fusion is the one everyone else measured.
 - **The vector channel re-applies every caller filter.** Time range, worktree, task, session,
   and — for memories — as-of and supersession. A channel that selected by id without those would
   resurrect retracted memories as current, on machines with a model and not on machines without.
-- **The pull path has vectors; the push path does not.** `brain query` and the Codex MCP tools
-  encode the question (~77 ms). The session-start hook does not: it runs against a hard timeout
-  that has already failed silently once. Measure before changing that.
+- **This improves explicit search, not the automatic orientation.** `brain query`, the query API
+  and the Codex MCP tools all go through `search()` and get the fused ranking. The session-start
+  hook does not go through `search()` at all — `ContextCompiler::from_ledger` reads
+  `recent_events()` chronologically, so the orientation is recency-shaped by design and no amount
+  of retrieval work changes it. Worth knowing before attributing an orientation's contents to a
+  ranking decision.
 - **`all-MiniLM-L6-v2` is a bi-encoder.** It scores whether two texts are *alike*, not whether
   one *answers* the other. Measured: against a haystack sharing no vocabulary it lifts the
   answering turn from rank 3 to rank 1; against a merely on-topic haystack a turn about
