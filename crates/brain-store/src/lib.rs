@@ -17,6 +17,7 @@ mod provider_cache;
 mod search;
 mod segment;
 mod upgrade;
+mod vector;
 
 pub use backup::{
     BACKUP_FORMAT_VERSION, BackupInventory, BackupManager, BackupReport, InventoryFile,
@@ -49,3 +50,4 @@ pub use segment::{
     SEGMENT_FORMAT_VERSION, SegmentManifest, SegmentSealReport, SegmentStore, should_seal,
 };
 pub use upgrade::{UpgradeIssue, UpgradeManager, UpgradeReport, UpgradeStageReport};
+pub use vector::{EMBEDDING_MODEL, PendingEmbedding, VectorHit};

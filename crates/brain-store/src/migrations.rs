@@ -383,6 +383,31 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             PRIMARY KEY(project_id, harness, native_session_id)
         );
 
+        -- Dense vectors for memories, so retrieval can match meaning as well as words.
+        --
+        -- Keyed by version_id rather than memory_id: a memory that is superseded gets a new
+        -- version with new text, and an embedding of the old wording would then rank the new
+        -- memory by what it used to say. Version-keyed rows also make staleness detectable —
+        -- a version with no row here has simply not been embedded yet.
+        --
+        -- `model` is stored because a vector is only comparable to others from the same model.
+        -- Swapping models makes every existing row meaningless, and recording which produced
+        -- each one turns that from silent nonsense into a filter.
+        CREATE TABLE IF NOT EXISTS memory_embeddings (
+            version_id TEXT PRIMARY KEY NOT NULL
+                REFERENCES memory_versions(version_id) ON DELETE CASCADE,
+            memory_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            dimensions INTEGER NOT NULL,
+            vector BLOB NOT NULL,
+            embedded_at_ns INTEGER NOT NULL
+        );
+
+        -- Vector search scans every row for a project, so the project filter must not.
+        CREATE INDEX IF NOT EXISTS idx_memory_embeddings_project
+            ON memory_embeddings(project_id, model);
+
         CREATE VIRTUAL TABLE IF NOT EXISTS event_search USING fts5(
             scope_token,
             content,
