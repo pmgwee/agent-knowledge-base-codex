@@ -376,6 +376,66 @@ fn superseded_generations_are_pruned_so_the_vault_holds_one_copy() {
     );
 }
 
+#[test]
+fn an_abandoned_staging_directory_is_collected_but_a_live_one_is_left_alone() {
+    // The other half of the same leak. A pass writes into `staging-<uuid>` and renames it into
+    // place, so a process that stops in between leaves the directory behind — and skipping every
+    // `staging-*` meant nothing ever collected it. Deploys restart this service routinely; the
+    // live vault reached 5,834 orphaned files across two projects, each a duplicate in Obsidian.
+    //
+    // Age is the only thing that separates a dead staging directory from one being written right
+    // now, so both directions are pinned here: deleting a live one would corrupt a publish, and
+    // that is the more expensive mistake.
+    let temp = tempfile::tempdir().expect("vault fixture");
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let worktree = WorktreeId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    let evidence = append_evidence(&mut ledger, project, worktree);
+    let record = memory(project, worktree, "Only", vec![evidence], Vec::new());
+    ledger.append_memory(&record).expect("append");
+
+    let projector = MarkdownProjector::new(temp.path());
+    projector.rebuild_project(&ledger, project).expect("first");
+
+    let generations = temp
+        .path()
+        .join("projects")
+        .join(project.0.to_string())
+        .join("generated")
+        .join("generations");
+
+    // One staging directory left behind by a killed pass, and one a pass is writing right now.
+    // The age is in the name — a v7 UUID carries the millisecond it was minted — so this needs no
+    // clock games on the filesystem. The stale id below is a real one recovered from the live
+    // vault; the live id is minted here and is therefore seconds old.
+    let abandoned = generations.join("staging-019fd80e-c8dd-7f92-8ac4-066bda3dab87");
+    let live = generations.join(format!("staging-{}", uuid::Uuid::now_v7()));
+    for path in [&abandoned, &live] {
+        std::fs::create_dir_all(path).expect("create staging");
+        std::fs::write(path.join("note.md"), "orphan").expect("write");
+    }
+
+    // A content change publishes a new generation, which is what runs the pruner.
+    let second = memory(project, worktree, "Second", vec![evidence], Vec::new());
+    ledger.append_memory(&second).expect("append second");
+    projector
+        .rebuild_project(&ledger, project)
+        .expect("second rebuild");
+
+    assert!(
+        !abandoned.exists(),
+        "a staging directory untouched for hours is not one anybody is still writing"
+    );
+    assert!(
+        live.exists(),
+        "a staging directory being written must survive; deleting it corrupts a publish"
+    );
+    assert!(
+        projector.verify_project(project).expect("verify").valid,
+        "collecting staging must not disturb the published generation"
+    );
+}
+
 fn read_note_containing(files: &[std::path::PathBuf], needle: &str) -> String {
     files
         .iter()

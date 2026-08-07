@@ -238,17 +238,38 @@ fn publish_generation(staging: &Path, destination: &Path) -> Result<()> {
 ///
 /// Only the published generation survives. A superseded one is unreachable by construction:
 /// `current.json` names exactly one, and any rebuild can recreate any of them from the ledger.
-/// Directories still being staged are left alone — they are named `staging-*` and are not
-/// generations yet.
+///
+/// Staging directories are the second half of this problem and were the half left open. A pass
+/// writes into `staging-<uuid>` and renames it into place, so a process that stops in between —
+/// a deploy restarting the service, a machine sleeping — leaves the directory behind forever.
+/// Skipping every `staging-*` was right for the one being written and wrong for all the others,
+/// and the vault reached **5,834 orphaned files across two projects** that way, each one a
+/// duplicate note in Obsidian's graph.
+///
+/// Age is what separates the two, because it is the only thing that can: a projection pass takes
+/// seconds, so a staging directory older than [`ABANDONED_STAGING_AGE`] is not one anybody is
+/// still writing.
+///
+/// The age comes from the directory's **name**, not from the filesystem. Staging directories are
+/// named `staging-<uuid-v7>`, and a v7 UUID carries the millisecond it was minted, so the
+/// directory already states when it was created — no mtime to be rewritten by a backup, a sync
+/// client, or a restore. A name that does not parse is treated as *in use*: keeping a dead
+/// directory another hour costs a little disk, and deleting a live one corrupts a publish.
 fn prune_superseded_generations(generations_root: &Path, keep: &str) -> Result<usize> {
     let Ok(entries) = std::fs::read_dir(generations_root) else {
         return Ok(0);
     };
+    let now = time::OffsetDateTime::now_utc();
     let mut pruned = 0;
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name == keep || name.starts_with("staging-") {
+        if name == keep {
+            continue;
+        }
+        if let Some(staged) = name.strip_prefix("staging-")
+            && !is_abandoned_staging(staged, now)
+        {
             continue;
         }
         if entry.file_type().is_ok_and(|kind| kind.is_dir())
@@ -258,6 +279,27 @@ fn prune_superseded_generations(generations_root: &Path, keep: &str) -> Result<u
         }
     }
     Ok(pruned)
+}
+
+/// How old a staging directory must be before it counts as abandoned.
+///
+/// A projection pass writes its files and renames within seconds, so an hour is three orders of
+/// magnitude of headroom. Generous on purpose: the failure this guards against is deleting a
+/// directory mid-publish, and disk is cheaper than that.
+pub(crate) const ABANDONED_STAGING_AGE: time::Duration = time::Duration::hours(1);
+
+pub(crate) fn is_abandoned_staging(staged: &str, now: time::OffsetDateTime) -> bool {
+    let Ok(id) = uuid::Uuid::parse_str(staged) else {
+        return false;
+    };
+    let Some(timestamp) = id.get_timestamp() else {
+        return false;
+    };
+    let (seconds, nanos) = timestamp.to_unix();
+    let Ok(created) = time::OffsetDateTime::from_unix_timestamp(seconds as i64) else {
+        return false;
+    };
+    now - (created + time::Duration::nanoseconds(i64::from(nanos))) >= ABANDONED_STAGING_AGE
 }
 
 #[derive(Clone, Debug, Serialize)]
