@@ -6,6 +6,7 @@ mod blob;
 mod catalog;
 mod context_metrics;
 mod cursor;
+mod embedding;
 mod jobs;
 mod ledger;
 mod markdown;
@@ -29,6 +30,10 @@ pub use basic_memory::{
 pub use blob::{BlobRecord, BlobStore};
 pub use catalog::{CatalogEvent, SegmentCatalog};
 pub use context_metrics::{ContextDelivery, ContextDeliverySummary};
+pub use embedding::{
+    EMBEDDING_DIMENSIONS, Embedder, MAX_INPUT_TOKENS, cosine_similarity, decode_vector,
+    default_model_dir, encode_vector, shared_embedder,
+};
 pub use jobs::{
     ConsolidationJob, ConsolidationReason, JobStatus, MAX_JOB_EVENTS, MAX_JOB_PAYLOAD_BYTES,
     RedactionManifestEntry,

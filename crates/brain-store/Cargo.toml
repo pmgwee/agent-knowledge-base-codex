@@ -9,6 +9,11 @@ rust-version.workspace = true
 anyhow.workspace = true
 atomicwrites.workspace = true
 brain-domain = { path = "../brain-domain" }
+tracing.workspace = true
+candle-core.workspace = true
+candle-nn.workspace = true
+candle-transformers.workspace = true
+tokenizers.workspace = true
 hex.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
