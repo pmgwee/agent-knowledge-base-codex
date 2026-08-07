@@ -80,6 +80,18 @@ enum Command {
         #[arg(long)]
         limit: Option<usize>,
     },
+    /// Write a project's memories and their evidence to a directory.
+    Export {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        destination: PathBuf,
+        #[arg(long, value_enum, default_value_t = brain_cli::ExportFormat::Both)]
+        format: brain_cli::ExportFormat,
+        /// Only memories valid from this RFC 3339 timestamp onwards.
+        #[arg(long)]
+        since: Option<String>,
+    },
     Timeline {
         #[arg(long)]
         project: String,
@@ -876,6 +888,38 @@ fn main() -> Result<()> {
         } => {
             let report = rebuild_basic_memory(&brain_home, parse_project_id(&project)?)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Export {
+            project,
+            destination,
+            format,
+            since,
+        } => {
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let since = since
+                .as_deref()
+                .map(|value| {
+                    time::OffsetDateTime::parse(
+                        value,
+                        &time::format_description::well_known::Rfc3339,
+                    )
+                })
+                .transpose()
+                .context("--since must be an RFC 3339 timestamp")?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let report =
+                brain_cli::export_project(&ledger, project_id, &destination, format, since)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            // Evidence that will not resolve is the one thing an export must never hide, since
+            // after it leaves here nothing can resolve it.
+            if report.memories_missing_evidence > 0 {
+                anyhow::bail!(
+                    "{} memory(ies) cite evidence this ledger could not resolve",
+                    report.memories_missing_evidence
+                );
+            }
         }
         Command::Verify {
             target: VerifyCommand::Memory { project, id, json },
