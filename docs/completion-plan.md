@@ -35,8 +35,8 @@ that cannot apply here. Copying those would be building a lint for a language no
 | Wikilinks + index pages | **Shipped** | Derived from shared evidence and supersession, never LLM-proposed |
 | Vault projection | **Shipped** | Content-addressed generations, checksum-verified, staging now collected |
 | LongMemEval-S harness | **Shipped** | Configurable, reports its own configuration |
-| **CodeGraph** | **Gap — deferred** | 393 lines shipped, `enabled=false / usable=false` on all three projects, no binary installed |
-| **LLM Wiki** | **Gap — deferred** | 305 lines, same state |
+| **CodeGraph** | **Gap — ship it** | 393 lines shipped, disabled on all three projects, no binary installed. Wave 3.9, on the pull path — see Part 5.3 |
+| **LLM Wiki** | **Obsolete as code, adopted as method** | The provider is a keyword searcher over Markdown and would duplicate our own FTS5. The *methodology* is Waves 3.2, 3.6–3.8 — see Part 5 |
 | **Decay / tiers / forgetting** | **Gap** | No code at all. Supersession is the only lifecycle mechanism |
 | **Cross-encoder rerank** | **Gap** | No code. The measured next step for retrieval quality |
 
@@ -109,58 +109,80 @@ it blocks Part 2 entirely: an instrument that overstates cannot prove a saving.
 
 ## Part 1 — Ranked plan
 
-Ordered by what unblocks what, not by size.
+Ordered by what unblocks what, not by size. Every item carries a **done-when** that can be checked
+by running something, because "implemented" is not a state anyone can verify.
+
+Sizes are rough and relative: **S** ≈ a sitting, **M** ≈ a day, **L** ≈ several days, **XL** ≈ needs
+a design pass before it can be estimated at all.
 
 ### Wave 0 — Repair the instruments *(blocks everything measurable)*
 
-| | Work | Why first |
-|---|---|---|
-| 0.1 | Record the delivery **after** the flush succeeds. Handler returns the reply plus a pending `ContextDelivery`; the pipe records it once the client has it | Every number in Part 2 comes from this table |
-| 0.2 | Drain the consolidation backlog — 2,328 pending against 2,026 completed | Memories are incomplete until it drains; a benchmark over a half-built brain measures the backlog |
-| 0.3 | Surface job queue depth and dead letters on the dashboard | 2,328 pending and 1 dead-lettered job are currently invisible |
+| | Work | Done when | Size |
+|---|---|---|---|
+| 0.1 | Record the delivery **after** the flush succeeds. `handle` returns the reply plus a pending `ContextDelivery`; the pipe records it once `flush()` returns `Ok` | A forced write failure produces **no** `context_deliveries` row, proven by a test; recorded count over a day equals hook invocations minus spool depth | M |
+| 0.2 | Drain the consolidation backlog — 2,328 pending against 2,026 completed | `consolidation_jobs` has zero `pending` for an hour with the service running, and the dead-letter count has an explanation | M |
+| 0.3 | Surface job queue depth and dead letters on the dashboard | The Projects panel shows pending / leased / dead per project, and a dead letter can be re-queued from the UI | M |
 
-Wave 0 is days, not weeks, and nothing downstream is trustworthy without it.
+Nothing downstream is trustworthy without this wave.
 
-### Wave 1 — Prove the value *(Part 2 below is the full design)*
+### Wave 1 — Prove the value
+
+Full design in Part 2. **Done when:** a written report exists carrying the per-task and pooled
+token delta with spread, the quality rubric scores, and the counter-metric — and its first paragraph
+states the sample size and who chose the tasks. **Size: L.**
 
 ### Wave 2 — Close the trust gap
 
-| | Work | Note |
-|---|---|---|
-| 2.1 | `brain export --project <p> [--since]` → JSON + Markdown bundle | Your data, retrievable without SQLite |
-| 2.2 | `brain forget <selector>` — **tombstone, not deletion** | Append-only survives: write a redaction record that suppresses the target from retrieval and projection, keeps the evidence chain intact, and logs who/when/why. This is the append-only-compatible form of `memory_governance_delete` |
-| 2.3 | `brain verify <memory-id>` — walk a claim back to its source events | Their `memory_verify`. Small, and it is the single best demonstration of what this brain has that a vector store does not |
+| | Work | Done when | Size |
+|---|---|---|---|
+| 2.1 | `brain export --project <p> [--since]` → JSON + Markdown bundle | A bundle restores into a fresh ledger and `brain verify` passes against it | M |
+| 2.2 | `brain forget <selector>` — **tombstone, not deletion** | A forgotten memory disappears from search, orientation and the vault; its evidence chain is intact; the tombstone records who, when and why; `brain export` includes the tombstone, not the content | L |
+| 2.3 | `brain verify <memory-id>` — walk a claim back to its source events | Prints the memory, every cited `event:<uuid>`, each event's source file and offset, and flags any citation that no longer resolves | S |
 
-2.2 needs care: a hard delete would break the "evidence is append-only" invariant, and a tombstone
-that retrieval ignores gives the same user-visible result without breaking it.
+A hard delete would break the append-only invariant; a tombstone that retrieval and projection both
+honour gives the same user-visible result without breaking it.
 
 ### Wave 3 — Quality: make the orientation as good as the search
 
-| | Work | Expected effect |
-|---|---|---|
-| 3.1 | **Orientation uses hybrid retrieval**, not just recency | The largest single quality gain available. Retrieval already works; it simply is not wired to the push path |
-| 3.2 | **Entity pages**, derived — one page per recurring subject, compounding across sessions | Turns episodic notes into a wiki. Must be *derived* (co-citation, shared evidence, title n-grams), never LLM-asserted, or the provenance property is lost |
-| 3.3 | **Episodic session summaries** at `SessionEnd` | Completes the tier model and feeds 3.2 |
-| 3.4 | **Cross-encoder rerank** over the fused top-k | Measured need: `all-MiniLM-L6-v2` is a bi-encoder and scores likeness, not responsiveness — a turn about deployment *speed* scored 0.478 where the answering turn scored 0.353 |
-| 3.5 | `PreCompact` re-injection | Cheap; restores context exactly when it was discarded |
-| 3.6 | File kept query answers back as cited pages | Karpathy's "explorations compound"; see Part 5.4 |
-| 3.7 | `brain lint` — contradictions, stale claims, concepts without a page | His third operation, which we have none of |
-| 3.8 | `log.md` in the vault, append-only and greppable | His logging convention, nearly free |
-| 3.9 | **Ship CodeGraph on the pull path** — a seventh MCP tool, not an orientation contributor | Zero orientation tokens; see Part 5.3 |
+| | Work | Done when | Size |
+|---|---|---|---|
+| 3.1 | **Orientation uses hybrid retrieval**, not just recency | A session opened after a week on another project receives that project's relevant memories, not the last 500 events; orientation stays inside the 1,500-token contract | M |
+| 3.2 | **Entity pages**, derived — one page per recurring subject | See the design-gap note below. Done when a subject worked on across ≥3 sessions has one page that cites all of them, and the page changes when a new session adds to it | **XL** |
+| 3.3 | **Episodic session summaries** at `SessionEnd` | Every completed session has exactly one summary memory citing events from that session only | M |
+| 3.4 | **Cross-encoder rerank** over the fused top-k | LongMemEval `single-session-preference` R@5 improves on 90.0%, and no category regresses | L |
+| 3.5 | `PreCompact` re-injection | A compaction is followed by an orientation in the transcript | S |
+| 3.6 | File kept query answers back as cited pages | An answer filed from `brain query` appears in the vault next session and cites the events it drew on | M |
+| 3.7 | `brain lint` — contradictions, stale claims, concepts without a page | Run on the live vault it reports findings a human agrees with, and reports **nothing** on a freshly rebuilt one | L |
+| 3.8 | `log.md` in the vault, append-only and greppable | `grep "^## \[" log.md \| tail -5` returns the last five operations | S |
+| 3.9 | **Ship CodeGraph on the pull path** — a seventh MCP tool | Codex can ask where a symbol lives and get an answer; orientation token count is **unchanged** | M |
+
+**3.2 is not ready to implement.** It is the highest-value item on this plan and the least
+specified: "derived from co-citation, shared evidence and title n-grams" is a direction, not a
+design. Entity extraction that stays evidence-derived rather than LLM-asserted is genuinely hard,
+and getting it wrong quietly reintroduces unsourced claims into a vault whose whole property is that
+nothing in it is unsourced. **It needs a design pass of its own before an estimate means anything.**
 
 ### Wave 4 — Lifecycle: decay without handing over judgement
 
-| | Work | Design constraint |
-|---|---|---|
-| 4.1 | Access counting and last-used timestamps on memories | Mechanical input, no model involved |
-| 4.2 | Staleness surfacing — mark, do not delete | A memory whose cited events are all old and never retrieved gets flagged in the projection and demoted in ranking |
-| 4.3 | Eviction policy, opt-in and reversible | Only after 4.1/4.2 have run long enough to show the policy would have been right |
+| | Work | Done when | Size |
+|---|---|---|---|
+| 4.1 | Access counting and last-used timestamps on memories | Retrieval increments a counter; the dashboard shows never-retrieved memory count | M |
+| 4.2 | Staleness surfacing — mark, do not delete | Stale memories are flagged in the projection and demoted in ranking, and the flag is reversible by retrieval | M |
+| 4.3 | Eviction policy, opt-in and reversible | A dry run over 30 days of 4.1/4.2 data shows what it *would* have evicted, and a human agrees before it is switched on | L |
 
 See Part 3 for why decay is deliberately mechanical here.
 
 ### Wave 5 — The dashboard becomes a console
 
-Detailed in Part 4.
+Panels in Part 4. **Done when** each panel answers its question without a terminal. **Size: L**,
+and every panel is independently shippable — this wave has no internal ordering.
+
+### Out of scope, and worth naming
+
+**Hermes as a third harness.** `Harness::Hermes` exists in the domain model and the dashboard
+already counts its events, so the brain would capture it the moment a transcript root existed. It is
+out of scope here only because nothing writes one on this machine yet. Nothing in Waves 0–5 makes
+adding it harder; when it arrives it is a transcript root and an `AGENTS.md` section, not a wave.
 
 ### Deliberately not building
 
