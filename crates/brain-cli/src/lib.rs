@@ -6,6 +6,7 @@ mod deployment;
 mod diagnose;
 mod install_hooks;
 mod longmemeval;
+mod provenance;
 mod providers;
 mod rebuild;
 mod register;
@@ -25,6 +26,7 @@ pub use install_hooks::{
 pub use longmemeval::{
     LongMemEvalInstance, LongMemEvalOptions, LongMemEvalReport, run_longmemeval,
 };
+pub use provenance::{EvidenceTrace, ProvenanceReport, render as render_provenance, verify_memory};
 pub use providers::{
     CodeGraphIndexReport, ProviderChangeReport, ProviderKind, ProviderStatusReport,
     configure_codegraph, configure_llm_wiki, disable_provider, index_codegraph, provider_status,

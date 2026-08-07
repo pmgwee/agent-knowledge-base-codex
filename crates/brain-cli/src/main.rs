@@ -11,14 +11,14 @@ use brain_cli::{
     uninstall_windows_service, verify_projections, windows_service_status,
 };
 use brain_coordination::{ClaimKind, PathClaimInput, SessionIdentity};
-use brain_domain::{BrainConfig, Harness, ProjectId};
+use brain_domain::{BrainConfig, Harness, ProjectId, ProjectRegistry};
 use brain_service::{
     BrainCheckpointRequest, BrainClaimRequest, BrainClaimsRequest, BrainLeaseAcquireRequest,
     BrainLeaseGenerationRequest, BrainLeaseHandoffRequest, BrainLeasesRequest,
     BrainPreflightRequest, BrainQueryService, BrainReleaseClaimRequest, BrainSearchRequest,
-    BrainTimelineRequest, SourceSelector, TimelineWindow,
+    BrainTimelineRequest, ServiceLaunchConfig, SourceSelector, TimelineWindow,
 };
-use brain_store::{BackupManager, RetentionPolicy, UpgradeManager};
+use brain_store::{BackupManager, EventLedger, RetentionPolicy, UpgradeManager};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
@@ -312,6 +312,16 @@ enum VerifyCommand {
     Projections {
         #[arg(long)]
         project: String,
+    },
+    /// Walk a memory back to the events it cites.
+    Memory {
+        #[arg(long)]
+        project: String,
+        /// The memory id, with or without a `memory:` prefix.
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -866,6 +876,32 @@ fn main() -> Result<()> {
         } => {
             let report = rebuild_basic_memory(&brain_home, parse_project_id(&project)?)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Verify {
+            target: VerifyCommand::Memory { project, id, json },
+        } => {
+            // Accepts the same selector `brain query` does — a project path or an id — because
+            // the id you have to hand when checking a claim is the memory's, not the project's.
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let memory_id = uuid::Uuid::parse_str(id.trim().trim_start_matches("memory:"))
+                .context("memory id must be a UUID, optionally prefixed with `memory:`")?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let report = brain_cli::verify_memory(&ledger, project_id, memory_id)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", brain_cli::render_provenance(&report));
+            }
+            // A citation that does not resolve is corruption of the one property this brain
+            // sells, so it fails the command rather than being a line in the output.
+            if !report.intact() {
+                anyhow::bail!(
+                    "{} citation(s) do not resolve to events in this ledger",
+                    report.unresolved.len()
+                );
+            }
         }
         Command::Verify {
             target: VerifyCommand::Projections { project },
