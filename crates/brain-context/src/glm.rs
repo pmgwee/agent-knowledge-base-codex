@@ -115,12 +115,15 @@ pub fn parse_glm_chat_response(value: &str) -> Result<ProposedMemoryBatch> {
         "GLM response must contain one choice"
     );
     let content = &response.choices[0].message.content;
-    // Carry a slice of the offending output into the error. "does not match the schema" alone
-    // costs a reproduction run against the live provider to learn which field was wrong, and
-    // the failure is recorded on the job where nobody can re-ask the model what it said.
-    serde_json::from_str(content).with_context(|| {
-        format!(
-            "GLM message content does not match the proposed-memory schema; content was: {}",
+    // Carry both halves of the diagnosis. A slice of the offending output says what the model
+    // wrote; serde's own message says which field was wrong, and without it the reader has the
+    // evidence but not the verdict — three dead-lettered jobs recorded 400 characters of
+    // plausible-looking JSON and no reason at all. The two are put in one string rather than
+    // left to the error chain because the chain is what the caller kept losing.
+    serde_json::from_str(content).map_err(|error| {
+        anyhow::anyhow!(
+            "GLM message content does not match the proposed-memory schema ({error}); \
+             content was: {}",
             crate::truncate_for_error(content, 400)
         )
     })

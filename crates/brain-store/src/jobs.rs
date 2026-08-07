@@ -97,6 +97,24 @@ impl JobStatus {
     }
 }
 
+/// A project's consolidation queue at a glance.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct ConsolidationQueue {
+    pub pending: u64,
+    pub leased: u64,
+    pub completed: u64,
+    pub dead_letter: u64,
+    /// Why the newest dead letter died. `None` when nothing has.
+    pub last_dead_letter: Option<String>,
+}
+
+impl ConsolidationQueue {
+    /// Whether anything is waiting or in flight.
+    pub fn is_draining(&self) -> bool {
+        self.pending > 0 || self.leased > 0
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ConsolidationJob {
     pub id: uuid::Uuid,
@@ -182,6 +200,50 @@ impl EventLedger {
             [self.project_scope.0.to_string()],
             |row| row.get(0),
         )?)
+    }
+
+    /// The queue, broken out by status, plus the most recent dead letter's reason.
+    ///
+    /// Consolidation is the one subsystem whose backlog is invisible from the outside: memories
+    /// simply arrive more slowly, which looks identical to a project where less happened. On the
+    /// live brain this stood at 2,084 pending against 2,285 completed with three dead letters,
+    /// and nothing anywhere said so.
+    ///
+    /// The last dead-letter reason is carried because a count answers "is something stuck" and
+    /// only the reason answers "is it stuck on me or on the provider" — the difference between
+    /// waiting out a rate limit and fixing a bug.
+    pub fn consolidation_queue(&self) -> Result<ConsolidationQueue> {
+        let project = self.project_scope.0.to_string();
+        let mut queue = ConsolidationQueue::default();
+        let mut statement = self.connection.prepare(
+            "SELECT status, COUNT(*) FROM consolidation_jobs WHERE project_id = ?1 GROUP BY status",
+        )?;
+        let rows = statement.query_map([&project], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (status, count) = row?;
+            let count = u64::try_from(count).unwrap_or(0);
+            match JobStatus::from_name(&status) {
+                Some(JobStatus::Pending) => queue.pending = count,
+                Some(JobStatus::Leased) => queue.leased = count,
+                Some(JobStatus::Completed) => queue.completed = count,
+                Some(JobStatus::DeadLetter) => queue.dead_letter = count,
+                None => {}
+            }
+        }
+        queue.last_dead_letter = self
+            .connection
+            .query_row(
+                "SELECT last_error FROM consolidation_jobs \
+                 WHERE project_id = ?1 AND status = 'dead_letter' \
+                 ORDER BY created_at_ns DESC LIMIT 1",
+                [&project],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(queue)
     }
 
     pub fn enqueue_event_threshold_job(

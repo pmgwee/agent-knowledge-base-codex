@@ -36,8 +36,8 @@ pub use embedding::{
     default_model_dir, encode_vector, shared_embedder,
 };
 pub use jobs::{
-    ConsolidationJob, ConsolidationReason, JobStatus, MAX_JOB_EVENTS, MAX_JOB_PAYLOAD_BYTES,
-    RedactionManifestEntry,
+    ConsolidationJob, ConsolidationQueue, ConsolidationReason, JobStatus, MAX_JOB_EVENTS,
+    MAX_JOB_PAYLOAD_BYTES, RedactionManifestEntry,
 };
 pub use ledger::{AppendResult, EventLedger, StoredEvent};
 pub use markdown::{

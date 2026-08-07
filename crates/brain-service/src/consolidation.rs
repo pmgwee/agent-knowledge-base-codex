@@ -90,7 +90,7 @@ impl ConsolidationWorker {
         let validated = match proposer.propose(&packet).await {
             Ok(proposed) => match validate_proposed_batch(&packet, proposed) {
                 Ok(validated) => validated,
-                Err(error) => return self.fail(ledger, &job, &error.to_string(), now),
+                Err(error) => return self.fail(ledger, &job, &format!("{error:#}"), now),
             },
             Err(error) if provider_unavailable(&error) => {
                 // Leave the job exactly as it was. Its lease expires on its own, returning it
@@ -104,7 +104,7 @@ impl ConsolidationWorker {
                 );
                 return Ok(WorkerOutcome::ProviderUnavailable(job.id));
             }
-            Err(error) => return self.fail(ledger, &job, &error.to_string(), now),
+            Err(error) => return self.fail(ledger, &job, &format!("{error:#}"), now),
         };
         if !validated.rejected.is_empty() {
             // Surfaced, not retried. The request is made at `temperature: 0`, so a retry
@@ -121,7 +121,7 @@ impl ConsolidationWorker {
         let proposed = validated.accepted;
         for memory in &proposed {
             if let Err(error) = ledger.append_memory(memory) {
-                return self.fail(ledger, &job, &error.to_string(), now);
+                return self.fail(ledger, &job, &format!("{error:#}"), now);
             }
         }
         if crash_point == ConsolidationCrashPoint::BeforeJobAck {

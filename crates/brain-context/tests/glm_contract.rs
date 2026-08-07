@@ -25,6 +25,42 @@ fn valid_glm_json_becomes_project_scoped_cited_memory() {
 }
 
 #[test]
+fn a_rejected_response_says_which_field_was_wrong_not_just_that_one_was() {
+    // Three jobs dead-lettered on the live brain recording 400 characters of plausible-looking
+    // JSON and no reason at all. The content came through; serde's own message — the half that
+    // names the field — was dropped, so the record showed the evidence and withheld the verdict.
+    //
+    // Diagnosing it cost a reproduction run against a provider that was rate-limited at the
+    // time. The failure is written to a job row nobody can re-ask, so whatever the row does not
+    // say is not recoverable later.
+    let missing_valid_from = serde_json::json!({
+        "choices": [{"message": {"content": serde_json::to_string(&serde_json::json!({
+            "memories": [{
+                "kind": "fact",
+                "title": "a memory missing a required field",
+                "content": "valid_from is absent",
+                "confidence": 0.9,
+                "evidence_ids": ["00000000-0000-0000-0000-000000000001"]
+            }]
+        })).expect("fixture json")}}]
+    })
+    .to_string();
+
+    let error = parse_glm_chat_response(&missing_valid_from)
+        .expect_err("a response missing a required field must not parse");
+    let text = format!("{error:#}");
+
+    assert!(
+        text.contains("valid_from"),
+        "the error must name the field that was wrong, got: {text}"
+    );
+    assert!(
+        text.contains("a memory missing a required field"),
+        "and must still carry what the model actually wrote, got: {text}"
+    );
+}
+
+#[test]
 fn unknown_llm_evidence_ids_never_become_records() {
     // The integrity rule is absolute and unchanged: a memory citing evidence outside its packet
     // is never stored. Only the blast radius changed, from the batch to the memory.

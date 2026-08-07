@@ -66,6 +66,9 @@ pub struct ProjectDashboard {
     pub unresolved_capture_gaps: u64,
     pub active_schema_drifts: u64,
     pub memory_records: u64,
+    /// The consolidation queue. Memories arriving slowly and a project where less happened look
+    /// identical from outside, and only this tells them apart.
+    pub consolidation: brain_store::ConsolidationQueue,
     /// How far the vector index has got. Retrieval quality depends on it while it is filling,
     /// and a half-built index is indistinguishable from a complete one that simply misses things
     /// unless something says so.
@@ -213,6 +216,7 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
         };
 
         let memory_records = ledger.memory_count()?;
+        let consolidation = ledger.consolidation_queue()?;
         let (memories_embedded, memories_remaining) = ledger.embedding_coverage()?;
         let (events_embedded, events_remaining) = ledger.event_embedding_coverage()?;
         let embeddings = EmbeddingCoverage {
@@ -260,6 +264,7 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
             unresolved_capture_gaps: status.unresolved_capture_gaps,
             active_schema_drifts: status.active_schema_drifts,
             memory_records,
+            consolidation,
             embeddings,
             ledger_bytes,
             providers,
