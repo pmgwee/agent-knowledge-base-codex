@@ -112,8 +112,8 @@ it blocks Part 2 entirely: an instrument that overstates cannot prove a saving.
 Ordered by what unblocks what, not by size. Every item carries a **done-when** that can be checked
 by running something, because "implemented" is not a state anyone can verify.
 
-Sizes are rough and relative: **S** ≈ a sitting, **M** ≈ a day, **L** ≈ several days, **XL** ≈ needs
-a design pass before it can be estimated at all.
+Sizes are rough and relative: **S** ≈ a sitting, **M** ≈ a day, **L** ≈ several days. Every item on
+this plan is now estimable; the one that was not is designed in Part 7.
 
 ### Wave 0 — Repair the instruments *(blocks everything measurable)*
 
@@ -147,7 +147,8 @@ honour gives the same user-visible result without breaking it.
 | | Work | Done when | Size |
 |---|---|---|---|
 | 3.1 | **Orientation uses hybrid retrieval**, not just recency | A session opened after a week on another project receives that project's relevant memories, not the last 500 events; orientation stays inside the 1,500-token contract | M |
-| 3.2 | **Entity pages**, derived — one page per recurring subject | See the design-gap note below. Done when a subject worked on across ≥3 sessions has one page that cites all of them, and the page changes when a new session adds to it | **XL** |
+| 3.2a | **Subject pages**, derived — one page per recurring subject, asserting nothing of its own | `vault` and `consolidation` each have a page listing their memories; `fix`, `only` and `via` have none. Design in Part 7 | M |
+| 3.2b | **Synthesis section** on each subject page, LLM-written and memory-cited | The paragraph cites only memory ids that exist on the page, validated the same way consolidation output is; it changes when a new memory joins the subject | L |
 | 3.3 | **Episodic session summaries** at `SessionEnd` | Every completed session has exactly one summary memory citing events from that session only | M |
 | 3.4 | **Cross-encoder rerank** over the fused top-k | LongMemEval `single-session-preference` R@5 improves on 90.0%, and no category regresses | L |
 | 3.5 | `PreCompact` re-injection | A compaction is followed by an orientation in the transcript | S |
@@ -156,11 +157,8 @@ honour gives the same user-visible result without breaking it.
 | 3.8 | `log.md` in the vault, append-only and greppable | `grep "^## \[" log.md \| tail -5` returns the last five operations | S |
 | 3.9 | **Ship CodeGraph on the pull path** — a seventh MCP tool | Codex can ask where a symbol lives and get an answer; orientation token count is **unchanged** | M |
 
-**3.2 is not ready to implement.** It is the highest-value item on this plan and the least
-specified: "derived from co-citation, shared evidence and title n-grams" is a direction, not a
-design. Entity extraction that stays evidence-derived rather than LLM-asserted is genuinely hard,
-and getting it wrong quietly reintroduces unsourced claims into a vault whose whole property is that
-nothing in it is unsourced. **It needs a design pass of its own before an estimate means anything.**
+3.2 was the one item that could not be estimated. **The design pass is done — Part 7** — and it
+splits into a mechanical M and an LLM-assisted L.
 
 ### Wave 4 — Lifecycle: decay without handing over judgement
 
@@ -486,6 +484,105 @@ graph (Wave 3.2), and session replay in the viewer (Wave 5). None is architectur
 Raising ours to match would be the easiest possible "improvement" and the wrong one — the budget is
 a contract, and the discipline that adding a field means removing one is what has kept the
 orientation at 1,078 tokens with 5.1 citations instead of drifting into a wall of text.
+
+---
+
+## Part 7 — Subject pages: the design pass
+
+The blocker was never the rendering. It was **how to decide what a subject is** without letting a
+model assert one, because a subject an LLM invented is an unsourced claim sitting in a vault whose
+entire property is that nothing in it is unsourced.
+
+### 7.1 Two candidate discriminators, one of which failed
+
+Candidate terms are easy: strip stopwords from memory titles and count. On the live corpus that
+gives 6,683 terms appearing in ≥3 memories — hopelessly many, and mixed. `discord`, `pipeline`,
+`architecture` are real subjects; `fix`, `via`, `only`, `usage` are not. Frequency alone cannot
+tell them apart.
+
+**Tried first: evidence cohesion.** The intuition was that memories about one subject would share
+evidence events, so a subject would show high pairwise co-citation and a filler word would not. It
+was measured on 2,030 memories, and **it does not work**:
+
+| term | memories | evidence cohesion |
+|---|---|---|
+| `consolidation` | 66 | 0.004 |
+| `retrieval` | 53 | 0.005 |
+| `deploy` | 31 | 0.006 |
+| `via` | 48 | 0.003 |
+| `add` | 11 | **0.018** |
+
+`add` scores higher than every real subject. The reason is worth recording because it is not
+obvious: memories sharing evidence were written from the same **bounded consolidation job**, so
+co-citation measures *temporal batching*, not subject affinity. Two memories about deployment
+written a month apart cite no events in common at all. Co-citation is the right signal for
+wikilinks — which is what it is already used for — and the wrong one for subjects.
+
+**What works: embedding tightness.** Every memory now has a vector. A real subject's memories sit
+measurably closer together than two memories picked at random; a filler word's do not. Measured on
+the same corpus, with a per-project random-pair baseline of **0.220**:
+
+| term | memories | mean pairwise cosine | lift |
+|---|---|---|---|
+| `vault` | 22 | 0.481 | **+0.261** |
+| `consolidation` | 66 | 0.435 | **+0.215** |
+| `deploy` | 31 | 0.411 | **+0.191** |
+| `backup` | 38 | 0.408 | **+0.188** |
+| `retrieval` | 53 | 0.386 | **+0.166** |
+| `fix` | 57 | 0.334 | +0.114 |
+| `session` | 49 | 0.304 | +0.084 |
+| `project` | 68 | 0.276 | +0.056 |
+| `add` | 11 | 0.234 | +0.014 |
+| `via` | 48 | 0.226 | +0.006 |
+| `only` | 50 | 0.208 | **−0.012** |
+
+A threshold at **+0.15 over the project's own random baseline** separates every real subject from
+every filler word on this corpus. The baseline is computed per project rather than fixed, because a
+narrow corpus is uniformly more similar than a broad one and a constant would mean something
+different in each.
+
+**Known miss:** `hook` scores +0.090 and is excluded, though it is arguably a real subject. It is
+genuinely diffuse here — Claude hooks, Codex hooks, a research-guard hook and git hooks are four
+different things sharing a word. Excluding it is the honest outcome, not a tuning failure, and it is
+the kind of case that argues for eventually keying subjects on something richer than a single token.
+
+### 7.2 The definition
+
+> A **subject** is a term appearing in at least five current memories whose vectors are at least
+> 0.15 more similar to each other, on average, than two memories drawn at random from that project.
+
+Derived, deterministic given a ledger, no model asked to name anything, and it reuses the embedding
+index built for retrieval rather than adding machinery.
+
+### 7.3 What the page contains — and what it must not
+
+**3.2a — the page asserts nothing.** It is a subject-scoped index: the term, the memory count, and
+every memory that mentions it as a wikilink, newest first. This is exactly the rule the project
+index already follows — *"It carries no claims of its own. Everything on it is a title and a link to
+a note that states its own evidence, so the index cannot become wrong independently of the
+memories."* A page that only links cannot contradict the ledger.
+
+It compounds in **coverage**: a new memory mentioning the subject appears on the page at the next
+projection, with no revision step and nothing to go stale.
+
+**3.2b — the synthesis, which is where the risk is.** Coverage is not what Karpathy is describing;
+he wants pages that get *revised*. That needs prose, and prose is a new claim. It stays auditable by
+requiring the paragraph to cite **memory ids that appear on the page it sits on**, validated exactly
+the way `validate_proposed_batch` already validates consolidation output. That gives two-level
+provenance — synthesis cites memories, memories cite events — and a rejected synthesis leaves the
+3.2a page intact rather than breaking the vault.
+
+### 7.4 Implementation notes
+
+- **Cost.** Mean-pairwise is O(n²); use mean cosine to the term's **centroid** instead, which is
+  O(n) and monotone with the same quantity. Candidates are cut to terms with ≥5 memories first.
+- **Cap the vault.** Rank surviving subjects by lift × log(memory count) and keep the top ~150 per
+  project, so the vault stays navigable and the generation hash stays stable.
+- **Stability.** Subject sets change only when memories change, so the content-addressed generation
+  machinery already handles republishing; no new invalidation logic.
+- **Failure mode to watch.** Two spellings of one subject (`deploy` / `deployment`) produce two
+  pages. Merging them by centroid distance is a v3 refinement, not a v1 blocker — two thin pages is
+  a smaller problem than one wrong page.
 
 ---
 
