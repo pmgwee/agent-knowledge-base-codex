@@ -178,36 +178,6 @@ impl Embedder {
         let norm = pooled.sqr()?.sum_keepdim(1)?.sqrt()?;
         Ok(pooled.broadcast_div(&norm)?.to_vec2::<f32>()?)
     }
-
-    fn embed_one(&self, text: &str) -> Result<Vec<f32>> {
-        let encoding = self
-            .tokenizer
-            .encode(text, true)
-            .map_err(|error| anyhow::anyhow!("tokenize for embedding: {error}"))?;
-        let mut ids = encoding.get_ids().to_vec();
-        let mut mask = encoding.get_attention_mask().to_vec();
-        ids.truncate(MAX_INPUT_TOKENS);
-        mask.truncate(MAX_INPUT_TOKENS);
-        anyhow::ensure!(!ids.is_empty(), "cannot embed an empty string");
-
-        let input = Tensor::new(ids.as_slice(), &self.device)?.unsqueeze(0)?;
-        let attention = Tensor::new(mask.as_slice(), &self.device)?.unsqueeze(0)?;
-        let token_types = input.zeros_like()?;
-        let hidden = self.model.forward(&input, &token_types, Some(&attention))?;
-
-        // Mean-pool over real tokens only. Averaging padding in pulls every short input toward
-        // a common point, which produces vectors that exist and rank nothing.
-        let mask_f = attention.to_dtype(DType::F32)?.unsqueeze(2)?;
-        let pooled = hidden
-            .broadcast_mul(&mask_f)?
-            .sum(1)?
-            .broadcast_div(&mask_f.sum(1)?)?;
-
-        // Unit length, so cosine similarity is a dot product and stored vectors are directly
-        // comparable without carrying their magnitudes around.
-        let norm = pooled.sqr()?.sum_keepdim(1)?.sqrt()?;
-        Ok(pooled.broadcast_div(&norm)?.squeeze(0)?.to_vec1::<f32>()?)
-    }
 }
 
 /// Cosine similarity between two unit vectors.
