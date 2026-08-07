@@ -79,7 +79,8 @@ fn session_start_shows_active_owners_and_overlap_before_memory() {
                 "session_id": "new-codex-session"
             }),
         })
-        .expect("handle");
+        .expect("handle")
+        .reply;
     let context = reply.additional_context.expect("coordination context");
     assert!(context.starts_with("Coordination state"), "{context}");
     assert!(context.contains("[current worktree]"), "{context}");

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use brain_domain::{HOOK_PROTOCOL_VERSION, Harness, HookEnvelope, HookReply};
-use brain_service::HookPipeServer;
+use brain_service::{HookOutcome, HookPipeServer};
 
 #[tokio::test]
 async fn length_prefixed_hook_request_round_trips_over_a_local_named_pipe() {
@@ -11,10 +11,10 @@ async fn length_prefixed_hook_request_round_trips_over_a_local_named_pipe() {
         HookPipeServer::new(server_name)
             .serve_once(|envelope| async move {
                 assert_eq!(envelope.event_name, "SessionStart");
-                Ok(HookReply {
+                Ok(HookOutcome::bare(HookReply {
                     additional_context: Some("bounded fixture context".to_owned()),
                     diagnostics_id: Some(envelope.nonce.to_string()),
-                })
+                }))
             })
             .await
     });
@@ -54,10 +54,10 @@ async fn persistent_pipe_accepts_multiple_requests_and_shuts_down_cleanly() {
     let server = tokio::spawn(async move {
         HookPipeServer::new(server_name)
             .run(shutdown_rx, |envelope| async move {
-                Ok(HookReply {
+                Ok(HookOutcome::bare(HookReply {
                     additional_context: Some(envelope.event_name),
                     diagnostics_id: None,
-                })
+                }))
             })
             .await
     });

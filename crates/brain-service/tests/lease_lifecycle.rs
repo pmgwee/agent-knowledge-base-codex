@@ -66,6 +66,7 @@ fn a_second_writer_receives_owner_and_separate_worktree_guidance() {
             fixture.now + time::Duration::seconds(1),
         ))
         .expect("second start")
+        .reply
         .additional_context
         .expect("warning context");
     assert!(second.contains("writer lease is held"), "{second}");

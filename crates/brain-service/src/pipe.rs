@@ -2,9 +2,11 @@ use std::future::Future;
 
 use anyhow::{Context, Result, bail};
 use brain_domain::{
-    HOOK_PROTOCOL_VERSION, HookEnvelope, HookReply, decode_hook_frame_length,
-    decode_hook_frame_payload, encode_hook_frame,
+    HOOK_PROTOCOL_VERSION, HookEnvelope, decode_hook_frame_length, decode_hook_frame_payload,
+    encode_hook_frame,
 };
+
+use crate::hook_handler::HookOutcome;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 
@@ -22,7 +24,7 @@ impl HookPipeServer {
     pub async fn serve_once<F, Fut>(&self, handler: F) -> Result<()>
     where
         F: FnOnce(HookEnvelope) -> Fut,
-        Fut: Future<Output = Result<HookReply>>,
+        Fut: Future<Output = Result<HookOutcome>>,
     {
         let mut server = ServerOptions::new()
             .first_pipe_instance(true)
@@ -41,7 +43,7 @@ impl HookPipeServer {
     ) -> Result<()>
     where
         F: Fn(HookEnvelope) -> Fut,
-        Fut: Future<Output = Result<HookReply>>,
+        Fut: Future<Output = Result<HookOutcome>>,
     {
         if *shutdown.borrow() {
             return Ok(());
@@ -122,7 +124,7 @@ async fn create_listener(options: &ServerOptions, pipe_name: &str) -> NamedPipeS
 async fn handle_connected<F, Fut>(server: &mut NamedPipeServer, handler: F) -> Result<()>
 where
     F: FnOnce(HookEnvelope) -> Fut,
-    Fut: Future<Output = Result<HookReply>>,
+    Fut: Future<Output = Result<HookOutcome>>,
 {
     let envelope = read_envelope(server).await?;
     if envelope.protocol != HOOK_PROTOCOL_VERSION {
@@ -132,10 +134,28 @@ where
             HOOK_PROTOCOL_VERSION
         );
     }
-    let reply = handler(envelope).await?;
-    let frame = encode_hook_frame(&reply)?;
+    let outcome = handler(envelope).await?;
+    let frame = encode_hook_frame(&outcome.reply)?;
     server.write_all(&frame).await.context("write hook reply")?;
     server.flush().await.context("flush hook reply")?;
+
+    // Past this line the client has the orientation, and only now is it a delivery. Both `?`
+    // above are the reason this cannot move any earlier: a write that fails returns here, and
+    // for as long as the metric was recorded inside the handler those failures were counted as
+    // successes anyway.
+    if let Some(pending) = outcome.delivery {
+        // Fail-open, and off the reactor. Recording opens SQLite, which is blocking work, and
+        // the orientation has already been delivered — a metric that cannot be written is worth
+        // a warning and nothing more.
+        let recorded = tokio::task::spawn_blocking(move || pending.record()).await;
+        match recorded {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::warn!(%error, "could not record a delivered orientation"),
+            Err(join_error) => {
+                tracing::warn!(%join_error, "delivery recording task failed")
+            }
+        }
+    }
     Ok(())
 }
 

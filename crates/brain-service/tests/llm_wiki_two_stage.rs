@@ -102,7 +102,8 @@ fn session_start_uses_cache_and_only_the_first_prompt_may_scan_the_wiki() {
                 "session_id": "codex-session-1"
             }),
         })
-        .expect("compile cached startup context");
+        .expect("compile cached startup context")
+        .reply;
     let startup_context = startup.additional_context.expect("cached startup context");
     assert!(startup_context.contains("Authentication runbook"));
     assert!(startup_context.contains("external_document_cached"));

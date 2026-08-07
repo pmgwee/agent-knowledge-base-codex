@@ -31,7 +31,9 @@ pub use embed::run_embedding_backfill;
 pub use health::{
     OperationalHealth, ProjectHealth, ServiceHealth, SourceHealth, source_health_key,
 };
-pub use hook_handler::{ClaudeHookHandler, HookProjectBinding, ProjectHookHandler};
+pub use hook_handler::{
+    ClaudeHookHandler, HookOutcome, HookProjectBinding, PendingDelivery, ProjectHookHandler,
+};
 // Shared with `query_api` so the MCP `brain_checkpoint` path can prepend the same coordination
 // view (leases / path claims) the SessionStart hook injects for Claude Code.
 pub(crate) use hook_handler::coordination_context;

@@ -6,6 +6,90 @@ use brain_service::{ClaudeHookHandler, HookProjectBinding};
 use brain_store::{EventLedger, GlobalPreferenceStore};
 
 #[test]
+fn compiling_an_orientation_records_nothing_until_it_is_delivered() {
+    // The defect this pins: `handle` used to record inside itself, one step before the reply was
+    // written to the pipe, so an orientation that never reached its client counted exactly the
+    // same as one that did. It was not hypothetical — a single day's service log held ten
+    // `write hook reply` failures with nine requests still spooled, every one of them counted.
+    //
+    // A metric that overstates cannot be used to prove a saving, which is what made this block
+    // the whole benchmark rather than merely annoy.
+    let temp = tempfile::tempdir().expect("create delivery fixture");
+    let project_root = temp.path().join("project");
+    std::fs::create_dir_all(&project_root).expect("create project root");
+    let project_id = ProjectId(uuid::Uuid::now_v7());
+    let worktree_id = WorktreeId(uuid::Uuid::now_v7());
+    let ledger_path = temp.path().join("events.db");
+    let mut ledger = EventLedger::open(&ledger_path, project_id).expect("open delivery ledger");
+    ledger
+        .append_batch(&EventBatch {
+            source_id: "delivery-fixture".to_owned(),
+            events: vec![event(
+                project_id,
+                worktree_id,
+                EventType::UserPrompted,
+                1,
+                "continue prior auth task",
+            )],
+            quarantined: Vec::new(),
+            capture_gaps: Vec::new(),
+            next_cursor: SourceCursor::byte_offset(1),
+        })
+        .expect("append delivery evidence");
+    drop(ledger);
+
+    let handler = ClaudeHookHandler::new(HookProjectBinding {
+        project_root: project_root.clone(),
+        project_id,
+        worktree_id,
+        ledger_path: ledger_path.clone(),
+        global_preferences_path: None,
+    })
+    .expect("create delivery handler");
+
+    let window_start = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
+    let outcome = handler
+        .handle(&envelope("SessionStart", &project_root))
+        .expect("compile startup reply");
+    assert!(
+        outcome.reply.additional_context.is_some(),
+        "an orientation was compiled"
+    );
+    assert!(
+        outcome.delivery.is_some(),
+        "and a delivery is staged for the caller to record"
+    );
+
+    // This is the delivery failing: the outcome is dropped without ever being recorded, exactly
+    // as it would be if `write_all` or `flush` returned an error.
+    let staged = outcome.delivery.expect("staged delivery");
+    drop(outcome.reply);
+
+    let ledger = EventLedger::open(&ledger_path, project_id).expect("reopen delivery ledger");
+    assert_eq!(
+        ledger
+            .context_delivery_summary(window_start)
+            .expect("read delivery summary")
+            .deliveries,
+        0,
+        "an orientation that was never handed over is not a delivery"
+    );
+    drop(ledger);
+
+    // And now it succeeds, which is the pipe's post-flush call.
+    staged.record().expect("record a delivered orientation");
+    let ledger = EventLedger::open(&ledger_path, project_id).expect("reopen delivery ledger");
+    assert_eq!(
+        ledger
+            .context_delivery_summary(window_start)
+            .expect("read delivery summary")
+            .deliveries,
+        1,
+        "one recorded delivery, once the client has it"
+    );
+}
+
+#[test]
 fn session_start_records_the_size_of_what_it_delivered() {
     // A hook reply is not an event and appears in no transcript, so unless it is recorded
     // as it happens the cost of the brain's own orientation is unrecoverable.
@@ -43,11 +127,16 @@ fn session_start_records_the_size_of_what_it_delivered() {
     .expect("create delivery handler");
 
     let window_start = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
-    let delivered = handler
+    let outcome = handler
         .handle(&envelope("SessionStart", &project_root))
-        .expect("compile startup reply")
-        .additional_context
-        .expect("startup context");
+        .expect("compile startup reply");
+    let delivered = outcome.reply.additional_context.expect("startup context");
+    // Standing in for the pipe, which records only once the reply has been flushed to the client.
+    outcome
+        .delivery
+        .expect("staged delivery")
+        .record()
+        .expect("record delivery");
 
     let ledger = EventLedger::open(&ledger_path, project_id).expect("reopen delivery ledger");
     let summary = ledger
@@ -110,7 +199,8 @@ fn session_start_returns_bounded_project_scoped_context() {
 
     let reply = handler
         .handle(&envelope("SessionStart", &project_root))
-        .expect("compile startup reply");
+        .expect("compile startup reply")
+        .reply;
     let context = reply.additional_context.expect("startup context");
     assert!(context.contains("continue prior auth task"));
     assert!(context.contains("auth callback tests failed"));
@@ -119,11 +209,13 @@ fn session_start_returns_bounded_project_scoped_context() {
 
     let foreign = handler
         .handle(&envelope("SessionStart", &other_root))
-        .expect("handle foreign project");
+        .expect("handle foreign project")
+        .reply;
     assert_eq!(foreign.additional_context, None);
     let capture_only = handler
         .handle(&envelope("PostToolUse", &project_root))
-        .expect("handle capture-only event");
+        .expect("handle capture-only event")
+        .reply;
     assert_eq!(capture_only.additional_context, None);
 }
 
@@ -172,6 +264,7 @@ fn session_start_includes_only_explicit_global_preferences() {
     let context = handler
         .handle(&envelope("SessionStart", &project_root))
         .expect("compile startup context")
+        .reply
         .additional_context
         .expect("preference creates context");
     assert!(context.contains("Prefer concise implementation updates"));

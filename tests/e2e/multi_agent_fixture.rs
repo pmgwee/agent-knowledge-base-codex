@@ -93,6 +93,7 @@ impl MultiAgentFixture {
                 }),
             })
             .expect("compile shared context")
+            .reply
             .additional_context
             .unwrap_or_default()
     }

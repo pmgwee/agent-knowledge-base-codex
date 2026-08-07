@@ -19,6 +19,47 @@ pub struct HookProjectBinding {
     pub global_preferences_path: Option<PathBuf>,
 }
 
+/// What the handler produced: a reply to send, and — when an orientation was compiled — a metric
+/// to record *after* that reply has been delivered.
+pub struct HookOutcome {
+    pub reply: HookReply,
+    /// `Some` only when an orientation was compiled. Recording it before the client has the reply
+    /// is what made `context_deliveries` count compilations instead of receipts.
+    pub delivery: Option<PendingDelivery>,
+}
+
+impl HookOutcome {
+    /// A reply with nothing to record — no project matched, or the event was not a session start.
+    pub fn bare(reply: HookReply) -> Self {
+        Self {
+            reply,
+            delivery: None,
+        }
+    }
+}
+
+/// A delivery metric awaiting proof that the reply arrived.
+///
+/// It carries its own ledger path rather than borrowing a handle, so the recording can happen on
+/// whichever thread and at whichever moment the caller establishes delivery — which for the pipe
+/// server is a blocking task after `flush()` returns.
+pub struct PendingDelivery {
+    ledger_path: PathBuf,
+    project_id: ProjectId,
+    delivery: brain_store::ContextDelivery,
+}
+
+impl PendingDelivery {
+    /// Record it. Call only once the reply has actually reached the client.
+    ///
+    /// Fail-open by contract at every call site: losing a metric must never cost a session its
+    /// orientation, and by the time this runs the orientation has already been delivered anyway.
+    pub fn record(self) -> Result<()> {
+        let ledger = EventLedger::open(&self.ledger_path, self.project_id)?;
+        ledger.record_context_delivery(&self.delivery)
+    }
+}
+
 pub struct ProjectHookHandler {
     bindings: Vec<ResolvedHookBinding>,
 }
@@ -50,33 +91,44 @@ impl ProjectHookHandler {
         Ok(Self { bindings: resolved })
     }
 
-    pub fn handle(&self, envelope: &HookEnvelope) -> Result<HookReply> {
+    /// Compile a reply, and stage the delivery metric without recording it.
+    ///
+    /// The split exists because the two things are not the same event. An orientation that was
+    /// compiled has cost the service work; an orientation that was *received* has done the user
+    /// good, and only the second is worth counting. Recording inside this function conflated them
+    /// for as long as the metric existed, and the gap is not hypothetical — one day's log held ten
+    /// `write hook reply` failures with nine requests still spooled, every one of them counted as
+    /// a delivery.
+    ///
+    /// The caller owns the second half: write the reply, flush it, and only then call
+    /// [`PendingDelivery::record`].
+    pub fn handle(&self, envelope: &HookEnvelope) -> Result<HookOutcome> {
         if !matches!(
             envelope.harness,
             Harness::ClaudeCode | Harness::Codex | Harness::Hermes
         ) {
-            return Ok(HookReply::default());
+            return Ok(HookOutcome::bare(HookReply::default()));
         }
         let Some(cwd) = envelope
             .payload
             .get("cwd")
             .and_then(serde_json::Value::as_str)
         else {
-            return Ok(HookReply::default());
+            return Ok(HookOutcome::bare(HookReply::default()));
         };
         let Ok(canonical_cwd) = std::fs::canonicalize(cwd) else {
-            return Ok(HookReply::default());
+            return Ok(HookOutcome::bare(HookReply::default()));
         };
         let normalized_cwd = normalize_path(&canonical_cwd);
         let Some(binding) = self.resolve_binding(&normalized_cwd) else {
-            return Ok(HookReply::default());
+            return Ok(HookOutcome::bare(HookReply::default()));
         };
         let lease_warning = manage_lease_lifecycle(&binding, envelope)?;
         if envelope.event_name != "SessionStart" {
-            return Ok(HookReply {
+            return Ok(HookOutcome::bare(HookReply {
                 additional_context: lease_warning,
                 diagnostics_id: Some(envelope.nonce.to_string()),
-            });
+            }));
         }
 
         let ledger = EventLedger::open(&binding.ledger_path, binding.project_id)?;
@@ -113,7 +165,8 @@ impl ProjectHookHandler {
         query.native_session_id = native_session_id.clone();
         let compiled = compiler.compile(query)?;
         if compiled.citations.is_empty() && coordination.is_none() && lease_warning.is_none() {
-            return Ok(HookReply::default());
+            // Nothing was compiled, so there is nothing to have delivered.
+            return Ok(HookOutcome::bare(HookReply::default()));
         }
         let coordination = [lease_warning, coordination]
             .into_iter()
@@ -130,23 +183,30 @@ impl ProjectHookHandler {
             format!("{coordination}\n\n{}", compiled.text)
         };
         debug_assert!(token_count(&additional_context) <= 1_500);
-        // What the brain handed over is not an event and appears in no transcript, so it is
-        // recorded as it happens or not at all. Deliberately fail-open: losing a metric must
-        // never cost a session its orientation.
-        let _ = ledger.record_context_delivery(&brain_store::ContextDelivery {
+        // Staged, not recorded. Compiling an orientation is not delivering one, and this used to
+        // record here — one step before the reply is written to the pipe — so every reply that
+        // failed to reach its client still counted. The caller records it once the client has it.
+        let delivery = PendingDelivery {
+            ledger_path: binding.ledger_path.clone(),
             project_id: binding.project_id,
-            harness: envelope.harness.clone(),
-            native_session_id,
-            event_name: envelope.event_name.to_string(),
-            delivered_at: envelope.received_at,
-            total_tokens: token_count(&additional_context) as u64,
-            memory_tokens,
-            coordination_tokens,
-            citation_count,
-        });
-        Ok(HookReply {
-            additional_context: Some(additional_context),
-            diagnostics_id: Some(envelope.nonce.to_string()),
+            delivery: brain_store::ContextDelivery {
+                project_id: binding.project_id,
+                harness: envelope.harness.clone(),
+                native_session_id,
+                event_name: envelope.event_name.to_string(),
+                delivered_at: envelope.received_at,
+                total_tokens: token_count(&additional_context) as u64,
+                memory_tokens,
+                coordination_tokens,
+                citation_count,
+            },
+        };
+        Ok(HookOutcome {
+            reply: HookReply {
+                additional_context: Some(additional_context),
+                diagnostics_id: Some(envelope.nonce.to_string()),
+            },
+            delivery: Some(delivery),
         })
     }
 

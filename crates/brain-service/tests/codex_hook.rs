@@ -61,7 +61,8 @@ fn codex_session_start_uses_the_shared_bounded_project_context() {
             nonce: uuid::Uuid::now_v7(),
             payload: hook_input,
         })
-        .expect("compile Codex startup context");
+        .expect("compile Codex startup context")
+        .reply;
     let context = reply.additional_context.expect("Codex additional context");
 
     assert!(context.contains("implement auth callback"));
