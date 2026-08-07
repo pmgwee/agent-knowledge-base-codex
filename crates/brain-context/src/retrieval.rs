@@ -103,7 +103,10 @@ fn rank(hit: SearchHit, query: &RetrievalQuery) -> RankedCandidate {
     let age_days = age_seconds / 86_400.0;
     score.recency = 2.0 / (1.0 + age_days / 30.0);
     reasons.push("recency");
-    score.bm25 = (hit.bm25_score.max(0.0) * 1_000_000.0).ln_1p().min(3.0);
+    // `rank_score`, not `bm25_score`: once retrieval fuses keyword with vector, a hit found only
+    // by meaning carries a BM25 score of zero, and scoring it by that field would demote every
+    // result the vector channel exists to surface — undoing the fusion one layer above.
+    score.bm25 = (hit.rank_score.max(0.0) * 1_000_000.0).ln_1p().min(3.0);
     if score.bm25 > 0.0 {
         reasons.push("bm25");
     }

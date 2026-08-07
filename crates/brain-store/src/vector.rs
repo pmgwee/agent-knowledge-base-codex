@@ -7,10 +7,19 @@
 //! away for a speed nobody here needs yet. When a project reaches a scale where scanning hurts,
 //! the fix is a real index; guessing at one now would be optimising a cost that has not appeared.
 //!
-//! Only memories are embedded, not raw events. Memories are the distilled layer, so a question
-//! about what someone decided should match a decision rather than the turn it was mentioned in;
-//! and at eleven embeddings a second, the ~6,800 memories here take ten minutes while the
-//! ~125,000 events would take five hours for a worse match.
+//! Both layers are embedded — memories and raw events — for different reasons.
+//!
+//! Memories are the distilled layer, so a question about what someone decided should match a
+//! decision rather than the turn it was mentioned in, and at eleven a second the ~8,500 memories
+//! here take about ten minutes.
+//!
+//! Events are slower (~135,000 of them, a few hours once) and were initially left out on that
+//! basis. That was wrong, and measurably so: the one benchmark category this work exists to fix,
+//! `single-session-preference` at 63.3%, is answered by a raw user turn, not by a memory. So is
+//! "what did I do last week". Embedding only the distilled layer would have produced a vector
+//! index that could not reach the evidence it was built for — and on the benchmark, whose ledgers
+//! hold events and no memories at all, it would have changed exactly nothing while appearing to
+//! be a new retrieval channel.
 
 use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
@@ -41,6 +50,27 @@ pub struct VectorHit {
     pub version_id: uuid::Uuid,
     pub similarity: f32,
 }
+
+/// An event awaiting an embedding, with the text to embed.
+#[derive(Clone, Debug)]
+pub struct PendingEventEmbedding {
+    pub event_id: uuid::Uuid,
+    pub text: String,
+}
+
+/// One event vector search result.
+#[derive(Clone, Debug)]
+pub struct EventVectorHit {
+    pub event_id: uuid::Uuid,
+    pub similarity: f32,
+}
+
+/// Shortest event text worth embedding.
+///
+/// Most of what a harness records is not prose: a tool result of `{}`, a one-word status, a bare
+/// path. Embedding those spends the expensive part of the pipeline on strings that carry no
+/// meaning to match against, and puts vectors in the index whose nearest neighbour is noise.
+const MIN_EMBEDDABLE_CHARACTERS: usize = 24;
 
 impl EventLedger {
     /// Current memory versions that have no vector for the active model.
@@ -201,6 +231,185 @@ impl EventLedger {
                 .similarity
                 .total_cmp(&left.similarity)
                 .then_with(|| left.memory_id.cmp(&right.memory_id))
+        });
+        hits.truncate(limit);
+        Ok(hits)
+    }
+
+    /// Events with no vector for the active model, newest first.
+    ///
+    /// Newest first because a backfill that starts at the oldest turn makes the index useful last;
+    /// starting at the newest means recent work — what orientation and "what did I do last week"
+    /// both ask about — is searchable within minutes rather than hours.
+    ///
+    /// The text is the same text FTS indexes, so the two channels agree about what a document
+    /// says. Events too short to carry meaning are filtered here rather than embedded and ignored
+    /// later, because an excluded row is offered again on every pass otherwise.
+    pub fn events_awaiting_embedding(&self, limit: usize) -> Result<Vec<PendingEventEmbedding>> {
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT e.event_id,
+                   coalesce(
+                       nullif(c.search_text, ''),
+                       json_extract(e.payload_json, '$.content'),
+                       json_extract(e.payload_json, '$.text'),
+                       json_extract(e.payload_json, '$.summary'),
+                       json_extract(e.payload_json, '$.message'),
+                       e.payload_json
+                   )
+            FROM events e
+            LEFT JOIN event_segment_catalog c ON c.event_id = e.event_id
+            LEFT JOIN event_embeddings x
+                   ON x.event_id = e.event_id AND x.model = ?2
+            WHERE e.project_id = ?1
+              AND x.event_id IS NULL
+            ORDER BY e.occurred_at_ns DESC
+            LIMIT ?3
+            "#,
+        )?;
+        let rows = statement.query_map(
+            params![
+                self.project_scope.0.to_string(),
+                EMBEDDING_MODEL,
+                i64::try_from(limit)?
+            ],
+            |row| -> rusqlite::Result<(String, Option<String>)> { Ok((row.get(0)?, row.get(1)?)) },
+        )?;
+        let mut pending = Vec::new();
+        for row in rows {
+            let (event_id, text) = row?;
+            let text = text.unwrap_or_default();
+            pending.push(PendingEventEmbedding {
+                event_id: uuid::Uuid::parse_str(&event_id)?,
+                text,
+            });
+        }
+        Ok(pending)
+    }
+
+    /// Whether an event's text is worth a vector.
+    ///
+    /// Public so a backfill can record the skipped ones as embedded-with-no-vector rather than
+    /// re-offering them forever; the decision belongs next to the query that produces them.
+    pub fn is_embeddable_event_text(text: &str) -> bool {
+        text.trim().chars().count() >= MIN_EMBEDDABLE_CHARACTERS
+    }
+
+    /// Record an event's vector. `None` marks the event considered and deliberately skipped.
+    ///
+    /// Skipped events are recorded with an empty vector rather than left absent, so the backfill's
+    /// "what is left" query shrinks monotonically instead of stalling on rows it will never take.
+    /// An empty vector is never returned by search, since decoding yields nothing to compare.
+    pub fn store_event_embedding(
+        &mut self,
+        event_id: uuid::Uuid,
+        vector: Option<&[f32]>,
+        now: time::OffsetDateTime,
+    ) -> Result<()> {
+        if let Some(vector) = vector {
+            anyhow::ensure!(
+                vector.len() == EMBEDDING_DIMENSIONS,
+                "refusing to store a {}-dimensional vector; this ledger stores {EMBEDDING_DIMENSIONS}",
+                vector.len()
+            );
+        }
+        let dimensions = vector.map_or(0, <[f32]>::len);
+        self.connection
+            .execute(
+                r#"
+                INSERT INTO event_embeddings(
+                    event_id, project_id, model, dimensions, vector, embedded_at_ns
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                ON CONFLICT(event_id) DO UPDATE SET
+                    model = excluded.model,
+                    dimensions = excluded.dimensions,
+                    vector = excluded.vector,
+                    embedded_at_ns = excluded.embedded_at_ns
+                "#,
+                params![
+                    event_id.to_string(),
+                    self.project_scope.0.to_string(),
+                    EMBEDDING_MODEL,
+                    i64::try_from(dimensions)?,
+                    encode_vector(vector.unwrap_or(&[])),
+                    now.unix_timestamp_nanos() as i64,
+                ],
+            )
+            .context("store event embedding")?;
+        Ok(())
+    }
+
+    /// How many events carry a usable vector, and how many are still unconsidered.
+    ///
+    /// Deliberately skipped events count as neither: they are done, but they are not searchable,
+    /// and folding them into either number would misreport coverage in one direction or progress
+    /// in the other.
+    pub fn event_embedding_coverage(&self) -> Result<(u64, u64)> {
+        let embedded: i64 = self
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM event_embeddings \
+                 WHERE project_id = ?1 AND model = ?2 AND dimensions > 0",
+                params![self.project_scope.0.to_string(), EMBEDDING_MODEL],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        let remaining: i64 = self
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM events e \
+                 LEFT JOIN event_embeddings x ON x.event_id = e.event_id AND x.model = ?2 \
+                 WHERE e.project_id = ?1 AND x.event_id IS NULL",
+                params![self.project_scope.0.to_string(), EMBEDDING_MODEL],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        Ok((
+            u64::try_from(embedded).unwrap_or(0),
+            u64::try_from(remaining).unwrap_or(0),
+        ))
+    }
+
+    /// The `limit` events most similar to `query_vector`, best first.
+    pub fn search_events_by_vector(
+        &self,
+        query_vector: &[f32],
+        limit: usize,
+    ) -> Result<Vec<EventVectorHit>> {
+        if limit == 0 || query_vector.len() != EMBEDDING_DIMENSIONS {
+            return Ok(Vec::new());
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT event_id, vector FROM event_embeddings \
+             WHERE project_id = ?1 AND model = ?2 AND dimensions = ?3",
+        )?;
+        let rows = statement.query_map(
+            params![
+                self.project_scope.0.to_string(),
+                EMBEDDING_MODEL,
+                i64::try_from(EMBEDDING_DIMENSIONS)?
+            ],
+            |row| -> rusqlite::Result<(String, Vec<u8>)> { Ok((row.get(0)?, row.get(1)?)) },
+        )?;
+
+        let mut hits = Vec::new();
+        for row in rows {
+            let (event_id, blob) = row?;
+            let Some(vector) = decode_vector(&blob) else {
+                continue;
+            };
+            hits.push(EventVectorHit {
+                event_id: uuid::Uuid::parse_str(&event_id)?,
+                similarity: cosine_similarity(query_vector, &vector),
+            });
+        }
+        hits.sort_by(|left, right| {
+            right
+                .similarity
+                .total_cmp(&left.similarity)
+                .then_with(|| left.event_id.cmp(&right.event_id))
         });
         hits.truncate(limit);
         Ok(hits)

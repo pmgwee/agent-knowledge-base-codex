@@ -17,6 +17,9 @@ pub struct EventLedger {
     pub(crate) connection: Connection,
     pub(crate) project_scope: ProjectId,
     pub(crate) search_cache: RefCell<SearchCache>,
+    /// The vector channel, off until a caller points this ledger at a brain home holding a model.
+    /// Borrowed from a process-wide `OnceLock`, so opening a hundred ledgers loads one model.
+    pub(crate) embedder: Option<&'static crate::embedding::Embedder>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,6 +71,7 @@ impl EventLedger {
             connection,
             project_scope,
             search_cache: RefCell::new(SearchCache::default()),
+            embedder: None,
         })
     }
 

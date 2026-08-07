@@ -408,6 +408,31 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_memory_embeddings_project
             ON memory_embeddings(project_id, model);
 
+        -- Events get vectors too, and for a sharper reason than memories do.
+        --
+        -- Memories are the distilled layer, so embedding them was the obvious first move. But
+        -- the gap that justified embeddings at all is at the event layer: on LongMemEval-S this
+        -- ledger scores 90–100% on every question type except `single-session-preference`, at
+        -- 63.3% — "what do I usually prefer", answered by a turn saying "I always ship straight
+        -- to production", sharing almost no token with the question. That evidence is a raw
+        -- turn, not a memory, and no amount of memory embedding reaches it. Pain point 5,
+        -- "what did I do last week", is answered from events for the same reason.
+        --
+        -- Events are immutable, so unlike memories there is no version to key on and nothing to
+        -- invalidate: an event embedded once stays correct for as long as it exists.
+        CREATE TABLE IF NOT EXISTS event_embeddings (
+            event_id TEXT PRIMARY KEY NOT NULL
+                REFERENCES events(event_id) ON DELETE CASCADE,
+            project_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            dimensions INTEGER NOT NULL,
+            vector BLOB NOT NULL,
+            embedded_at_ns INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_event_embeddings_project
+            ON event_embeddings(project_id, model);
+
         CREATE VIRTUAL TABLE IF NOT EXISTS event_search USING fts5(
             scope_token,
             content,

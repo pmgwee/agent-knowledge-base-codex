@@ -50,4 +50,6 @@ pub use segment::{
     SEGMENT_FORMAT_VERSION, SegmentManifest, SegmentSealReport, SegmentStore, should_seal,
 };
 pub use upgrade::{UpgradeIssue, UpgradeManager, UpgradeReport, UpgradeStageReport};
-pub use vector::{EMBEDDING_MODEL, PendingEmbedding, VectorHit};
+pub use vector::{
+    EMBEDDING_MODEL, EventVectorHit, PendingEmbedding, PendingEventEmbedding, VectorHit,
+};
