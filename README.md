@@ -165,6 +165,18 @@ latter.
 |---|---|
 | [2026-08-01-opus-cross-review-resolution.md](docs/reviews/2026-08-01-opus-cross-review-resolution.md) | Cross-review and how each finding was resolved |
 
+### Archive — `docs/archive/`
+
+Superseded documents, kept so a merge can be cross-checked against what went into it. Do not read
+these for current state — [docs/status.md](docs/status.md) is authoritative.
+
+| Document | |
+|---|---|
+| [2026-08-08-architecture-pre-merge.html](docs/archive/2026-08-08-architecture-pre-merge.html) | The architecture document before the merge. Carries its original figures — 136,841 events, 9,083 memories, 150 subject pages — and draws `SessionEnd` as unregistered |
+| [2026-08-08-status-page-pre-merge.html](docs/archive/2026-08-08-status-page-pre-merge.html) | The separate status page, before it was folded into the architecture |
+
+Both were merged into [docs/architecture.html](docs/architecture.html) on 8 August 2026.
+
 ### Your own notes
 
 Files you wrote and marked as such. Left exactly as they are.

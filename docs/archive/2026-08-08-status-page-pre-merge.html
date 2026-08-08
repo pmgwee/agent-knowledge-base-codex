@@ -1,0 +1,510 @@
+<title>ORIGINAL 1 · what is actually running (pre-merge)</title>
+
+<style>
+  /* ---- tokens ------------------------------------------------------------
+     Instrument palette: cool paper, deep teal signal, semantics held separate
+     from the accent so "shipped / partial / dissolved" never borrows meaning
+     from a decorative hue. */
+  :root {
+    --ground:      #f2f5f6;
+    --surface:     #ffffff;
+    --surface-2:   #e9eef0;
+    --line:        #cdd8dc;
+    --line-soft:   #dee6e9;
+    --ink:         #101619;
+    --ink-2:       #3f4d53;
+    --ink-3:       #6b7c83;
+    --accent:      #0b6e78;
+    --accent-soft: #0b6e781a;
+    --ok:          #2f7a4f;
+    --ok-soft:     #2f7a4f1a;
+    --warn:        #9a6613;
+    --warn-soft:   #9a66131a;
+    --mute:        #6b7c83;
+    --mute-soft:   #6b7c831a;
+    --shadow:      0 1px 2px #0f272c0f, 0 8px 24px -12px #0f272c1f;
+
+    --step-0: .75rem;
+    --step-1: .8125rem;
+    --step-2: .9375rem;
+    --step-3: 1.0625rem;
+    --step-4: 1.5rem;
+    --step-5: 2.25rem;
+    --step-6: 3rem;
+
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:      #0c1113;
+      --surface:     #121a1d;
+      --surface-2:   #182226;
+      --line:        #26343a;
+      --line-soft:   #1d282d;
+      --ink:         #e7eef0;
+      --ink-2:       #a8bac1;
+      --ink-3:       #7b8f97;
+      --accent:      #4fb3bf;
+      --accent-soft: #4fb3bf1f;
+      --ok:          #5fb583;
+      --ok-soft:     #5fb5831f;
+      --warn:        #d5a250;
+      --warn-soft:   #d5a2501f;
+      --mute:        #7b8f97;
+      --mute-soft:   #7b8f971f;
+      --shadow:      0 1px 2px #0006, 0 10px 30px -14px #000a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0c1113; --surface: #121a1d; --surface-2: #182226;
+    --line: #26343a; --line-soft: #1d282d;
+    --ink: #e7eef0; --ink-2: #a8bac1; --ink-3: #7b8f97;
+    --accent: #4fb3bf; --accent-soft: #4fb3bf1f;
+    --ok: #5fb583; --ok-soft: #5fb5831f;
+    --warn: #d5a250; --warn-soft: #d5a2501f;
+    --mute: #7b8f97; --mute-soft: #7b8f971f;
+    --shadow: 0 1px 2px #0006, 0 10px 30px -14px #000a;
+  }
+  :root[data-theme="light"] {
+    --ground: #f2f5f6; --surface: #ffffff; --surface-2: #e9eef0;
+    --line: #cdd8dc; --line-soft: #dee6e9;
+    --ink: #101619; --ink-2: #3f4d53; --ink-3: #6b7c83;
+    --accent: #0b6e78; --accent-soft: #0b6e781a;
+    --ok: #2f7a4f; --ok-soft: #2f7a4f1a;
+    --warn: #9a6613; --warn-soft: #9a66131a;
+    --mute: #6b7c83; --mute-soft: #6b7c831a;
+    --shadow: 0 1px 2px #0f272c0f, 0 8px 24px -12px #0f272c1f;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: var(--step-2);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 68rem;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 4.5rem) clamp(1rem, 4vw, 2.5rem) 5rem;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(2.5rem, 5vw, 4rem);
+  }
+
+  /* ---- masthead --------------------------------------------------------- */
+  .masthead { display: flex; flex-direction: column; gap: .9rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: var(--step-0);
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(var(--step-5), 5vw, var(--step-6));
+    line-height: 1.05;
+    letter-spacing: -.028em;
+    font-weight: 660;
+    text-wrap: balance;
+    max-width: 22ch;
+  }
+
+  .standfirst {
+    margin: 0;
+    max-width: 62ch;
+    font-size: var(--step-3);
+    color: var(--ink-2);
+    text-wrap: pretty;
+  }
+
+  .stamp {
+    font-family: var(--mono);
+    font-size: var(--step-0);
+    color: var(--ink-3);
+    border-top: 1px solid var(--line-soft);
+    padding-top: .75rem;
+    margin-top: .35rem;
+  }
+
+  /* ---- section ---------------------------------------------------------- */
+  section { display: flex; flex-direction: column; gap: 1.15rem; }
+
+  h2 {
+    margin: 0;
+    font-size: var(--step-4);
+    letter-spacing: -.018em;
+    font-weight: 620;
+    text-wrap: balance;
+  }
+
+  .lede { margin: 0; max-width: 68ch; color: var(--ink-2); text-wrap: pretty; }
+
+  /* ---- pipeline --------------------------------------------------------- */
+  .pipeline {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    padding: clamp(1.1rem, 3vw, 1.9rem);
+    overflow-x: auto;
+  }
+  .pipeline svg { display: block; min-width: 46rem; width: 100%; height: auto; }
+
+  .stage-note {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: .5rem 1rem;
+    margin: 1.25rem 0 0;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--line-soft);
+    font-size: var(--step-1);
+    color: var(--ink-2);
+  }
+  .stage-note dt {
+    font-family: var(--mono);
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+  .stage-note dd { margin: 0; text-wrap: pretty; }
+
+  /* ---- status chips ----------------------------------------------------- */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .4em;
+    font-family: var(--mono);
+    font-size: var(--step-0);
+    letter-spacing: .04em;
+    padding: .18em .55em;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .chip::before {
+    content: "";
+    width: .44em; height: .44em;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+  }
+  .chip.ok   { color: var(--ok);   background: var(--ok-soft);   border-color: color-mix(in oklab, var(--ok) 26%, transparent); }
+  .chip.warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in oklab, var(--warn) 26%, transparent); }
+  .chip.mute { color: var(--mute); background: var(--mute-soft); border-color: color-mix(in oklab, var(--mute) 22%, transparent); }
+
+  /* ---- tables ----------------------------------------------------------- */
+  .table-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  table { border-collapse: collapse; width: 100%; min-width: 42rem; }
+  caption { text-align: left; padding: .9rem 1.1rem .35rem; font-size: var(--step-1); color: var(--ink-3); }
+  th, td { text-align: left; padding: .62rem 1.1rem; border-top: 1px solid var(--line-soft); vertical-align: top; }
+  thead th {
+    border-top: 0;
+    font-family: var(--mono);
+    font-size: var(--step-0);
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 500;
+    background: var(--surface-2);
+  }
+  tbody tr:hover { background: var(--accent-soft); }
+  td.id { font-family: var(--mono); color: var(--ink-3); white-space: nowrap; }
+  td.note { color: var(--ink-2); font-size: var(--step-1); text-wrap: pretty; }
+  .num { font-variant-numeric: tabular-nums; }
+  .win { color: var(--ok); font-weight: 600; }
+  .lose { color: var(--warn); font-weight: 600; }
+
+  /* ---- live counters ---------------------------------------------------- */
+  .counters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: .75rem;
+  }
+  .counter {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: .85rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: .1rem;
+  }
+  .counter b {
+    font-size: var(--step-4);
+    font-weight: 640;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+    line-height: 1.15;
+  }
+  .counter span {
+    font-family: var(--mono);
+    font-size: var(--step-0);
+    color: var(--ink-3);
+    letter-spacing: .03em;
+  }
+
+  /* ---- callouts --------------------------------------------------------- */
+  .callout {
+    border-left: 2px solid var(--accent);
+    background: var(--surface);
+    border-radius: 0 8px 8px 0;
+    padding: .95rem 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+  }
+  .callout h3 {
+    margin: 0;
+    font-size: var(--step-2);
+    font-weight: 620;
+    letter-spacing: -.008em;
+  }
+  .callout p { margin: 0; color: var(--ink-2); font-size: var(--step-1); text-wrap: pretty; }
+  .callout-stack { display: flex; flex-direction: column; gap: .75rem; }
+
+  code {
+    font-family: var(--mono);
+    font-size: .92em;
+    background: var(--surface-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 3px;
+    padding: .08em .34em;
+  }
+
+  a { color: var(--accent); }
+  a:focus-visible, tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* pipeline svg pieces */
+  .box-fill  { fill: var(--surface-2); }
+  .box-line  { stroke: var(--line); }
+  .box-on    { stroke: var(--accent); }
+  .box-off   { stroke: var(--line); stroke-dasharray: 4 3; }
+  .flow      { stroke: var(--ink-3); }
+  .t-title   { fill: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; }
+  .t-sub     { fill: var(--ink-3); font-family: var(--mono); font-size: 10px; letter-spacing: .04em; }
+  .t-num     { fill: var(--accent); font-family: var(--mono); font-size: 10px; font-weight: 600; }
+  .t-fuse    { fill: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; }
+  .t-off     { fill: var(--warn); font-family: var(--mono); font-size: 10px; letter-spacing: .04em; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    tbody tr { transition: background 120ms ease; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Secondary brain · status</p>
+    <h1>What is actually running, and what is not</h1>
+    <p class="standfirst">
+      Every line below was checked against the live system today — the ledgers, the installed
+      binaries, the vault on disk — not recalled from the plan that proposed it.
+    </p>
+    <p class="stamp">8 August 2026 · 3 projects · 10-crate workspace · 124 test binaries green</p>
+  </header>
+
+  <!-- ================= pipeline ================= -->
+  <section>
+    <h2>The retrieval pipeline</h2>
+    <p class="lede">
+      Five stages, all built. The fifth is installed and deliberately switched off — the benchmark
+      measured it making the target category <em>worse</em>, not merely failing to help.
+    </p>
+
+    <div class="pipeline">
+      <svg viewBox="0 0 880 300" role="img" aria-label="Retrieval pipeline: four channels fuse by reciprocal rank fusion, then an optional cross-encoder rerank stage which is currently off.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-3)"/>
+          </marker>
+        </defs>
+
+        <!-- channels -->
+        <g>
+          <rect x="8" y="14" width="212" height="46" rx="6" class="box-fill box-on" stroke-width="1.5"/>
+          <text x="22" y="33" class="t-num">A</text>
+          <text x="42" y="34" class="t-title">BM25 · events</text>
+          <text x="42" y="50" class="t-sub">FTS5 · weight 0.4</text>
+
+          <rect x="8" y="72" width="212" height="46" rx="6" class="box-fill box-on" stroke-width="1.5"/>
+          <text x="22" y="91" class="t-num">A′</text>
+          <text x="42" y="92" class="t-title">BM25 · memories</text>
+          <text x="42" y="108" class="t-sub">separate corpus · 0.4</text>
+
+          <rect x="8" y="130" width="212" height="46" rx="6" class="box-fill box-on" stroke-width="1.5"/>
+          <text x="22" y="149" class="t-num">B</text>
+          <text x="42" y="150" class="t-title">Vector</text>
+          <text x="42" y="166" class="t-sub">MiniLM-L6 · 384d · 0.6</text>
+
+          <rect x="8" y="188" width="212" height="46" rx="6" class="box-fill box-on" stroke-width="1.5"/>
+          <text x="22" y="207" class="t-num">C</text>
+          <text x="42" y="208" class="t-title">Graph expand</text>
+          <text x="42" y="224" class="t-sub">shared evidence · 0.2</text>
+        </g>
+
+        <!-- flows into fuse -->
+        <g class="flow" stroke-width="1.2" fill="none" marker-end="url(#ar)">
+          <path d="M224 37 C 268 37, 268 106, 306 118"/>
+          <path d="M224 95 C 268 95, 272 110, 306 120"/>
+          <path d="M224 153 C 268 153, 272 138, 306 126"/>
+          <path d="M224 211 C 268 211, 268 142, 306 130"/>
+        </g>
+
+        <!-- fuse -->
+        <rect x="312" y="86" width="180" height="76" rx="6" class="box-fill box-on" stroke-width="1.5"/>
+        <text x="330" y="112" class="t-fuse">RRF fuse</text>
+        <text x="330" y="130" class="t-sub">k = 60 · by rank</text>
+        <text x="330" y="147" class="t-sub">never by score</text>
+
+        <path d="M496 124 L 566 124" class="flow" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+
+        <!-- rerank, off -->
+        <rect x="572" y="86" width="180" height="76" rx="6" class="box-fill box-off" stroke-width="1.5"/>
+        <text x="590" y="112" class="t-fuse">Cross-encoder</text>
+        <text x="590" y="130" class="t-sub">top 16 · ~90 ms each</text>
+        <text x="590" y="148" class="t-off">OFF BY DEFAULT</text>
+
+        <path d="M756 124 L 820 124" class="flow" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <text x="770" y="112" class="t-sub">final</text>
+        <text x="770" y="148" class="t-sub">results</text>
+
+        <!-- bypass -->
+        <path d="M584 168 C 584 210, 700 210, 700 168" class="flow" stroke-width="1" fill="none" stroke-dasharray="3 3"/>
+        <text x="596" y="228" class="t-sub">measured worse — fused order stands</text>
+      </svg>
+
+      <dl class="stage-note">
+        <dt>A / A′</dt>
+        <dd>Two keyword channels, not one. Different FTS tables and corpus statistics make their BM25 scores incomparable; merged and sorted by raw score, the larger corpus took every slot and no memory was reachable at all.</dd>
+        <dt>B</dt>
+        <dd>Absent on a brain with no model, and that is a supported state — fusing a single channel returns it unchanged.</dd>
+        <dt>C</dt>
+        <dd>Association, not retrieval. Defined over what A and B found, so fusion runs twice rather than once over three lists.</dd>
+        <dt>Rerank</dt>
+        <dd>Only the head window is scored, and <code>rerank_score</code> stays a separate field. An unbounded logit near −11 and a fused score near 0.016 are not one scale.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ================= benchmark ================= -->
+  <section>
+    <h2>What the benchmark decided</h2>
+    <p class="lede">
+      Thirty <code>single-session-preference</code> instances, 1,427 sessions, 14,551 vectors, the
+      service stopped so the run had the machine. One switch changed between rows.
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <caption>LongMemEval-S · the category hybrid retrieval was built for</caption>
+        <thead>
+          <tr><th scope="col">Configuration</th><th scope="col">R@5</th><th scope="col">R@10</th><th scope="col">MRR</th><th scope="col">Elapsed</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>BM25 only <span class="chip mute">prior baseline</span></td><td class="num">63.3%</td><td class="num">73.3%</td><td class="num">0.509</td><td class="num">—</td></tr>
+          <tr><td>BM25 + vector, RRF-fused</td><td class="num win">90.0%</td><td class="num">96.7%</td><td class="num win">0.779</td><td class="num">870 s</td></tr>
+          <tr><td>…plus cross-encoder rerank</td><td class="num lose">86.7%</td><td class="num">96.7%</td><td class="num lose">0.715</td><td class="num">1,084 s</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <h3>R@10 is identical, and that is the whole finding</h3>
+      <p>
+        The answering session is still <em>retrieved</em> — re-ranking moves it <em>down</em>, out of
+        the top five. MRR falls further than R@5 does, so the cost is spread through the ordering
+        rather than concentrated in one lost instance, and it spends 25% more wall-clock to do it.
+        Isolated on a fixture beforehand: holding the distractor constant and changing one word of
+        the answer, <code>ship</code> → <code>deploy</code>, moved its score 10.2 points — the
+        model's entire range — for a sentence meaning the same thing.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= status ================= -->
+  <section>
+    <h2>Every item, and where it stands</h2>
+    <p class="lede">
+      Waves 0, 1, 2, 4 and 5 are complete. Wave 3 is complete except for one generation step held
+      back on purpose.
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th scope="col">Item</th><th scope="col">State</th><th scope="col">Evidence, or why not</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="id">0.1</td><td><span class="chip ok">shipped</span></td><td class="note">Deliveries counted at receipt, not at compile — a dropped outcome records nothing</td></tr>
+          <tr><td class="id">0.2</td><td><span class="chip warn">quota</span></td><td class="note">1,683 pending against 2,884 completed. 290 of 294 deferrals were plain HTTP 429; nothing lost, no work to do</td></tr>
+          <tr><td class="id">0.3</td><td><span class="chip ok">shipped</span></td><td class="note">Queue and dead letters visible per project, with the reason a job died</td></tr>
+          <tr><td class="id">1</td><td><span class="chip ok">shipped</span></td><td class="note">Baseline reproduced exactly at 90.0 / 96.7 / 0.779; rerank measured worse</td></tr>
+          <tr><td class="id">2.1–2.3</td><td><span class="chip ok">shipped</span></td><td class="note">Export, forget as a tombstone, and verify a claim back to a transcript byte offset</td></tr>
+          <tr><td class="id">3.1</td><td><span class="chip ok">shipped</span></td><td class="note">Orientation ranked by relevance — memories had been ordered alphabetically by subject</td></tr>
+          <tr><td class="id">3.2a</td><td><span class="chip ok">shipped</span></td><td class="note">450 subject pages, derived from embedding tightness, each asserting nothing of its own</td></tr>
+          <tr><td class="id">3.2b</td><td><span class="chip warn">partial</span></td><td class="note">Validator, store and rendering shipped and tested. The generation call is withheld until the citation check can be watched refusing a real bad citation from a live provider</td></tr>
+          <tr><td class="id">3.3</td><td><span class="chip ok">shipped</span></td><td class="note">Session boundary observed for the first time — 3 <code>session.ended</code> events and 3 <code>session_stopped</code> jobs, against zero in the system's entire prior history</td></tr>
+          <tr><td class="id">3.4</td><td><span class="chip ok">shipped, off</span></td><td class="note">Opt-in per query. Off because it was measured, not out of caution</td></tr>
+          <tr><td class="id">3.5</td><td><span class="chip mute">cut</span></td><td class="note">Redundant — <code>SessionStart</code> already re-fires after a compaction</td></tr>
+          <tr><td class="id">3.6–3.8</td><td><span class="chip ok">shipped</span></td><td class="note"><code>brain remember</code>, <code>brain lint</code>, greppable vault log</td></tr>
+          <tr><td class="id">3.9</td><td><span class="chip mute">dissolved</span></td><td class="note">CodeGraph runs its <em>own</em> MCP against both harnesses and indexes all three projects. The brain's internal provider stays off — proxying it would build a second path to data both agents already reach</td></tr>
+          <tr><td class="id">4.1–4.2</td><td><span class="chip ok">shipped</span></td><td class="note">Access counted per result; 23 notes carry <code>stale: true</code>, reversed the moment retrieval returns one</td></tr>
+          <tr><td class="id">4.3</td><td><span class="chip warn">gated</span></td><td class="note">Refuses to run for ~29 more days by design — on day one every memory is never-retrieved</td></tr>
+          <tr><td class="id">5</td><td><span class="chip ok">shipped</span></td><td class="note">Lifecycle and retrieval panels. In-browser render unverified — the dashboard did not hydrate in the preview pane, on every panel</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= live ================= -->
+  <section>
+    <h2>Live counts</h2>
+    <p class="lede">Read from the running system, not from the last report.</p>
+
+    <div class="counters">
+      <div class="counter"><b class="num">13,702</b><span>vault notes</span></div>
+      <div class="counter"><b class="num">9,930</b><span>with wikilinks</span></div>
+      <div class="counter"><b class="num">450</b><span>subject pages</span></div>
+      <div class="counter"><b class="num">2,884</b><span>jobs completed</span></div>
+      <div class="counter"><b class="num">1,683</b><span>jobs pending</span></div>
+      <div class="counter"><b class="num">124</b><span>test binaries green</span></div>
+    </div>
+
+    <div class="callout-stack">
+      <div class="callout">
+        <h3>Three findings still open, and they need your judgement</h3>
+        <p>
+          <code>brain lint</code> reports 4 contradictions, 4 memories dated 1970-01-01 (undated,
+          not old), and 660 of 2,097 memories sharing evidence with nothing else. Building the
+          instrument was the deliverable; deciding which side of a contradiction is true is not
+          something derivation can do.
+        </p>
+      </div>
+      <div class="callout">
+        <h3>One number I could not trace</h3>
+        <p>
+          The 93.2% R@5 in the earlier roadmap appears in no document and no commit. The recorded
+          figures are per-category — 63.3% → 90.0% on <code>single-session-preference</code>. Those
+          two are not the same measurement and should not be quoted as one.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</div>
