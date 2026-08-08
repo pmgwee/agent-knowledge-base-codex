@@ -474,6 +474,24 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_memory_access_project
             ON memory_access(project_id, last_retrieved_at_ns);
 
+        -- What has already been pushed into a live session, so a mid-session re-orientation
+        -- never repeats itself.
+        --
+        -- The session-start orientation is one shot and can afford to restate. A push that fires on
+        -- every prompt cannot: re-injecting the same memory each time the subject stays put would
+        -- spend the budget on something the model already has, and would do it most aggressively
+        -- exactly when the conversation is going well. Keyed by session so a new session starts clean.
+        CREATE TABLE IF NOT EXISTS session_pushes (
+            native_session_id TEXT NOT NULL,
+            memory_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            pushed_at_ns INTEGER NOT NULL,
+            PRIMARY KEY (native_session_id, memory_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_session_pushes_session
+            ON session_pushes(native_session_id, pushed_at_ns DESC);
+
         -- When access counting became reliable, so eviction can refuse to run early.
         --
         -- Without this, "never retrieved" is indistinguishable between a memory nothing wants and a

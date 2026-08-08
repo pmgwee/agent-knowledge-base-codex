@@ -57,7 +57,10 @@ pub fn build_capture_bindings(config: &ServiceLaunchConfig) -> Result<Vec<Captur
     Ok(bindings)
 }
 
-pub fn build_hook_bindings(config: &ServiceLaunchConfig) -> Vec<HookProjectBinding> {
+pub fn build_hook_bindings(
+    config: &ServiceLaunchConfig,
+    brain_home: &std::path::Path,
+) -> Vec<HookProjectBinding> {
     config
         .projects
         .iter()
@@ -67,6 +70,7 @@ pub fn build_hook_bindings(config: &ServiceLaunchConfig) -> Vec<HookProjectBindi
             worktree_id: project.worktree_id,
             ledger_path: project.ledger_path.clone(),
             global_preferences_path: None,
+            brain_home: brain_home.to_path_buf(),
         })
         .collect()
 }

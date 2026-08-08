@@ -18,6 +18,13 @@ pub struct HookProjectBinding {
     pub worktree_id: WorktreeId,
     pub ledger_path: PathBuf,
     pub global_preferences_path: Option<PathBuf>,
+    /// Where the embedding model lives, so a mid-session push can use the vector channel.
+    ///
+    /// Carried explicitly rather than derived from `ledger_path`. The derivation that already
+    /// existed for the wiki provider walks two parents from the ledger's directory and lands on the
+    /// project id, not the brain home — a latent bug that has never surfaced only because that
+    /// provider is disabled.
+    pub brain_home: PathBuf,
 }
 
 /// What the handler produced: a reply to send, and — when an orientation was compiled — a metric
@@ -125,6 +132,31 @@ impl ProjectHookHandler {
             return Ok(HookOutcome::bare(HookReply::default()));
         };
         let lease_warning = manage_lease_lifecycle(&binding, envelope)?;
+        if envelope.event_name == "UserPromptSubmit" {
+            // Fail-open, and silent when there is nothing worth saying. A push that fires on every
+            // prompt must be willing to return nothing far more often than it returns something.
+            let pushed = match mid_session_push(&binding, envelope) {
+                Ok(text) => text,
+                Err(error) => {
+                    tracing::warn!(%error, "mid-session push failed; the session continues without it");
+                    None
+                }
+            };
+            let additional_context = [lease_warning, pushed]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            return Ok(HookOutcome::bare(HookReply {
+                additional_context: (!additional_context.is_empty()).then(|| {
+                    additional_context.join(
+                        "
+
+",
+                    )
+                }),
+                diagnostics_id: Some(envelope.nonce.to_string()),
+            }));
+        }
         if envelope.event_name == "SessionEnd" {
             // Fail-open. A session ending is not a moment to return an error to the harness, and
             // the cost of missing one is a session that consolidates on the next threshold instead
@@ -292,6 +324,191 @@ fn cached_wiki_context(
         item.trust = format!("external_document_cached age={age}s");
     }
     Ok(items)
+}
+
+/// Tokens a single mid-session push may spend.
+///
+/// **Far smaller than the session-start budget on purpose.** The orientation fires once and gets
+/// 1,000–1,500 tokens; this fires on *every prompt*, so the same generosity would multiply by the
+/// length of the conversation. Four hundred buys three or four cited lines, which is the size of
+/// "you have seen this before" — not the size of a briefing.
+const MID_SESSION_TOKENS: usize = 400;
+
+/// Most memories one push may carry, before the token budget is even consulted.
+const MAX_PUSHED_MEMORIES: usize = 4;
+
+/// Content terms a memory must share with the prompt before it may be pushed.
+///
+/// **A push needs a stricter floor than a search does**, because the user did not ask for it. FTS
+/// terms are OR-joined, so a query shares "is", "the", "of" with almost everything and the ranking
+/// dutifully returns *something* for any input — measured: a prompt about unladen swallows retrieved
+/// a database-migration memory and would have injected it.
+///
+/// This makes the push deliberately conservative. It will miss a memory that is genuinely relevant
+/// but shares no vocabulary — the same vocabulary gap the cross-encoder failed to close and query
+/// expansion is meant to. Missing one is the right side to err on: an unsolicited wrong answer costs
+/// more attention than a missing right one, and the user can always ask.
+const MIN_SHARED_TERMS: usize = 2;
+
+/// Shortest prompt worth searching on.
+///
+/// "ok", "continue", "yes" retrieve noise: they share no vocabulary with anything specific, so the
+/// fused ranking returns whatever is generally popular. Below this length the honest push is none.
+const MIN_PROMPT_CHARACTERS: usize = 24;
+
+/// Re-orient a running session when the subject moves.
+///
+/// The gap this closes: the brain used to push **once**, at session start. A session that ran for
+/// hours and pivoted to a different subject was never re-oriented — what arrived at minute zero was
+/// all it ever got, and nothing about that failure was visible because both halves worked.
+///
+/// Three rules keep it from becoming noise:
+///
+/// 1. **Never repeat.** A memory reaches a given session at most once; `session_pushes` is the
+///    record. Restating what the model already has is the fastest way to make a budget worthless.
+/// 2. **Silence is a valid answer**, and the common one. A short prompt, no new memory, or nothing
+///    above the floor all return `None` rather than something.
+/// 3. **Always meter.** Every push ends with what it cost and how many memories it carried, because
+///    a per-message injection that nobody can measure is exactly how a token contract stops holding.
+fn mid_session_push(
+    binding: &HookProjectBinding,
+    envelope: &HookEnvelope,
+) -> Result<Option<String>> {
+    let Some(prompt) = envelope
+        .payload
+        .get("prompt")
+        .or_else(|| envelope.payload.get("user_prompt"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|text| text.chars().count() >= MIN_PROMPT_CHARACTERS)
+    else {
+        return Ok(None);
+    };
+    let Some(session_id) = envelope
+        .payload
+        .get("session_id")
+        .or_else(|| envelope.payload.get("sessionId"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+    else {
+        // With no session id there is no way to avoid repeating ourselves, and a push that repeats
+        // is worse than no push.
+        return Ok(None);
+    };
+
+    let mut ledger = EventLedger::open(&binding.ledger_path, binding.project_id)?;
+    // The vector channel is what makes this work at all: a pivot is precisely the case where the
+    // new subject shares no vocabulary with the session-start orientation.
+    ledger.enable_vector_search(&binding.brain_home);
+
+    let already = ledger.session_pushed_ids(session_id)?;
+    let hits = ledger.search(
+        &brain_store::SearchQuery::text(binding.project_id, prompt)
+            .memories_only()
+            .with_limit(MAX_PUSHED_MEMORIES + already.len().min(24) + 4),
+    )?;
+
+    let mut lines = Vec::new();
+    let mut pushed_ids = Vec::new();
+    let mut dropped = 0_usize;
+    let mut spent = 0_usize;
+    for hit in hits {
+        let Some(memory_id) = hit.memory_id else {
+            continue;
+        };
+        if already.contains(&memory_id) {
+            continue;
+        }
+        if shared_terms(prompt, &hit.title, &hit.text) < MIN_SHARED_TERMS {
+            // Below the floor, and not counted as dropped: it was never a candidate, so reporting
+            // it would overstate what the budget cost.
+            continue;
+        }
+        if pushed_ids.len() >= MAX_PUSHED_MEMORIES {
+            dropped += 1;
+            continue;
+        }
+        let line = format!(
+            "- {} — {} (memory:{memory_id})",
+            hit.title,
+            first_sentence(&hit.text)
+        );
+        let cost = token_count(&line);
+        if spent + cost > MID_SESSION_TOKENS {
+            dropped += 1;
+            continue;
+        }
+        spent += cost;
+        lines.push(line);
+        pushed_ids.push(memory_id);
+    }
+
+    if lines.is_empty() {
+        return Ok(None);
+    }
+
+    // The meter is the last line, always, and it names what it dropped. A silent loss is worse than
+    // the bloat it was trying to avoid.
+    let meter = if dropped == 0 {
+        format!(
+            "[brain · {} {} · {spent} tokens]",
+            lines.len(),
+            if lines.len() == 1 {
+                "memory"
+            } else {
+                "memories"
+            }
+        )
+    } else {
+        format!(
+            "[brain · {} of {} memories · {spent} tokens · {dropped} dropped over budget]",
+            lines.len(),
+            lines.len() + dropped
+        )
+    };
+    let body = format!(
+        "Related memory for this turn:
+{}
+{meter}",
+        lines.join(
+            "
+"
+        )
+    );
+
+    // Recorded only once the text is built, so a push that failed to render records nothing.
+    ledger.record_session_push(session_id, &pushed_ids, envelope.received_at)?;
+    Ok(Some(body))
+}
+
+/// How many content-bearing terms the prompt and a memory have in common.
+///
+/// Length four and up, lower-cased, deduplicated. Crude on purpose: this is a floor that stops
+/// nonsense, not a ranking — the ranking already happened.
+fn shared_terms(prompt: &str, title: &str, body: &str) -> usize {
+    fn terms(text: &str) -> std::collections::HashSet<String> {
+        text.split(|c: char| !c.is_alphanumeric())
+            .filter(|word| word.chars().count() >= 4)
+            .map(str::to_lowercase)
+            .collect()
+    }
+    let asked = terms(prompt);
+    let held = terms(&format!("{title} {body}"));
+    asked.intersection(&held).count()
+}
+
+/// The first sentence of a memory's body, bounded — a push is a pointer, not the note.
+fn first_sentence(text: &str) -> String {
+    let trimmed = text.trim();
+    let head = trimmed
+        .split_once(". ")
+        .map(|(head, _)| head)
+        .unwrap_or(trimmed);
+    if head.chars().count() <= 160 {
+        return head.to_owned();
+    }
+    let clipped: String = head.chars().take(159).collect();
+    format!("{clipped}…")
 }
 
 /// Mark a session as ended, and consolidate what it produced.

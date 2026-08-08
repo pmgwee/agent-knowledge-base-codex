@@ -147,6 +147,7 @@ fn fixture() -> Fixture {
         worktree_id,
         ledger_path: ledger_path.clone(),
         global_preferences_path: None,
+        brain_home: std::path::PathBuf::new(),
     })
     .expect("handler");
 

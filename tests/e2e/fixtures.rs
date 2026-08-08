@@ -99,6 +99,7 @@ impl E2eFixture {
             worktree_id: registered.worktree_id,
             ledger_path: registered.ledger_path.clone(),
             global_preferences_path: None,
+            brain_home: std::path::PathBuf::new(),
         })
         .expect("create hook handler");
         let server_name = self.pipe_name.clone();

@@ -11,7 +11,22 @@ use atomicwrites::{AllowOverwrite, AtomicFile};
 /// been emitted once across 139,192 captured events. `ConsolidationReason::SessionStopped` was
 /// unreachable code that read as wired up, and a session's work waited for the *next* session to
 /// push it over the 200-event threshold. This hook is the only thing that can observe the boundary.
-const BRAIN_HOOK_EVENTS: [&str; 2] = ["SessionStart", "SessionEnd"];
+const BRAIN_HOOK_EVENTS: [&str; 3] = ["SessionStart", "SessionEnd", "UserPromptSubmit"];
+
+/// Events registered for Claude Code.
+///
+/// `UserPromptSubmit` carries the mid-session push: the brain used to hand over context **once**, at
+/// session start, so a session that ran for hours and changed subject was never re-oriented. Other
+/// tools already sit on this hook here — CodeGraph does — and the installer only ever strips entries
+/// whose binary is `brain-hook`, so theirs survives ours.
+const CLAUDE_EVENTS: [&str; 3] = ["SessionStart", "SessionEnd", "UserPromptSubmit"];
+
+/// Events registered for Codex.
+///
+/// No `UserPromptSubmit`: Codex's hook surface documents `SessionStart`, and registering an event a
+/// harness does not fire would look like a shipped feature that silently never runs. Add it when it
+/// can be verified firing, not before.
+const CODEX_EVENTS: [&str; 2] = ["SessionStart", "SessionEnd"];
 
 const SESSION_MATCHER: &str = "startup|resume|clear|compact|fork";
 
@@ -197,7 +212,9 @@ fn claude_hook_presence(settings: &serde_json::Value, hook_executable: &Path) ->
     match (has_current, has_stale) {
         // Complete only when every event is covered. A config carrying just the old `SessionStart`
         // registration is stale in the sense that matters: it is missing one.
-        (true, false) if registered_event_count(settings) == BRAIN_HOOK_EVENTS.len() => {
+        (true, false)
+            if registered_event_count(settings, &CLAUDE_EVENTS) == CLAUDE_EVENTS.len() =>
+        {
             HookPresence::CurrentOnly
         }
         (true, false) => HookPresence::StalePresent,
@@ -223,7 +240,7 @@ fn codex_hook_presence(document: &serde_json::Value, hook_executable: &Path) -> 
     }
     match (has_current, has_stale) {
         // Same completeness rule as Claude: a config missing one of the events is not current.
-        (true, false) if registered_event_count(document) == BRAIN_HOOK_EVENTS.len() => {
+        (true, false) if registered_event_count(document, &CODEX_EVENTS) == CODEX_EVENTS.len() => {
             HookPresence::CurrentOnly
         }
         (true, false) => HookPresence::StalePresent,
@@ -250,9 +267,10 @@ fn brain_hook_commands(document: &serde_json::Value) -> Vec<&serde_json::Value> 
 }
 
 /// How many of [`BRAIN_HOOK_EVENTS`] carry a brain-hook entry.
-fn registered_event_count(document: &serde_json::Value) -> usize {
-    BRAIN_HOOK_EVENTS
-        .into_iter()
+fn registered_event_count(document: &serde_json::Value, events: &[&str]) -> usize {
+    events
+        .iter()
+        .copied()
         .filter(|event| {
             document
                 .pointer(&format!("/hooks/{event}"))
@@ -389,6 +407,19 @@ fn push_claude_hook_entry(settings: &mut serde_json::Value, hook_executable: &Pa
         .context("Claude hooks.SessionEnd must be an array")?;
     session_end.push(serde_json::json!({
         "matcher": SESSION_END_MATCHER,
+        "hooks": [{
+            "type": "command",
+            "command": hook_executable,
+            "args": ["--harness", "claude-code"],
+            "timeout": CLAUDE_HOOK_TIMEOUT_SECONDS
+        }]
+    }));
+    let prompt_submit = hooks
+        .entry("UserPromptSubmit")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .context("Claude hooks.UserPromptSubmit must be an array")?;
+    prompt_submit.push(serde_json::json!({
         "hooks": [{
             "type": "command",
             "command": hook_executable,

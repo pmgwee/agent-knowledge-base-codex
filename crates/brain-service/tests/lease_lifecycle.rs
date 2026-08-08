@@ -127,6 +127,7 @@ impl Fixture {
             worktree_id: self.main_worktree,
             ledger_path: self.ledger.clone(),
             global_preferences_path: None,
+            brain_home: std::path::PathBuf::new(),
         })
         .expect("handler")
     }

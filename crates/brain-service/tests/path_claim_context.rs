@@ -65,6 +65,7 @@ fn session_start_shows_active_owners_and_overlap_before_memory() {
         worktree_id: main_worktree,
         ledger_path,
         global_preferences_path: None,
+        brain_home: std::path::PathBuf::new(),
     })
     .expect("handler");
     let reply = handler

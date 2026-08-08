@@ -16,6 +16,7 @@ mod memory;
 mod migrations;
 mod notes;
 mod provider_cache;
+mod push;
 mod rerank;
 mod search;
 mod segment;

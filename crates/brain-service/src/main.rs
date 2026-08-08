@@ -51,7 +51,7 @@ async fn main() -> anyhow::Result<()> {
     let capture = Arc::new(CaptureSupervisor::new(build_capture_bindings(&config)?)?);
     let consolidation_pressure = capture.degradation_receiver();
     let projection_pressure = capture.degradation_receiver();
-    let mut hook_bindings = build_hook_bindings(&config);
+    let mut hook_bindings = build_hook_bindings(&config, &brain_home);
     let global_preferences_path = brain_home
         .join("global-preferences")
         .join("preferences.sqlite");

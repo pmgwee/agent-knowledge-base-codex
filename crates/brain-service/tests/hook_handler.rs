@@ -44,6 +44,7 @@ fn compiling_an_orientation_records_nothing_until_it_is_delivered() {
         worktree_id,
         ledger_path: ledger_path.clone(),
         global_preferences_path: None,
+        brain_home: std::path::PathBuf::new(),
     })
     .expect("create delivery handler");
 
@@ -123,6 +124,7 @@ fn session_start_records_the_size_of_what_it_delivered() {
         worktree_id,
         ledger_path: ledger_path.clone(),
         global_preferences_path: None,
+        brain_home: std::path::PathBuf::new(),
     })
     .expect("create delivery handler");
 
@@ -194,6 +196,7 @@ fn session_start_returns_bounded_project_scoped_context() {
         worktree_id,
         ledger_path,
         global_preferences_path: None,
+        brain_home: std::path::PathBuf::new(),
     })
     .expect("create hook handler");
 
@@ -258,6 +261,7 @@ fn session_start_includes_only_explicit_global_preferences() {
         worktree_id,
         ledger_path,
         global_preferences_path: Some(preferences_path),
+        brain_home: std::path::PathBuf::new(),
     })
     .expect("create hook handler");
 

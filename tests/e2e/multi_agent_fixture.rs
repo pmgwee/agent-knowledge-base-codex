@@ -77,8 +77,11 @@ impl MultiAgentFixture {
 
     pub fn context(&self, harness: Harness, project: &Path) -> String {
         let config = self.config();
-        let handler = ProjectHookHandler::for_projects(build_hook_bindings(&config))
-            .expect("create multi-project hook handler");
+        let handler = ProjectHookHandler::for_projects(build_hook_bindings(
+            &config,
+            std::path::Path::new(""),
+        ))
+        .expect("create multi-project hook handler");
         handler
             .handle(&HookEnvelope {
                 protocol: brain_domain::HOOK_PROTOCOL_VERSION,

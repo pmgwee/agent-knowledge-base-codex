@@ -88,6 +88,7 @@ fn session_start_uses_cache_and_only_the_first_prompt_may_scan_the_wiki() {
         worktree_id: identity.worktree_id,
         ledger_path,
         global_preferences_path: None,
+        brain_home: std::path::PathBuf::new(),
     })
     .expect("open project hook handler");
     let startup = handler

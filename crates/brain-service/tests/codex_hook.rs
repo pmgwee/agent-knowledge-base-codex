@@ -45,6 +45,7 @@ fn codex_session_start_uses_the_shared_bounded_project_context() {
         worktree_id,
         ledger_path,
         global_preferences_path: None,
+        brain_home: std::path::PathBuf::new(),
     })
     .expect("create shared hook handler");
 

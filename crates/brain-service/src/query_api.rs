@@ -677,6 +677,7 @@ impl BrainQueryService {
             worktree_id,
             ledger_path: project.ledger_path.clone(),
             global_preferences_path: None,
+            brain_home: self.brain_home.clone(),
         };
         let coordination_text = coordination_context(&coordination_binding, now)
             .ok()
