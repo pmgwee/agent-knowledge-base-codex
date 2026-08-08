@@ -58,8 +58,9 @@ pub use rebuild::{
     rebuild_basic_memory, rebuild_basic_memory_with, rebuild_markdown, verify_projections,
 };
 pub use reconcile::{
-    Proposal, ReconcileReport, ResolutionRule, propose as propose_reconciliation,
-    render as render_reconcile,
+    ApplyReport, Proposal, ReconcileReport, ResolutionRule, apply as apply_reconciliation,
+    propose as propose_reconciliation, render as render_reconcile,
+    render_apply as render_reconcile_apply,
 };
 pub use register::{
     AgentSourceOptions, RegisterOptions, RegistrationResult, register_project,

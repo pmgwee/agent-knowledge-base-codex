@@ -191,6 +191,36 @@ impl EventLedger {
         load_project_versions(&self.connection, self.project_scope, memory_id)
     }
 
+    /// How many claims each current memory absorbed, by supersession.
+    ///
+    /// Returned as a map rather than per-memory because the projection needs it for every memory
+    /// at once, and 2,000 individual lookups to render one vault is the kind of cost that quietly
+    /// makes a projection too slow to run often.
+    ///
+    /// Only memories that actually absorbed something appear. An absent id means a claim written
+    /// once and never revised, which is the ordinary case and does not need a row to say so.
+    pub fn revision_counts(&self) -> Result<std::collections::HashMap<uuid::Uuid, u64>> {
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT v.memory_id, COUNT(*)
+            FROM memory_supersession s
+            JOIN memory_versions v ON v.version_id = s.version_id
+            JOIN memory_records r ON r.memory_id = v.memory_id
+            WHERE r.project_id = ?1
+            GROUP BY v.memory_id
+            "#,
+        )?;
+        let rows = statement.query_map([self.project_scope.0.to_string()], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        let mut counts = std::collections::HashMap::new();
+        for row in rows {
+            let (id, count) = row?;
+            counts.insert(uuid::Uuid::parse_str(&id)?, count.max(0) as u64);
+        }
+        Ok(counts)
+    }
+
     /// The current version of a memory, or `None` if it was withdrawn.
     ///
     /// Withdrawal is checked here rather than by callers so that a single lookup and a listing

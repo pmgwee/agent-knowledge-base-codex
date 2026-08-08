@@ -666,6 +666,11 @@ fn render_subject_pages(
     memories: &[MemoryRecord],
     links: &LinkIndex,
 ) -> Result<Vec<RenderedMemory>> {
+    // How many earlier claims each entry absorbed. This is what turns a subject page from a list
+    // of what is currently true into a record of *how* it got to be true — the difference between
+    // appending to a wiki and integrating into one. Empty for a project that has never folded,
+    // which is the honest rendering: there is nothing to show until a revision happens.
+    let revisions = ledger.revision_counts().unwrap_or_default();
     let vectors: std::collections::HashMap<uuid::Uuid, Vec<f32>> = ledger
         .current_memory_vectors()
         .unwrap_or_default()
@@ -759,9 +764,36 @@ fn render_subject_pages(
                 body.push_str(&synthesis.markdown);
                 body.push_str("\n\n");
             }
+            // The revision trail. Without it a claim written once and a claim that absorbed four
+            // duplicates render identically, and the page reads as though nothing has ever been
+            // reconsidered — which was true of this vault for its entire history until folding
+            // shipped. The count is the number of earlier claims this one replaced, never a guess.
+            let revised: usize = listed
+                .iter()
+                .filter(|memory| revisions.contains_key(&memory.id))
+                .count();
+            if revised > 0 {
+                let absorbed: u64 = listed
+                    .iter()
+                    .filter_map(|memory| revisions.get(&memory.id))
+                    .sum();
+                body.push_str(&format!(
+                    "{revised} of these {} {} been revised in place, absorbing {absorbed} earlier \
+                     claim{}. Nothing was deleted — every superseded version keeps its evidence.\n\n",
+                    listed.len(),
+                    if revised == 1 { "claim has" } else { "claims have" },
+                    if absorbed == 1 { "" } else { "s" },
+                ));
+            }
             for memory in &listed {
                 if let Some(link) = links.wikilink(memory.id) {
-                    body.push_str(&format!("- {link}\n"));
+                    match revisions.get(&memory.id) {
+                        Some(count) => body.push_str(&format!(
+                            "- {link} — revised, replacing {count} earlier claim{}\n",
+                            if *count == 1 { "" } else { "s" }
+                        )),
+                        None => body.push_str(&format!("- {link}\n")),
+                    }
                 }
             }
             body.push('\n');

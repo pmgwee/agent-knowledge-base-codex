@@ -23,7 +23,7 @@
 
 use anyhow::Result;
 use brain_context::{authority_rank, resolve_candidates};
-use brain_domain::{MemoryRecord, ProjectId};
+use brain_domain::{MemoryRecord, MemoryStatus, ProjectId};
 use brain_store::EventLedger;
 
 /// Why one memory was proposed over the others.
@@ -167,6 +167,122 @@ fn propose_for(subject: &str, records: &[MemoryRecord]) -> Proposal {
         }
     }
     undecided(sides)
+}
+
+/// What applying the proposals actually did.
+#[derive(Debug, Default, serde::Serialize)]
+pub struct ApplyReport {
+    /// Contradictions folded into one current claim.
+    pub folded: usize,
+    /// Memories that stopped being current.
+    pub superseded: usize,
+    /// Contradictions left alone because derivation could not separate them.
+    pub left_for_you: usize,
+    pub details: Vec<String>,
+}
+
+/// Fold every decided proposal, by supersession.
+///
+/// This is the operation Karpathy's pattern names and this vault had never performed: *"doesn't
+/// just index it for later retrieval — it integrates it into the existing wiki."* Consolidation
+/// re-derives the same claim from overlapping event windows and files each one as a new memory, so
+/// the vault accumulated **duplicates** rather than revisions. Measured before this shipped: 2,097
+/// memories, 2,097 distinct memory ids, and **zero supersession edges** — the entire supersession
+/// lifecycle was schema, reader filters and tests that production had never once exercised.
+///
+/// Two appends per fold, and nothing is ever deleted:
+///
+/// 1. A new version of the **keeper**, carrying `supersedes` edges to each loser's current version.
+///    That is the record of *who* replaced *what*, and it is why the keeper gains a version rather
+///    than staying still — it absorbed the others, which is a revision.
+/// 2. A new version of each **loser** with status `Superseded`, which is what
+///    `current_project_memories` filters on. The old version stays, its evidence stays, and
+///    `brain replay` can still reach both sides.
+///
+/// **Undecidable proposals are skipped, never guessed.** A coin-flip dressed as a rule would be
+/// applied silently and never revisited, which is worse than an honest "you decide".
+pub fn apply(
+    ledger: &mut EventLedger,
+    project_id: ProjectId,
+    now: time::OffsetDateTime,
+) -> Result<ApplyReport> {
+    let report = propose(ledger, project_id)?;
+    let mut applied = ApplyReport::default();
+
+    for proposal in &report.proposals {
+        let Some(keep_id) = proposal.keep else {
+            applied.left_for_you += 1;
+            applied.details.push(format!(
+                "{} — left alone: the sides are level on authority, date and evidence",
+                proposal.subject
+            ));
+            continue;
+        };
+        let Some(keeper) = ledger.current_memory(keep_id)? else {
+            continue;
+        };
+
+        // Resolve every loser's current version *before* writing anything, so a stale id fails the
+        // whole fold rather than leaving a half-folded subject behind.
+        let mut losers = Vec::new();
+        for memory_id in &proposal.supersede {
+            if let Some(record) = ledger.current_memory(*memory_id)? {
+                losers.push(record);
+            }
+        }
+        if losers.is_empty() {
+            continue;
+        }
+
+        let mut revised = keeper.clone();
+        revised.version_id = uuid::Uuid::now_v7();
+        revised.recorded_at = now;
+        revised.supersedes = losers.iter().map(|loser| loser.version_id).collect();
+        revised.status = MemoryStatus::Current;
+        ledger.append_memory(&revised)?;
+
+        for loser in &losers {
+            let mut retired = loser.clone();
+            retired.version_id = uuid::Uuid::now_v7();
+            retired.recorded_at = now;
+            retired.status = MemoryStatus::Superseded;
+            // No `supersedes` on the retirement itself: the edge belongs on the keeper, where it
+            // reads forwards. Duplicating it here would double-count every fold.
+            retired.supersedes = Vec::new();
+            ledger.append_memory(&retired)?;
+        }
+
+        applied.folded += 1;
+        applied.superseded += losers.len();
+        applied.details.push(format!(
+            "{} — kept \"{}\", superseded {}",
+            proposal.subject,
+            keeper.title,
+            losers.len()
+        ));
+    }
+    Ok(applied)
+}
+
+pub fn render_apply(report: &ApplyReport) -> String {
+    if report.folded == 0 && report.left_for_you == 0 {
+        return "nothing to fold\n".to_owned();
+    }
+    let mut out = format!(
+        "folded {} contradiction{} · {} memories superseded · {} left for you\n\n",
+        report.folded,
+        if report.folded == 1 { "" } else { "s" },
+        report.superseded,
+        report.left_for_you
+    );
+    for detail in &report.details {
+        out.push_str(&format!("  {detail}\n"));
+    }
+    out.push_str(
+        "\nNothing was deleted. Every superseded version keeps its evidence and stays reachable \
+         through `brain replay` and `brain verify memory`.\n",
+    );
+    out
 }
 
 /// Render a report for a human to act on.

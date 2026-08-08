@@ -147,6 +147,10 @@ enum Command {
     Reconcile {
         #[arg(long)]
         project: String,
+        /// Fold every decided proposal by supersession. Nothing is deleted; the losing versions
+        /// keep their evidence and stay reachable. Undecidable contradictions are left alone.
+        #[arg(long)]
+        apply: bool,
         #[arg(long)]
         json: bool,
     },
@@ -1146,16 +1150,33 @@ fn main() -> Result<()> {
                 print!("{}", brain_cli::render_explain(&report));
             }
         }
-        Command::Reconcile { project, json } => {
+        Command::Reconcile {
+            project,
+            apply,
+            json,
+        } => {
             let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
             let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
             let project_config = config.project(Some(project_id))?;
-            let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
-            let report = brain_cli::propose_reconciliation(&ledger, project_id)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&report)?);
+            let mut ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            if apply {
+                let applied = brain_cli::apply_reconciliation(
+                    &mut ledger,
+                    project_id,
+                    time::OffsetDateTime::now_utc(),
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&applied)?);
+                } else {
+                    print!("{}", brain_cli::render_reconcile_apply(&applied));
+                }
             } else {
-                print!("{}", brain_cli::render_reconcile(&report));
+                let report = brain_cli::propose_reconciliation(&ledger, project_id)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print!("{}", brain_cli::render_reconcile(&report));
+                }
             }
         }
         Command::Evict {
