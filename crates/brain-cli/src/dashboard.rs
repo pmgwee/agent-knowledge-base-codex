@@ -69,6 +69,8 @@ pub struct ProjectDashboard {
     /// The consolidation queue. Memories arriving slowly and a project where less happened look
     /// identical from outside, and only this tells them apart.
     pub consolidation: brain_store::ConsolidationQueue,
+    /// Memory lifecycle: what retrieval has reached, and what has gone quiet.
+    pub lifecycle: LifecycleSummary,
     /// How far the vector index has got. Retrieval quality depends on it while it is filling,
     /// and a half-built index is indistinguishable from a complete one that simply misses things
     /// unless something says so.
@@ -78,6 +80,23 @@ pub struct ProjectDashboard {
     pub deliveries_today: DeliverySummary,
     pub deliveries_7d: DeliverySummary,
     pub deliveries_30d: DeliverySummary,
+}
+
+/// What the brain's memories are doing, as opposed to how many there are.
+///
+/// A count of memories says the brain is growing. These say whether it is being *used* — the
+/// distinction between remembering and merely storing, and the one nothing on the dashboard could
+/// previously make.
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+pub struct LifecycleSummary {
+    /// Retrieval has never returned these.
+    pub never_retrieved: u64,
+    /// Old *and* never retrieved. Marked in the vault, demoted in the orientation, never deleted.
+    pub stale: u64,
+    /// Sharing evidence with no other memory, so no wikilink reaches them.
+    pub unlinked: u64,
+    /// Deliberately withdrawn.
+    pub withdrawn: u64,
 }
 
 /// Vector index coverage for one project.
@@ -217,6 +236,15 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
 
         let memory_records = ledger.memory_count()?;
         let consolidation = ledger.consolidation_queue()?;
+        let lifecycle = LifecycleSummary {
+            never_retrieved: ledger.never_retrieved_memory_count().unwrap_or(0),
+            stale: ledger
+                .stale_memory_ids(now, time::Duration::days(90))
+                .map(|ids| ids.len() as u64)
+                .unwrap_or(0),
+            unlinked: ledger.memories_without_shared_evidence().unwrap_or(0) as u64,
+            withdrawn: ledger.tombstones().map(|t| t.len() as u64).unwrap_or(0),
+        };
         let (memories_embedded, memories_remaining) = ledger.embedding_coverage()?;
         let (events_embedded, events_remaining) = ledger.event_embedding_coverage()?;
         let embeddings = EmbeddingCoverage {
@@ -264,6 +292,7 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
             unresolved_capture_gaps: status.unresolved_capture_gaps,
             active_schema_drifts: status.active_schema_drifts,
             memory_records,
+            lifecycle,
             consolidation,
             embeddings,
             ledger_bytes,
