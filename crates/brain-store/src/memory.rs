@@ -148,6 +148,11 @@ impl EventLedger {
             )?;
         }
         transaction.commit()?;
+        // `PRAGMA data_version` does not move for a write on this same connection, so the search
+        // cache cannot notice this and has to be told. `append_batch` already did; this did not,
+        // which meant a process that wrote a memory and then searched could be served a result
+        // predating it.
+        self.search_cache.borrow_mut().clear();
         Ok(())
     }
 
@@ -155,7 +160,14 @@ impl EventLedger {
         load_project_versions(&self.connection, self.project_scope, memory_id)
     }
 
+    /// The current version of a memory, or `None` if it was withdrawn.
+    ///
+    /// Withdrawal is checked here rather than by callers so that a single lookup and a listing
+    /// cannot disagree about whether a memory exists.
     pub fn current_memory(&self, memory_id: uuid::Uuid) -> Result<Option<MemoryRecord>> {
+        if self.tombstone(memory_id)?.is_some() {
+            return Ok(None);
+        }
         Ok(self.memory_versions(memory_id)?.pop())
     }
 
@@ -206,8 +218,15 @@ impl EventLedger {
         let ids = rows
             .map(|row| Ok(uuid::Uuid::parse_str(&row?)?))
             .collect::<Result<Vec<_>>>()?;
+        // Withdrawn memories are filtered here rather than at each caller, because this is the
+        // one query the projection and the export both go through. A read path that forgot would
+        // resurrect a memory the user believed they had removed.
+        let withdrawn = self.tombstoned_ids()?;
         let mut memories = Vec::with_capacity(ids.len());
         for id in ids {
+            if withdrawn.contains(&id) {
+                continue;
+            }
             if let Some(memory) = self.current_memory(id)?
                 && !matches!(
                     memory.status,

@@ -80,6 +80,18 @@ enum Command {
         #[arg(long)]
         limit: Option<usize>,
     },
+    /// Withdraw a memory. The claim stops being returned, projected or read; the ledger keeps
+    /// the evidence and records the withdrawal.
+    Forget {
+        #[arg(long)]
+        project: String,
+        /// The memory id, with or without a `memory:` prefix.
+        #[arg(long)]
+        id: String,
+        /// Why. Required — a withdrawal with no reason is indistinguishable from corruption later.
+        #[arg(long)]
+        reason: String,
+    },
     /// Write a project's memories and their evidence to a directory.
     Export {
         #[arg(long)]
@@ -888,6 +900,28 @@ fn main() -> Result<()> {
         } => {
             let report = rebuild_basic_memory(&brain_home, parse_project_id(&project)?)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Forget {
+            project,
+            id,
+            reason,
+        } => {
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let memory_id = uuid::Uuid::parse_str(id.trim().trim_start_matches("memory:"))
+                .context("memory id must be a UUID, optionally prefixed with `memory:`")?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let mut ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let who = std::env::var("USERNAME")
+                .or_else(|_| std::env::var("USER"))
+                .unwrap_or_else(|_| "unknown".to_owned());
+            let tombstone =
+                ledger.forget_memory(memory_id, &reason, &who, time::OffsetDateTime::now_utc())?;
+            println!("{}", serde_json::to_string_pretty(&tombstone)?);
+            eprintln!(
+                "Withdrawn. The memory will stop appearing in search, orientation and the vault 
+                 at the next projection. Its evidence is untouched and the withdrawal is on record."
+            );
         }
         Command::Export {
             project,

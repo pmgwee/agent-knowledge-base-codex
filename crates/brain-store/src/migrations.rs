@@ -433,6 +433,31 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_event_embeddings_project
             ON event_embeddings(project_id, model);
 
+        -- Taking a claim back, without breaking append-only.
+        --
+        -- A hard delete would violate the invariant this ledger is built on, and keeping no way
+        -- to withdraw anything is its own failure: this holds every keystroke of somebody's work,
+        -- and a memory system you cannot take something back out of is one you cannot trust with
+        -- anything you might regret.
+        --
+        -- A tombstone resolves that. The memory and its evidence stay exactly where they are; the
+        -- tombstone is a new row saying it must no longer be returned, projected, or read. Every
+        -- read path honours it, so the user-visible result is deletion, while the ledger only ever
+        -- grew — and the withdrawal itself is now a fact on the record rather than a silent hole.
+        --
+        -- `reason` is required rather than optional because a tombstone with no reason is
+        -- indistinguishable from corruption six months later.
+        CREATE TABLE IF NOT EXISTS memory_tombstones (
+            memory_id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            redacted_by TEXT NOT NULL,
+            redacted_at_ns INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_memory_tombstones_project
+            ON memory_tombstones(project_id);
+
         CREATE VIRTUAL TABLE IF NOT EXISTS event_search USING fts5(
             scope_token,
             content,

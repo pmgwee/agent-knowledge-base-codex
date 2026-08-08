@@ -46,6 +46,8 @@ pub struct ExportReport {
     pub files: Vec<PathBuf>,
     /// Memories whose evidence could not be resolved. Always empty on a healthy brain.
     pub memories_missing_evidence: usize,
+    /// Withdrawn memories, exported as tombstones rather than content.
+    pub tombstones: usize,
 }
 
 /// Export a project.
@@ -82,6 +84,24 @@ pub fn export_project(
         files.extend(write_markdown(destination, &memories)?);
     }
 
+    // Withdrawals travel too. A bundle that simply omitted them would have a gap and no
+    // explanation, which is the same shape as a bundle that lost data — and the whole reason a
+    // withdrawal is a tombstone rather than a delete is so absence is never ambiguous.
+    let tombstones = ledger.tombstones()?;
+    if !tombstones.is_empty() {
+        let path = destination.join("tombstones.jsonl");
+        let mut file = std::io::BufWriter::new(std::fs::File::create(&path)?);
+        for tombstone in &tombstones {
+            serde_json::to_writer(&mut file, tombstone)?;
+            file.write_all(
+                b"
+",
+            )?;
+        }
+        file.flush()?;
+        files.push(path);
+    }
+
     let bytes = files
         .iter()
         .filter_map(|path| std::fs::metadata(path).ok())
@@ -96,6 +116,7 @@ pub fn export_project(
         bytes,
         files,
         memories_missing_evidence: missing_evidence,
+        tombstones: tombstones.len(),
     })
 }
 

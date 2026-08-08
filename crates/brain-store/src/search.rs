@@ -677,6 +677,12 @@ impl EventLedger {
                   AND (?6 IS NULL OR v.worktree_id = ?6)
                   AND (?7 IS NULL OR v.task_id = ?7)
                   AND v.status NOT IN ('invalid', 'superseded')
+                  -- A withdrawn memory is gone as far as every reader is concerned. Filtered in
+                  -- SQL rather than after the fact so it never occupies a result slot it would
+                  -- then be removed from, which would silently shorten a caller's `limit`.
+                  AND NOT EXISTS (
+                      SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
+                  )
                   AND NOT EXISTS (
                       SELECT 1
                       FROM memory_supersession s
@@ -708,6 +714,12 @@ impl EventLedger {
                   AND (?6 IS NULL OR v.worktree_id = ?6)
                   AND (?7 IS NULL OR v.task_id = ?7)
                   AND v.status NOT IN ('invalid', 'superseded')
+                  -- A withdrawn memory is gone as far as every reader is concerned. Filtered in
+                  -- SQL rather than after the fact so it never occupies a result slot it would
+                  -- then be removed from, which would silently shorten a caller's `limit`.
+                  AND NOT EXISTS (
+                      SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
+                  )
                   AND NOT EXISTS (
                       SELECT 1
                       FROM memory_supersession s

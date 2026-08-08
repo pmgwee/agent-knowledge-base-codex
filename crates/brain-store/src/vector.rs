@@ -89,6 +89,9 @@ impl EventLedger {
             WHERE r.project_id = ?1
               AND e.version_id IS NULL
               AND v.status = 'current'
+              AND NOT EXISTS (
+                  SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
+              )
             ORDER BY v.recorded_at_ns DESC
             LIMIT ?3
             "#,
@@ -203,6 +206,9 @@ impl EventLedger {
             FROM memory_embeddings e
             JOIN memory_versions v ON v.version_id = e.version_id
             WHERE e.project_id = ?1 AND e.model = ?2 AND v.status = 'current'
+              AND NOT EXISTS (
+                  SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
+              )
             "#,
         )?;
         let rows = statement.query_map(

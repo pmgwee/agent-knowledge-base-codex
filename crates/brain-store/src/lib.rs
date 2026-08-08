@@ -16,6 +16,7 @@ mod notes;
 mod provider_cache;
 mod search;
 mod segment;
+mod tombstone;
 mod upgrade;
 mod vector;
 
@@ -49,6 +50,7 @@ pub use search::{SearchHit, SearchQuery, SearchSource, SearchSourceFilter, TimeR
 pub use segment::{
     SEGMENT_FORMAT_VERSION, SegmentManifest, SegmentSealReport, SegmentStore, should_seal,
 };
+pub use tombstone::Tombstone;
 pub use upgrade::{UpgradeIssue, UpgradeManager, UpgradeReport, UpgradeStageReport};
 pub use vector::{
     EMBEDDING_MODEL, EventVectorHit, PendingEmbedding, PendingEventEmbedding, VectorHit,
