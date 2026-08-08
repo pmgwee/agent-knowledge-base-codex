@@ -6,36 +6,66 @@ proved, and where the dashboard goes.
 Written 2026-08-08. Every status below was checked against the code or the live system, not
 recalled.
 
-**Progress since:** Waves 0 and 2 are complete, and Wave 3 is under way. Shipped items are struck
-through in the tables below and listed in *What has shipped*, immediately after this line.
+**Status as of 2026-08-08, checked against the live system.** Waves 0, 1, 2, 4 and 5 are complete;
+Wave 3 is complete except for two generation steps that need provider quota.
+
+---
+
+## Every item, and where it actually stands
+
+| Wave | Item | State | Evidence |
+|---|---|---|---|
+| 0.1 | Deliveries counted at receipt | **Shipped** | `407d345` — a dropped outcome records nothing |
+| **0.2** | **Consolidation drained** | **Quota-bound** | 1,683 pending / 2,884 completed; 290 of 294 deferrals were HTTP 429 |
+| 0.3 | Queue and dead letters visible | **Shipped** | `6d8c6cd` — pending/leased/completed/dead per project |
+| 1 | LongMemEval-S measured | **Shipped** | 90.0% R@5 baseline reproduced; rerank measured *worse* |
+| 2.1 | `brain export` | **Shipped** | `5c6eebc` — 41 MB, zero unresolved citations |
+| 2.2 | `brain forget` | **Shipped** | `b05e67f` — one test walks all six read paths |
+| 2.3 | `brain verify memory` | **Shipped** | `fa610b0` — resolves to `…jsonl:1051092` |
+| 3.1 | Orientation ranked by relevance | **Shipped** | `bc75702` — alphabetical selection was the bug |
+| 3.2a | Subject pages, derived | **Shipped** | `56cfb8a` — **450 pages** live |
+| **3.2b** | **Synthesis prose** | **Partial** | `2e02dac` — validator, store, rendering shipped and tested; the generation call needs quota to verify |
+| 3.3 | Session boundary + episodic consolidation | **Shipped** | `53cc870` `d603260` — 3 `session.ended`, 3 `session_stopped` jobs, from zero ever |
+| 3.4 | Cross-encoder rerank | **Shipped, off** | `4658271` — measured *harmful* on preference; see below |
+| 3.5 | `PreCompact` hook | **Cut** | Redundant — `SessionStart` already re-fires after compaction |
+| 3.6 | `brain remember` | **Shipped** | `22f9e97` — uncited claims refused at the argument level |
+| 3.7 | `brain lint` | **Shipped** | `7816bc3` — found 4 contradictions and 660 islands |
+| 3.8 | Greppable vault log | **Shipped** | `e78762a` |
+| **3.9** | **CodeGraph on the brain's pull path** | **Dissolved** | Not built, and should not be — see below |
+| 4.1 | Access counting | **Shipped** | `11f91dc` — per result, not per search |
+| 4.2 | Staleness surfaced | **Shipped** | `6707add` `2ba9729` — **23 notes** flagged |
+| 4.3 | Gated eviction | **Shipped, gated** | `73655b2` — refuses for ~29 more days by design |
+| 5 | Lifecycle + retrieval panels | **Shipped** | `7d12c15` `a4ce736` |
+
+### The three that are not simply "done"
+
+**0.2 is quota-bound, not code-bound.** 1,683 jobs pending against 2,884 completed. The deferral
+path is working exactly as designed — no attempt consumed, nothing lost — and it finishes when
+quota allows. There is no work here to do.
+
+**3.2b is deliberately incomplete.** The validator, the store and the rendering are shipped and
+covered by 16 tests. The generation call is not built, and the reason is not laziness: a subject
+page that only links *cannot* contradict the ledger and a paragraph *can*, so the citation
+validation wants to be watched rejecting a real bad citation from a real provider before prose
+reaches the vault. Building it against a stub and shipping it unverified would invert the whole
+argument for the validator existing.
+
+**3.9 was dissolved, not skipped.** CodeGraph runs its **own** MCP server and registers itself with
+both harnesses — it is registered in `~/.claude.json` and `~/.codex/config.toml`, all three projects
+are indexed, and it answers through a `UserPromptSubmit` hook. The brain's internal `codegraph`
+provider remains `enabled: false`, and that is the correct end state: proxying it would build a
+second path to data both agents already reach directly.
+
+### What the benchmark decided about 3.4
+
+Shipped **off by default**, and the measurement is why rather than caution. See *The benchmark
+result* below: re-ranking cost 3.3 points of R@5 and 8.2% of MRR on the category hybrid retrieval
+exists for. `--rerank` remains available for factual questions, where it separates cleanly
+(6.230 / 2.365 / −11.348) and has not yet been benchmarked.
 
 ---
 
 ## What has shipped
-
-| Item | Commit | Verified by |
-|---|---|---|
-| **0.1** Deliveries counted at receipt, not at compile | `407d345` | An outcome dropped without recording leaves zero rows; recording it leaves one |
-| **0.3** Consolidation queue and dead letters on the dashboard | `6d8c6cd` | Live snapshot shows pending / leased / completed / dead per project |
-| **2.1** `brain export` | `5c6eebc` | 2,045 memories, 3,382 events, 41 MB, zero unresolved citations |
-| **2.3** `brain verify memory` | `fa610b0` | Resolves a real claim to `…jsonl:1051092` with the originating turn quoted |
-| **2.2** `brain forget` as a tombstone | `b05e67f` | A withdrawn memory leaves listing, lookup, both keyword statements, the vector channel and the embedding queue — one test walks all six |
-| **3.1** Orientation ranked by relevance | `bc75702` | A ranked memory outranks one that only sorts earlier; unranked ones are demoted, not dropped |
-| **3.8** Greppable vault `log.md` | `e78762a` | `grep "^## \[" log.md \| tail -5` returns the last projections |
-| **3.2a** Subject pages, derived | `56cfb8a` | 150 pages live in the vault — `rrf`, `longmemeval`, `sessionstart`, `vcruntime140`, `mcp` — each asserting nothing of its own |
-| **3.7** `brain lint` | `7816bc3` | Found 4 contradictions, 660 islands (31.5%), and 4 memories dated 1970-01-01 nobody was looking for |
-| **4.1** Access counting | `11f91dc` | Counted per result, not per search; never-retrieved share reported by lint |
-| **3.6** `brain remember` | `22f9e97` | An uncited claim is refused; a correction supersedes without deleting |
-| **4.2** Staleness surfaced | `6707add` `2ba9729` | `stale: true` in note frontmatter, demoted in the orientation, reversed by retrieval |
-| **5** Memory lifecycle on the dashboard | `7d12c15` | Retrieved / stale / unlinked / withdrawn per project, live |
-| **3.9** CodeGraph installed and wired | — | v1.5.0 via npm (provenance verified), telemetry off, all 3 projects indexed |
-| — Mixed search returned no memories at all | `fafff21` | Events and memories were merged by incomparable BM25 scores; 0 of 5 benchmark questions returned a memory, now 2 of 5 |
-| — Abandoned staging directories collected | `b4ffb34` | 5,834 orphaned vault files, and both directions pinned by test |
-| — Job failures record why, not just what | `6d8c6cd` | Parse errors now name the field; three dead letters had said nothing |
-
-**0.2 is quota-bound, not code-bound.** This project's queue drained to zero; the other two sit at
-1,691 and 373 pending. 290 of 294 provider deferrals were plain HTTP 429, and the deferral path is
-working exactly as designed — no attempt consumed, nothing lost. It finishes when quota allows.
 
 **3.5 turned out to be mostly redundant, and is cut.** `SESSION_MATCHER` is
 `startup|resume|clear|compact|fork`, so Claude Code already re-fires `SessionStart` *after* a
@@ -106,20 +136,25 @@ preference"; the measurement is stronger than the prediction, and the number is 
 
 ## What is blocked, and on what
 
-Four items cannot be completed by writing code, and each is blocked on something specific rather
-than on effort.
+**One item, and it is not blocked on work.**
 
 | Item | Blocked on | What it would take |
 |---|---|---|
-| **1** The benchmark | **Overstated, and now partly unblocked.** This project holds 93 pending against 398 completed and the benchmark's five tasks are all historical, so their memories exist. What blocked it in practice was retrieval, not quota — see `fafff21`. Still worth draining before a headline number | Re-check retrieval quality, then a day's runs with the service stopped |
-| ~~**3.9** CodeGraph~~ | **Done differently than planned.** CodeGraph runs its *own* MCP server (`codegraph_explore`) and wires itself into Claude Code and Codex — the brain never needed to proxy it. Installed v1.5.0 via npm with provenance verified, telemetry off, and all three projects indexed | — |
-| **3.4** Cross-encoder rerank | **A second model — and the case for it just got stronger.** After `fafff21` memories are reachable but badly ranked: a crt-static question returns a memory about the embedding model. Reachability was the keyword-channel bug; relevance is the bi-encoder limitation, and a cross-encoder is what fixes it | Install a reranker checkpoint the same way `all-MiniLM-L6-v2` was, then re-run LongMemEval to confirm it beats 90.0% |
-| **4.3** Eviction | **Time.** The access counter began collecting yesterday. Evicting on it now would retire memories for having been recorded before the counter existed | Thirty days of access data, then a dry run showing what it *would* have evicted |
+| **0.2** Consolidation drain | **Provider quota.** 1,683 pending against 2,884 completed; 290 of 294 deferrals were plain HTTP 429. The deferral path works as designed — no attempt consumed, nothing lost | Nothing. It drains itself when quota returns |
+| **3.2b** The generation call | **Verification, not code.** The validator, store and rendering are shipped; the provider call is not, because prose that can contradict the ledger should not ship on a stub's say-so | Watch the citation validation refuse a real bad citation from a live provider, then wire it |
 
-**3.2b and 3.3 are buildable but were not built**, and the honest reason is that both need the LLM
-provider that is currently rate-limited, so neither could be verified end to end in this session.
-3.2b is riskier than it looks: a subject page that only links cannot contradict the ledger, and a
-paragraph can — so it wants the citation validation working against a live provider, not a stub.
+Everything else on the original blocked list has resolved:
+
+- **Wave 1** was never quota-blocked — that was my error. What blocked it was retrieval (`fafff21`),
+  and once fixed the benchmark ran and produced the numbers above.
+- **3.4** shipped, and the benchmark says leave it off for preference questions. The prediction that
+  it would not help was right; the measurement that it actively hurts was worse than predicted.
+- **3.9** dissolved. CodeGraph runs its own MCP against both harnesses; the brain's provider stays
+  off deliberately.
+- **4.3** shipped with its gate. The clock is the only remaining input, and the gate enforces it
+  rather than trusting anyone to remember.
+- **3.3** shipped and is firing: three `session.ended` events and three `session_stopped`
+  consolidation jobs, against zero in the system's entire prior history.
 
 ---
 
