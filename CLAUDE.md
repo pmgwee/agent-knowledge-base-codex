@@ -215,6 +215,25 @@ R@10 on the preference category goes 73.3% → 96.7%. The second row is the regr
 a win: it is the category BM25 already tops out on, and the point is that fusion costs nothing
 there. Session diversification alone moves neither, measured separately.
 
+**Re-ranking was measured on the same 30 instances and it is a regression, not a gain.** Same
+corpus, same 14,551 vectors, one switch changed:
+
+| Configuration | R@5 | R@10 | MRR | Elapsed |
+|---|---|---|---|---|
+| BM25 + vector, RRF-fused | **90.0%** | 96.7% | **0.779** | 870 s |
+| …plus cross-encoder rerank | 86.7% | 96.7% | 0.715 | 1,084 s |
+
+R@10 is unchanged, which locates the damage exactly: the answering session is still *retrieved*,
+and re-ranking moves it **down** out of the top five. MRR falls 8.2%, a larger relative drop than
+R@5, because the cost is spread across ordering rather than concentrated in one lost instance. It
+also costs 214 s — 25% more — to do it.
+
+This is the vocabulary gap from the entry above, now measured end to end rather than on a fixture:
+the cross-encoder scores confidently and puts the wrong turn first. **Leave `--rerank` off for
+preference-shaped questions.** It remains available because it separates cleanly on factual ones
+(6.230 / 2.365 / −11.348), and that half has not been benchmarked yet — but nothing should turn it
+on globally on the strength of that.
+
 The full 500-instance number has **not** been run. Each hybrid instance costs ~25 s of embedding,
 so a full sweep is several hours and contends directly with the service's own backfill.
 

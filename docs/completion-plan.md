@@ -79,6 +79,31 @@ Other findings worth carrying forward:
 
 ---
 
+## The benchmark result, and what it decided
+
+Wave 1 ran. Thirty `single-session-preference` instances, 1,427 sessions, 14,734 turns, 14,551
+vectors, the service stopped so the machine was the run's own.
+
+| Configuration | R@5 | R@10 | MRR | Elapsed |
+|---|---|---|---|---|
+| BM25 + vector, RRF-fused | **90.0%** | 96.7% | **0.779** | 870 s |
+| …plus cross-encoder rerank | 86.7% | 96.7% | 0.715 | 1,084 s |
+
+**The baseline reproduced exactly** — 90.0 / 96.7 / 0.779, matching the figure recorded before any
+of today's retrieval work. So splitting events and memories into separate keyword channels
+(`fafff21`) cost this category nothing, which is the regression check that mattered.
+
+**Re-ranking made it worse.** R@10 is identical, which locates the damage precisely: the answering
+session is still retrieved, and the cross-encoder moves it *down* out of the top five. MRR falls
+further than R@5 does, so the cost is spread through the ordering rather than concentrated in one
+lost instance. It spends 25% more wall-clock to do it.
+
+That is the vocabulary gap measured end to end rather than on a fixture, and it is the reason
+3.4 shipped **off by default**. The prediction written before the run was "it will not help
+preference"; the measurement is stronger than the prediction, and the number is what stands.
+
+---
+
 ## What is blocked, and on what
 
 Four items cannot be completed by writing code, and each is blocked on something specific rather
