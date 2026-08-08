@@ -28,6 +28,8 @@ through in the tables below and listed in *What has shipped*, immediately after 
 | **3.6** `brain remember` | `22f9e97` | An uncited claim is refused; a correction supersedes without deleting |
 | **4.2** Staleness surfaced | `6707add` `2ba9729` | `stale: true` in note frontmatter, demoted in the orientation, reversed by retrieval |
 | **5** Memory lifecycle on the dashboard | `7d12c15` | Retrieved / stale / unlinked / withdrawn per project, live |
+| **3.9** CodeGraph installed and wired | — | v1.5.0 via npm (provenance verified), telemetry off, all 3 projects indexed |
+| — Mixed search returned no memories at all | `fafff21` | Events and memories were merged by incomparable BM25 scores; 0 of 5 benchmark questions returned a memory, now 2 of 5 |
 | — Abandoned staging directories collected | `b4ffb34` | 5,834 orphaned vault files, and both directions pinned by test |
 | — Job failures record why, not just what | `6d8c6cd` | Parse errors now name the field; three dead letters had said nothing |
 
@@ -84,9 +86,9 @@ than on effort.
 
 | Item | Blocked on | What it would take |
 |---|---|---|
-| **1** The benchmark | **Provider quota.** 290 of 294 deferrals were plain HTTP 429, and two projects still hold 1,691 and 373 pending jobs. A saving measured over a half-consolidated brain measures the backlog | The queue draining, then a day's runs with the service stopped |
-| **3.9** CodeGraph | **Third-party software.** The binary is not installed and not on `PATH`; fetching and running it is a decision for the machine's owner, not one to make on their behalf | Install the binary, then `brain providers configure codegraph` |
-| **3.4** Cross-encoder rerank | **A second model.** Needs a cross-encoder checkpoint alongside the bi-encoder, roughly doubling per-query cost. Worth it — the measured failure is real — but it is a deliberate download and a latency budget, not a refactor | Choose and install a reranker, then re-run LongMemEval to confirm it beats 90.0% |
+| **1** The benchmark | **Overstated, and now partly unblocked.** This project holds 93 pending against 398 completed and the benchmark's five tasks are all historical, so their memories exist. What blocked it in practice was retrieval, not quota — see `fafff21`. Still worth draining before a headline number | Re-check retrieval quality, then a day's runs with the service stopped |
+| ~~**3.9** CodeGraph~~ | **Done differently than planned.** CodeGraph runs its *own* MCP server (`codegraph_explore`) and wires itself into Claude Code and Codex — the brain never needed to proxy it. Installed v1.5.0 via npm with provenance verified, telemetry off, and all three projects indexed | — |
+| **3.4** Cross-encoder rerank | **A second model — and the case for it just got stronger.** After `fafff21` memories are reachable but badly ranked: a crt-static question returns a memory about the embedding model. Reachability was the keyword-channel bug; relevance is the bi-encoder limitation, and a cross-encoder is what fixes it | Install a reranker checkpoint the same way `all-MiniLM-L6-v2` was, then re-run LongMemEval to confirm it beats 90.0% |
 | **4.3** Eviction | **Time.** The access counter began collecting yesterday. Evicting on it now would retire memories for having been recorded before the counter existed | Thirty days of access data, then a dry run showing what it *would* have evicted |
 
 **3.2b and 3.3 are buildable but were not built**, and the honest reason is that both need the LLM

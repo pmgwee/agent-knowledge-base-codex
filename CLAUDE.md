@@ -157,6 +157,11 @@ our fusion is the one everyone else measured.
 - **`rank_score`, not `bm25_score`.** A hit found only by meaning has a BM25 score of zero. Any
   re-ranking caller that reads `bm25_score` scores it as worthless and silently undoes the
   fusion — see the comment in `crates/brain-context/src/retrieval.rs`.
+- **Events and memories are separate keyword channels.** They live in different FTS tables with
+  different field weights and corpus statistics, so their BM25 scores are on incompatible scales.
+  Merging them into one list and sorting by raw score let the larger corpus win everything —
+  measured, events scored to 16.7 and memories to 13.2, and a mixed search over 25,174 events and
+  2,097 memories returned zero memories while 44 matched. Fuse by rank; never merge by score.
 - **The vector channel re-applies every caller filter.** Time range, worktree, task, session,
   and — for memories — as-of and supersession. A channel that selected by id without those would
   resurrect retracted memories as current, on machines with a model and not on machines without.
