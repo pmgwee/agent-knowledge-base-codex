@@ -26,6 +26,48 @@ pub struct DashboardSnapshot {
     pub projects: Vec<ProjectDashboard>,
     pub storage: StorageDashboard,
     pub health: HealthDashboard,
+    /// What retrieval would do with a query right now.
+    pub retrieval: RetrievalDashboard,
+}
+
+/// How retrieval is actually configured, and which of its stages can run.
+///
+/// Every retrieval defect found in this project so far was invisible in exactly the same way: the
+/// *configuration* looked right and the *capability* was absent. The vector channel silently off
+/// because no model was installed; the reranker installed but not enabled; a channel present and
+/// contributing nothing. A count of memories cannot distinguish any of those from a brain with
+/// less to say, so this states each stage's weight next to whether it is actually running.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct RetrievalDashboard {
+    /// The fusion method, in words, so the number below is never read as a similarity.
+    pub fusion: String,
+    pub configuration: brain_store::RetrievalConfiguration,
+    pub channels: Vec<RetrievalChannel>,
+    pub rerank: RerankState,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct RetrievalChannel {
+    pub name: String,
+    pub weight: f64,
+    /// Whether this channel can contribute at all right now.
+    pub available: bool,
+    pub detail: String,
+}
+
+/// The cross-encoder stage: installed, and separately, on.
+///
+/// Two booleans rather than one because they fail differently and both silently. Not installed
+/// means no checkpoint on disk. Installed but off is the *normal* state — it costs ~90 ms per
+/// candidate, so callers opt in per query — and a reader who sees only "installed" would reasonably
+/// conclude their searches were being re-ranked when none of them were.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct RerankState {
+    pub installed: bool,
+    pub on_by_default: bool,
+    pub depth: usize,
+    pub measured_ms_per_candidate: u32,
+    pub detail: String,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -313,6 +355,8 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
 
     let capture_blocked = !service_running || any_binary_missing;
 
+    let retrieval = read_retrieval(brain_home);
+
     Ok(DashboardSnapshot {
         schema_version: 1,
         generated_at: now,
@@ -327,6 +371,7 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
         },
         deployment: read_deployment(brain_home),
         projects,
+        retrieval,
         storage: StorageDashboard {
             brain_home_bytes,
             backup_root_bytes,
@@ -454,4 +499,79 @@ fn format_recovery_command(
         bin.display()
     ));
     cmd
+}
+
+/// Report retrieval's live shape: the weights, and which stages can actually fire.
+///
+/// Availability is decided by what is on disk, not by what the code supports, because those are the
+/// two things that diverge. A brain with no `all-MiniLM-L6-v2` searches by keyword exactly as
+/// designed — that is not a fault, and the panel says so rather than showing a red mark — but a
+/// brain that *has* the model and is somehow not using it is a real defect, and only stating both
+/// halves makes the two distinguishable.
+fn read_retrieval(brain_home: &Path) -> RetrievalDashboard {
+    let configuration = brain_store::retrieval_configuration();
+    let model_installed = brain_store::default_model_dir(brain_home).is_dir();
+    let reranker_installed = brain_store::default_reranker_dir(brain_home)
+        .join("model.safetensors")
+        .is_file();
+
+    let channels = vec![
+        RetrievalChannel {
+            name: "BM25 (events)".to_owned(),
+            weight: configuration.bm25_weight,
+            available: true,
+            detail: "FTS5 over captured turns. Always available.".to_owned(),
+        },
+        RetrievalChannel {
+            name: "BM25 (memories)".to_owned(),
+            weight: configuration.bm25_weight,
+            available: true,
+            // Worth stating on the panel rather than only in a commit message: merging these two
+            // and sorting by raw score let the larger corpus take every slot, and no memory was
+            // reachable at all while it looked like working code.
+            detail: "A separate channel from events — different corpus, incomparable scores."
+                .to_owned(),
+        },
+        RetrievalChannel {
+            name: "Vector".to_owned(),
+            weight: configuration.vector_weight,
+            available: model_installed,
+            detail: if model_installed {
+                "all-MiniLM-L6-v2, 384-dim cosine.".to_owned()
+            } else {
+                "No model installed — retrieval is keyword-only, which is a supported state."
+                    .to_owned()
+            },
+        },
+        RetrievalChannel {
+            name: "Graph".to_owned(),
+            weight: configuration.graph_weight,
+            available: true,
+            detail: "One hop across shared evidence. Needs no model.".to_owned(),
+        },
+    ];
+
+    RetrievalDashboard {
+        fusion: format!(
+            "Reciprocal Rank Fusion, k={}. Fused by rank — never by score.",
+            configuration.rrf_k
+        ),
+        channels,
+        rerank: RerankState {
+            installed: reranker_installed,
+            // Never on by default, and this is deliberate rather than pending. See the measurement
+            // in `crates/brain-store/tests/reranker_model.rs`.
+            on_by_default: false,
+            depth: configuration.rerank_depth,
+            measured_ms_per_candidate: 90,
+            detail: if reranker_installed {
+                "ms-marco-MiniLM-L6-v2, opt-in per query. Sharpens ordering among candidates that \
+                 share the question's vocabulary; measured not to bridge a vocabulary gap."
+                    .to_owned()
+            } else {
+                "No cross-encoder installed — the fused order stands.".to_owned()
+            },
+        },
+        configuration,
+    }
 }

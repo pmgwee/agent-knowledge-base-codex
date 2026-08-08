@@ -1490,3 +1490,31 @@ mod tests {
         }
     }
 }
+
+/// How retrieval is configured, for reporting rather than for use.
+///
+/// Exposed as a function over the constants rather than by making them `pub`, so there stays exactly
+/// one definition of each. A dashboard that carried its own copy of the weights would eventually
+/// display a configuration the ledger had stopped using — and it would look right.
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+pub struct RetrievalConfiguration {
+    pub rrf_k: f64,
+    pub bm25_weight: f64,
+    pub vector_weight: f64,
+    pub graph_weight: f64,
+    pub fusion_depth: usize,
+    pub max_hits_per_session: usize,
+    pub rerank_depth: usize,
+}
+
+pub fn retrieval_configuration() -> RetrievalConfiguration {
+    RetrievalConfiguration {
+        rrf_k: RRF_K,
+        bm25_weight: BM25_WEIGHT,
+        vector_weight: VECTOR_WEIGHT,
+        graph_weight: GRAPH_WEIGHT,
+        fusion_depth: FUSION_DEPTH,
+        max_hits_per_session: MAX_HITS_PER_SESSION,
+        rerank_depth: RERANK_DEPTH,
+    }
+}

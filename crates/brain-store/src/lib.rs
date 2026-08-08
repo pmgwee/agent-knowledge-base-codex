@@ -54,7 +54,10 @@ pub use markdown::{
 pub use memory::GlobalPreferenceStore;
 pub use provider_cache::{ProviderCacheEntry, ProviderCacheStore};
 pub use rerank::{MAX_PAIR_TOKENS, Reranker, default_reranker_dir, shared_reranker};
-pub use search::{SearchHit, SearchQuery, SearchSource, SearchSourceFilter, TimeRange};
+pub use search::{
+    RetrievalConfiguration, SearchHit, SearchQuery, SearchSource, SearchSourceFilter, TimeRange,
+    retrieval_configuration,
+};
 pub use segment::{
     SEGMENT_FORMAT_VERSION, SegmentManifest, SegmentSealReport, SegmentStore, should_seal,
 };
