@@ -70,14 +70,25 @@ impl MarkdownProjector {
         // Derived, not stored: staleness is computed from age and access, both of which move on
         // their own, so a memory stops being stale the moment retrieval returns it. There is no
         // flag to clear and nothing to go out of date.
+        let now = time::OffsetDateTime::now_utc();
         let stale_ids = ledger
-            .stale_memory_ids(time::OffsetDateTime::now_utc(), STALE_AFTER)
+            .stale_memory_ids(now, STALE_AFTER)
             .unwrap_or_default();
+        // Retention is the same question the flag answers, asked continuously. Carried into the
+        // note so a model reading it later sees *how far* a claim sits from stale rather than only
+        // which side of the line it is on.
+        let retention: std::collections::HashMap<uuid::Uuid, f64> = ledger
+            .memory_retention(now)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|entry| (entry.memory_id, entry.retention))
+            .collect();
         let mut rendered = memories
             .into_iter()
             .map(|memory| {
                 let stale = stale_ids.contains(&memory.id);
-                render_memory(project_id, memory, &links, stale)
+                let score = retention.get(&memory.id).copied().unwrap_or(1.0);
+                render_memory(project_id, memory, &links, stale, score)
             })
             .collect::<Result<Vec<_>>>()?;
         rendered.extend(index);
@@ -528,6 +539,7 @@ fn render_memory(
     memory: MemoryRecord,
     links: &LinkIndex,
     stale: bool,
+    retention: f64,
 ) -> Result<RenderedMemory> {
     ensure!(
         memory.scope == MemoryScope::Project(project_id),
@@ -584,8 +596,11 @@ fn render_memory(
             "stale: {stale}\n",
             "evidence_ids: {evidence}\n",
             "supersedes: {supersedes}\n",
+            "retention: {retention:.3}\n",
             "---\n\n",
             "# {heading}\n\n",
+            "## For future agents\n\n",
+            "{preamble}\n\n",
             "## Observations\n\n",
             "- [{kind}] {observation}\n\n",
             "## Memory\n\n",
@@ -611,6 +626,8 @@ fn render_memory(
         stale = stale,
         evidence = serde_json::to_string(&evidence)?,
         supersedes = serde_json::to_string(&supersedes)?,
+        retention = retention,
+        preamble = render_preamble(&memory, retention, &evidence),
         heading = memory.title,
         observation = observation,
         body = memory.content,
@@ -919,4 +936,48 @@ fn ensure_safe_relative(path: &Path) -> Result<()> {
 
 fn slash_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+/// A block written for the next model to read this note, not for a human browsing it.
+///
+/// **The ordering of the vault was never decided; it was inherited.** Notes are written the way a
+/// person would want to read them, and then retrieved by a model — which needs different things
+/// first. A model landing here wants to know what the claim is, how much weight it carries, how to
+/// check it, and what would make it wrong. A human wants the prose.
+///
+/// Everything here is **derived** from the record and the ledger. There is no model in this path,
+/// which is what lets a generated preamble sit in a vault whose whole property is that nothing in it
+/// is unsourced.
+fn render_preamble(memory: &MemoryRecord, retention: f64, evidence: &[String]) -> String {
+    let standing = if retention < 0.5 {
+        "stale — old and nothing has asked for it"
+    } else if retention > 0.9 {
+        "current"
+    } else {
+        "aging"
+    };
+    let supersedes = if memory.supersedes.is_empty() {
+        "nothing".to_owned()
+    } else {
+        format!("{} earlier claim(s)", memory.supersedes.len())
+    };
+    format!(
+        "**Claim.** {claim}\n\n\
+         **Weight.** {authority} · confidence {confidence:.2} · retention {retention:.2} ({standing})\n\n\
+         **Check it.** `brain verify memory {id}` resolves every citation below to the transcript \
+         file and byte offset it came from. If a citation no longer resolves, this note is the \
+         problem, not the ledger.\n\n\
+         **Supersedes.** {supersedes} · **Rests on.** {evidence_count} captured event(s)\n\n\
+         **What would make this wrong.** A later claim on the same subject with equal or higher \
+         authority. `brain reconcile` proposes which one wins from authority, then recency, then \
+         evidence weight — and refuses to choose when those are level.",
+        claim = memory.title,
+        authority = memory.authority.as_str(),
+        confidence = memory.confidence,
+        retention = retention,
+        standing = standing,
+        id = memory.id,
+        supersedes = supersedes,
+        evidence_count = evidence.len(),
+    )
 }
