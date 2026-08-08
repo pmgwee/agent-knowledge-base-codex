@@ -25,6 +25,8 @@ through in the tables below and listed in *What has shipped*, immediately after 
 | **3.2a** Subject pages, derived | `56cfb8a` | 150 pages live in the vault — `rrf`, `longmemeval`, `sessionstart`, `vcruntime140`, `mcp` — each asserting nothing of its own |
 | **3.7** `brain lint` | `7816bc3` | Found 4 contradictions, 660 islands (31.5%), and 4 memories dated 1970-01-01 nobody was looking for |
 | **4.1** Access counting | `11f91dc` | Counted per result, not per search; never-retrieved share reported by lint |
+| **3.6** `brain remember` | `22f9e97` | An uncited claim is refused; a correction supersedes without deleting |
+| **4.2** Staleness surfaced | `6707add` `2ba9729` | `stale: true` in note frontmatter, demoted in the orientation, reversed by retrieval |
 | — Abandoned staging directories collected | `b4ffb34` | 5,834 orphaned vault files, and both directions pinned by test |
 | — Job failures record why, not just what | `6d8c6cd` | Parse errors now name the field; three dead letters had said nothing |
 
@@ -71,6 +73,25 @@ Other findings worth carrying forward:
   stored `error.to_string()`, which takes anyhow's top-level message only, so serde's message
   naming the offending field went on the floor. The classifier one function away already used
   `{error:#}`. Same class of defect as 0.1: an instrument that reports confidently and wrongly.
+
+---
+
+## What is blocked, and on what
+
+Four items cannot be completed by writing code, and each is blocked on something specific rather
+than on effort.
+
+| Item | Blocked on | What it would take |
+|---|---|---|
+| **1** The benchmark | **Provider quota.** 290 of 294 deferrals were plain HTTP 429, and two projects still hold 1,691 and 373 pending jobs. A saving measured over a half-consolidated brain measures the backlog | The queue draining, then a day's runs with the service stopped |
+| **3.9** CodeGraph | **Third-party software.** The binary is not installed and not on `PATH`; fetching and running it is a decision for the machine's owner, not one to make on their behalf | Install the binary, then `brain providers configure codegraph` |
+| **3.4** Cross-encoder rerank | **A second model.** Needs a cross-encoder checkpoint alongside the bi-encoder, roughly doubling per-query cost. Worth it — the measured failure is real — but it is a deliberate download and a latency budget, not a refactor | Choose and install a reranker, then re-run LongMemEval to confirm it beats 90.0% |
+| **4.3** Eviction | **Time.** The access counter began collecting yesterday. Evicting on it now would retire memories for having been recorded before the counter existed | Thirty days of access data, then a dry run showing what it *would* have evicted |
+
+**3.2b and 3.3 are buildable but were not built**, and the honest reason is that both need the LLM
+provider that is currently rate-limited, so neither could be verified end to end in this session.
+3.2b is riskier than it looks: a subject page that only links cannot contradict the ledger, and a
+paragraph can — so it wants the citation validation working against a live provider, not a stub.
 
 ---
 
@@ -218,7 +239,7 @@ honour gives the same user-visible result without breaking it.
 | 3.3 | **Episodic session summaries** at `SessionEnd` | Every completed session has exactly one summary memory citing events from that session only | M |
 | 3.4 | **Cross-encoder rerank** over the fused top-k | LongMemEval `single-session-preference` R@5 improves on 90.0%, and no category regresses | L |
 | ~~3.5~~ | ~~`PreCompact` re-injection~~ **Cut — redundant.** `SessionStart` already matches `compact`, so the orientation is already re-delivered after one | — |
-| 3.6 | File kept query answers back as cited pages | An answer filed from `brain query` appears in the vault next session and cites the events it drew on | M |
+| ~~3.6~~ | ~~File conclusions back as cited pages~~ **Shipped `22f9e97`** as `brain remember` | An answer filed from `brain query` appears in the vault next session and cites the events it drew on | M |
 | ~~3.7~~ | ~~`brain lint`~~ **Shipped `7816bc3`.** Six rules, all derived; defects exit non-zero, observations do not | Run on the live vault it reports findings a human agrees with, and reports **nothing** on a freshly rebuilt one | L |
 | ~~3.8~~ | ~~`log.md` in the vault, append-only and greppable~~ **Shipped `e78762a`.** | `grep "^## \[" log.md \| tail -5` returns the last five operations | S |
 | 3.9 | **Ship CodeGraph on the pull path** — a seventh MCP tool | Codex can ask where a symbol lives and get an answer; orientation token count is **unchanged** | M |
@@ -231,7 +252,7 @@ splits into a mechanical M and an LLM-assisted L.
 | | Work | Done when | Size |
 |---|---|---|---|
 | ~~4.1~~ | ~~Access counting and last-used timestamps~~ **Shipped `11f91dc`.** | Retrieval increments a counter; the dashboard shows never-retrieved memory count | M |
-| 4.2 | Staleness surfacing — mark, do not delete | Stale memories are flagged in the projection and demoted in ranking, and the flag is reversible by retrieval | M |
+| ~~4.2~~ | ~~Staleness surfacing — mark, do not delete~~ **Shipped `6707add`.** | Stale memories are flagged in the projection and demoted in ranking, and the flag is reversible by retrieval | M |
 | 4.3 | Eviction policy, opt-in and reversible | A dry run over 30 days of 4.1/4.2 data shows what it *would* have evicted, and a human agrees before it is switched on | L |
 
 See Part 3 for why decay is deliberately mechanical here.
@@ -667,10 +688,9 @@ other and can run in either order; 2 is higher risk-reduction, 3 is higher visib
 depends on 3.3 (episodic summaries) for anything to decay meaningfully. Wave 5 trails everything,
 because a console is most useful once there is more to show.
 
-Waves 0 and 2 are done bar the quota-bound backlog (0.2). Wave 3 has 3.1, 3.2a, 3.7 and 3.8
-shipped and 3.5 cut; Wave 4 has 4.1. What remains: synthesis prose on subject pages (3.2b), session summaries (3.3), the reranker
-(3.4), filing answers back (3.6), CodeGraph on the pull path (3.9), staleness surfacing and
-eviction (4.2/4.3), then Waves 1 and 5.
+Waves 0 and 2 are done bar the quota-bound backlog (0.2). Wave 3 has 3.1, 3.2a, 3.6, 3.7 and 3.8
+shipped and 3.5 cut; Wave 4 has 4.1 and 4.2. What remains is listed under *What is blocked* above — 1, 3.2b, 3.3, 3.4, 3.9 and 4.3 — plus
+Wave 5, which is dashboard work with no external dependency.
 
 **4.3 is deliberately gated.** The access counter started today, so a dry run over thirty days of
 real data is the precondition — evicting on a counter this young would be retiring memories for
