@@ -108,6 +108,14 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Propose a resolution for each contradiction `brain lint` finds — derived from authority,
+    /// recency and evidence weight, never from a model. Reports rather than applies.
+    Reconcile {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Show which memories eviction would retire — and refuse to retire them until access has
     /// been counted long enough for "never retrieved" to mean anything.
     Evict {
@@ -981,6 +989,18 @@ fn main() -> Result<()> {
             };
             let filed = brain_cli::remember(&mut ledger, request)?;
             println!("{}", serde_json::to_string_pretty(&filed)?);
+        }
+        Command::Reconcile { project, json } => {
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let report = brain_cli::propose_reconciliation(&ledger, project_id)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", brain_cli::render_reconcile(&report));
+            }
         }
         Command::Evict {
             project,

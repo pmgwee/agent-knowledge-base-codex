@@ -12,6 +12,7 @@ mod longmemeval;
 mod provenance;
 mod providers;
 mod rebuild;
+mod reconcile;
 mod register;
 mod remember;
 mod service;
@@ -41,6 +42,10 @@ pub use providers::{
 };
 pub use rebuild::{
     rebuild_basic_memory, rebuild_basic_memory_with, rebuild_markdown, verify_projections,
+};
+pub use reconcile::{
+    Proposal, ReconcileReport, ResolutionRule, propose as propose_reconciliation,
+    render as render_reconcile,
 };
 pub use register::{
     AgentSourceOptions, RegisterOptions, RegistrationResult, register_project,
