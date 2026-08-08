@@ -436,6 +436,47 @@ fn an_abandoned_staging_directory_is_collected_but_a_live_one_is_left_alone() {
     );
 }
 
+#[test]
+fn the_vault_keeps_a_greppable_chronological_log() {
+    // The generated tree answers "what does this project know" and cannot answer "what happened,
+    // and when" — a content-addressed generation replaces its predecessor, so the vault has no
+    // history of its own even though the ledger underneath it is nothing but history.
+    let temp = tempfile::tempdir().expect("vault fixture");
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let worktree = WorktreeId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    let evidence = append_evidence(&mut ledger, project, worktree);
+    let record = memory(project, worktree, "First", vec![evidence], Vec::new());
+    ledger.append_memory(&record).expect("append");
+
+    let projector = MarkdownProjector::new(temp.path());
+    projector.rebuild_project(&ledger, project).expect("first");
+    let second = memory(project, worktree, "Second", vec![evidence], Vec::new());
+    ledger.append_memory(&second).expect("append second");
+    projector.rebuild_project(&ledger, project).expect("second");
+
+    let log = std::fs::read_to_string(
+        temp.path()
+            .join("projects")
+            .join(project.0.to_string())
+            .join("log.md"),
+    )
+    .expect("read log");
+
+    // The prefix is the whole query language: `grep "^## \[" log.md | tail -5`.
+    let entries: Vec<&str> = log
+        .lines()
+        .filter(|line| line.starts_with("## ["))
+        .collect();
+    assert_eq!(entries.len(), 2, "one line per projection, appended: {log}");
+    assert!(entries[0].contains("projection |"), "{}", entries[0]);
+    assert!(
+        entries[1].contains("2 notes") || entries[1].contains("3 notes"),
+        "the line states what was written, got {}",
+        entries[1]
+    );
+}
+
 fn read_note_containing(files: &[std::path::PathBuf], needle: &str) -> String {
     files
         .iter()

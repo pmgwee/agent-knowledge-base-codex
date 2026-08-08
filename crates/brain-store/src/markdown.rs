@@ -110,6 +110,7 @@ impl MarkdownProjector {
             .with_context(|| format!("publish projection manifest {}", manifest_path.display()))?;
         let pruned =
             prune_superseded_generations(&generated_root.join("generations"), &generation)?;
+        append_projection_log(&project_root, &generation, rendered.len())?;
         Ok(ProjectionReport {
             project_id,
             generation,
@@ -226,6 +227,48 @@ fn publish_generation(staging: &Path, destination: &Path) -> Result<()> {
             "publish Markdown generation {} after {ATTEMPTS} attempts",
             destination.display()
         )))
+}
+
+/// Append one line to the vault's chronological log.
+///
+/// The generated tree answers "what does this project know". It cannot answer "what happened, and
+/// when" — a content-addressed generation replaces its predecessor, so the vault has no history of
+/// its own even though the ledger underneath it is nothing but history.
+///
+/// The prefix is fixed on purpose. `## [date] kind | detail` makes the file greppable with no
+/// parser at all, so `grep "^## \[" log.md | tail -5` is the whole query language. That property
+/// is worth more here than any structure, because the reader is as likely to be a person in a
+/// terminal as an agent with a Markdown parser.
+///
+/// A log that cannot be written is not a reason to fail a projection that already succeeded, so
+/// this is best-effort by contract.
+fn append_projection_log(project_root: &Path, generation: &str, file_count: usize) -> Result<()> {
+    let path = project_root.join("log.md");
+    let now = time::OffsetDateTime::now_utc();
+    let line = format!(
+        "## [{:04}-{:02}-{:02} {:02}:{:02}] projection | {file_count} notes | generation {}
+",
+        now.year(),
+        u8::from(now.month()),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        &generation[..12.min(generation.len())],
+    );
+    if !path.exists() {
+        let header = "# Log
+
+Append-only record of what this vault did and when.                       Grep it: `grep \"^## [\" log.md | tail -5`.
+
+";
+        let _ = std::fs::write(&path, header);
+    }
+    let mut file = match std::fs::OpenOptions::new().append(true).open(&path) {
+        Ok(file) => file,
+        Err(_) => return Ok(()),
+    };
+    let _ = file.write_all(line.as_bytes());
+    Ok(())
 }
 
 /// Delete every generation the manifest no longer points at.
