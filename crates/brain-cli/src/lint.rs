@@ -140,7 +140,7 @@ pub fn lint_project(
         });
     }
 
-    // 3. Memories with no vector. They cannot be found by meaning, cannot join a subject page,
+    // 4. Memories with no vector. They cannot be found by meaning, cannot join a subject page,
     //    and nothing else says so — on a brain mid-backfill this is the honest explanation for a
     //    thinner vault than expected.
     let (embedded, remaining) = ledger.embedding_coverage()?;
@@ -158,7 +158,7 @@ pub fn lint_project(
         });
     }
 
-    // 4. Orphans — memories sharing evidence with nothing else, so no wikilink reaches them.
+    // 5. Orphans — memories sharing evidence with nothing else, so no wikilink reaches them.
     //    Reported as a proportion because the individual note is rarely the problem: a rising
     //    share means consolidation is producing isolated claims rather than connected ones.
     let orphans = count_orphans(ledger)?;
@@ -179,7 +179,7 @@ pub fn lint_project(
         });
     }
 
-    // 5. Withdrawn memories, so a vault that looks smaller than the ledger has an explanation
+    // 6. Withdrawn memories, so a vault that looks smaller than the ledger has an explanation
     //    rather than a discrepancy.
     let tombstones = ledger.tombstones()?;
     if !tombstones.is_empty() {
@@ -216,7 +216,7 @@ pub fn lint_project(
 
 /// Memories citing no event that any other memory also cites.
 fn count_orphans(ledger: &EventLedger) -> Result<usize> {
-    Ok(ledger.memories_without_shared_evidence()?)
+    ledger.memories_without_shared_evidence()
 }
 
 /// Render the report for a terminal.
