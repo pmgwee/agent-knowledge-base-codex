@@ -9,6 +9,7 @@ use brain_coordination::{
 };
 use brain_domain::{Harness, HookEnvelope, HookReply, ProjectId, WorktreeId};
 use brain_store::{EventLedger, ProviderCacheStore};
+use sha2::Digest;
 
 #[derive(Clone, Debug)]
 pub struct HookProjectBinding {
@@ -124,6 +125,18 @@ impl ProjectHookHandler {
             return Ok(HookOutcome::bare(HookReply::default()));
         };
         let lease_warning = manage_lease_lifecycle(&binding, envelope)?;
+        if envelope.event_name == "SessionEnd" {
+            // Fail-open. A session ending is not a moment to return an error to the harness, and
+            // the cost of missing one is a session that consolidates on the next threshold instead
+            // of immediately — not lost evidence, which the transcript still holds either way.
+            if let Err(error) = record_session_end(&binding, envelope) {
+                tracing::warn!(%error, "could not record session end");
+            }
+            return Ok(HookOutcome::bare(HookReply {
+                additional_context: lease_warning,
+                diagnostics_id: Some(envelope.nonce.to_string()),
+            }));
+        }
         if envelope.event_name != "SessionStart" {
             return Ok(HookOutcome::bare(HookReply {
                 additional_context: lease_warning,
@@ -279,6 +292,87 @@ fn cached_wiki_context(
         item.trust = format!("external_document_cached age={age}s");
     }
     Ok(items)
+}
+
+/// Mark a session as ended, and consolidate what it produced.
+///
+/// **Nothing else can observe this boundary.** Transcripts are append-only JSONL: a session ending
+/// writes no line, the file simply stops growing. So `EventType::SessionEnded` was never emitted
+/// once — zero across 139,192 captured events in three projects — and
+/// `ConsolidationReason::SessionStopped` was unreachable code that looked wired up. Sessions
+/// consolidated only when they crossed the 200-event threshold, which means a short session's work
+/// waited for the *next* session to push it over the line.
+///
+/// Idempotent by construction: the idempotency key is derived from the session id, so a harness
+/// that fires `SessionEnd` twice appends once. That matters more than it sounds — `SessionEnd` has
+/// several triggers (`clear`, `logout`, `prompt_input_exit`, `other`) and nothing promises exactly
+/// one of them per session.
+fn record_session_end(binding: &HookProjectBinding, envelope: &HookEnvelope) -> Result<()> {
+    let Some(session_id) = envelope
+        .payload
+        .get("session_id")
+        .or_else(|| envelope.payload.get("sessionId"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+    else {
+        // Without a session id there is nothing to attribute the boundary to, and inventing one
+        // would create an episode that never existed.
+        return Ok(());
+    };
+    let reason = envelope
+        .payload
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("other");
+
+    let payload = serde_json::json!({
+        "session_id": session_id,
+        "reason": reason,
+        "harness": envelope.harness.as_str(),
+    });
+    let idempotency_key: [u8; 32] =
+        sha2::Sha256::digest([b"session-end:".as_slice(), session_id.as_bytes()].concat()).into();
+
+    let mut ledger = EventLedger::open(&binding.ledger_path, binding.project_id)?;
+    let event_id = uuid::Uuid::now_v7();
+    let result = ledger.append_batch(&brain_domain::EventBatch {
+        // Its own source, so this can never disturb a transcript cursor. Cursors are keyed by
+        // source and reusing a transcript's would re-ingest captured evidence.
+        source_id: format!("hook-session-end:{session_id}"),
+        events: vec![brain_domain::NormalizedEvent {
+            event_id,
+            project_id: binding.project_id,
+            worktree_id: binding.worktree_id,
+            task_id: None,
+            harness: envelope.harness.clone(),
+            native_session_id: session_id.to_owned(),
+            native_turn_id: None,
+            event_type: brain_domain::EventType::SessionEnded,
+            occurred_at: envelope.received_at,
+            observed_at: envelope.received_at,
+            source_locator: format!("hook://session-end/{session_id}"),
+            source_offset: 1,
+            source_schema: "brain-session-end:v1".to_owned(),
+            raw_hash: idempotency_key,
+            idempotency_key,
+            git_head: None,
+            git_branch: None,
+            payload: payload.clone(),
+            raw: payload,
+        }],
+        quarantined: Vec::new(),
+        capture_gaps: Vec::new(),
+        next_cursor: brain_domain::SourceCursor::byte_offset(1),
+    })?;
+    if result.inserted == 0 {
+        // Already recorded. Enqueueing again would consolidate the same span twice.
+        return Ok(());
+    }
+    // The same bounded helper capture uses, rather than a second span calculation: it respects
+    // `MAX_JOB_EVENTS` and `MAX_JOB_PAYLOAD_BYTES`, and the one time those bounds were bypassed a
+    // single job covered 65,000 events.
+    ledger.enqueue_through_event_job(event_id, brain_store::ConsolidationReason::SessionStopped)?;
+    Ok(())
 }
 
 fn manage_lease_lifecycle(

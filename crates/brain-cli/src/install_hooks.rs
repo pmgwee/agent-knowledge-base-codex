@@ -4,7 +4,21 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use atomicwrites::{AllowOverwrite, AtomicFile};
 
+/// The hook events the brain registers, in both harnesses.
+///
+/// `SessionEnd` is not decoration. Transcripts are append-only JSONL, so a session ending writes
+/// no line — the file simply stops growing — and `EventType::SessionEnded` had therefore never
+/// been emitted once across 139,192 captured events. `ConsolidationReason::SessionStopped` was
+/// unreachable code that read as wired up, and a session's work waited for the *next* session to
+/// push it over the 200-event threshold. This hook is the only thing that can observe the boundary.
+const BRAIN_HOOK_EVENTS: [&str; 2] = ["SessionStart", "SessionEnd"];
+
 const SESSION_MATCHER: &str = "startup|resume|clear|compact|fork";
+
+/// `SessionEnd` fires on `clear`, `logout`, `prompt_input_exit` and `other`, and every one of them
+/// is a real boundary — so this matches all of them rather than enumerating a subset that would
+/// silently miss the way most sessions actually end.
+const SESSION_END_MATCHER: &str = ".*";
 const CODEX_SESSION_MATCHER: &str = "^(startup|resume|clear|compact)$";
 
 /// Outer hook budget (seconds) the *harness* grants the hook process before killing it.
@@ -181,7 +195,12 @@ fn claude_hook_presence(settings: &serde_json::Value, hook_executable: &Path) ->
         }
     }
     match (has_current, has_stale) {
-        (true, false) => HookPresence::CurrentOnly,
+        // Complete only when every event is covered. A config carrying just the old `SessionStart`
+        // registration is stale in the sense that matters: it is missing one.
+        (true, false) if registered_event_count(settings) == BRAIN_HOOK_EVENTS.len() => {
+            HookPresence::CurrentOnly
+        }
+        (true, false) => HookPresence::StalePresent,
         (false, false) => HookPresence::Missing,
         _ => HookPresence::StalePresent,
     }
@@ -203,23 +222,48 @@ fn codex_hook_presence(document: &serde_json::Value, hook_executable: &Path) -> 
         }
     }
     match (has_current, has_stale) {
-        (true, false) => HookPresence::CurrentOnly,
+        // Same completeness rule as Claude: a config missing one of the events is not current.
+        (true, false) if registered_event_count(document) == BRAIN_HOOK_EVENTS.len() => {
+            HookPresence::CurrentOnly
+        }
+        (true, false) => HookPresence::StalePresent,
         (false, false) => HookPresence::Missing,
         _ => HookPresence::StalePresent,
     }
 }
 
-/// Iterate every command registered under `hooks.SessionStart`, regardless of group.
+/// Iterate every brain-hook command registered under any of [`BRAIN_HOOK_EVENTS`].
+///
+/// Spanning both events is what makes the presence check honest after this gained `SessionEnd`: a
+/// config holding only the old `SessionStart` entry must read as incomplete, or an upgrade would
+/// see the entry it already had, report "no change", and leave session boundaries unobserved.
 fn brain_hook_commands(document: &serde_json::Value) -> Vec<&serde_json::Value> {
-    document
-        .pointer("/hooks/SessionStart")
-        .and_then(serde_json::Value::as_array)
+    BRAIN_HOOK_EVENTS
         .into_iter()
+        .filter_map(|event| document.pointer(&format!("/hooks/{event}")))
+        .filter_map(serde_json::Value::as_array)
         .flatten()
         .filter_map(|group| group.get("hooks").and_then(serde_json::Value::as_array))
         .flatten()
         .filter(|command| command_invokes_brain_hook(command))
         .collect()
+}
+
+/// How many of [`BRAIN_HOOK_EVENTS`] carry a brain-hook entry.
+fn registered_event_count(document: &serde_json::Value) -> usize {
+    BRAIN_HOOK_EVENTS
+        .into_iter()
+        .filter(|event| {
+            document
+                .pointer(&format!("/hooks/{event}"))
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|group| group.get("hooks").and_then(serde_json::Value::as_array))
+                .flatten()
+                .any(command_invokes_brain_hook)
+        })
+        .count()
 }
 
 /// True if this command entry invokes the brain-hook binary under *either* harness, keyed by
@@ -280,32 +324,34 @@ fn strip_brain_hooks(
     let Some(hooks) = hooks_value.as_object_mut() else {
         return false;
     };
-    let Some(groups_value) = hooks.get_mut("SessionStart") else {
-        return false;
-    };
-    let Some(groups) = groups_value.as_array_mut() else {
-        return false;
-    };
     let mut changed = false;
-    for group in groups.iter_mut() {
-        let Some(commands) = group
-            .get_mut("hooks")
+    for event in BRAIN_HOOK_EVENTS {
+        let Some(groups) = hooks
+            .get_mut(event)
             .and_then(serde_json::Value::as_array_mut)
         else {
             continue;
         };
-        let before = commands.len();
-        commands.retain(|command| !owns(command));
-        changed |= before != commands.len();
-    }
-    groups.retain(|group| {
-        group
-            .get("hooks")
-            .and_then(serde_json::Value::as_array)
-            .is_none_or(|commands| !commands.is_empty())
-    });
-    if groups.is_empty() {
-        hooks.remove("SessionStart");
+        for group in groups.iter_mut() {
+            let Some(commands) = group
+                .get_mut("hooks")
+                .and_then(serde_json::Value::as_array_mut)
+            else {
+                continue;
+            };
+            let before = commands.len();
+            commands.retain(|command| !owns(command));
+            changed |= before != commands.len();
+        }
+        groups.retain(|group| {
+            group
+                .get("hooks")
+                .and_then(serde_json::Value::as_array)
+                .is_none_or(|commands| !commands.is_empty())
+        });
+        if groups.is_empty() {
+            hooks.remove(event);
+        }
     }
     if hooks.is_empty() {
         root.remove("hooks");
@@ -329,6 +375,20 @@ fn push_claude_hook_entry(settings: &mut serde_json::Value, hook_executable: &Pa
         .context("Claude hooks.SessionStart must be an array")?;
     session_start.push(serde_json::json!({
         "matcher": SESSION_MATCHER,
+        "hooks": [{
+            "type": "command",
+            "command": hook_executable,
+            "args": ["--harness", "claude-code"],
+            "timeout": CLAUDE_HOOK_TIMEOUT_SECONDS
+        }]
+    }));
+    let session_end = hooks
+        .entry("SessionEnd")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .context("Claude hooks.SessionEnd must be an array")?;
+    session_end.push(serde_json::json!({
+        "matcher": SESSION_END_MATCHER,
         "hooks": [{
             "type": "command",
             "command": hook_executable,
@@ -363,6 +423,20 @@ fn push_codex_hook_entry(document: &mut serde_json::Value, hook_executable: &Pat
             "timeout": CODEX_HOOK_TIMEOUT_SECONDS,
             "statusMessage": "Loading project memory",
             "additionalContextLimit": 1500
+        }]
+    }));
+    let session_end = hooks
+        .entry("SessionEnd")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .context("Codex hooks.SessionEnd must be an array")?;
+    session_end.push(serde_json::json!({
+        "matcher": SESSION_END_MATCHER,
+        "hooks": [{
+            "type": "command",
+            "command": command,
+            "commandWindows": command,
+            "timeout": CODEX_HOOK_TIMEOUT_SECONDS
         }]
     }));
     Ok(())
