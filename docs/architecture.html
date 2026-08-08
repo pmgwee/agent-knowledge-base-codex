@@ -297,21 +297,25 @@
         <text class="box-sub" x="328" y="110">~/.codex/sessions</text>
 
         <rect class="s-retrieval" x="600" y="44" width="640" height="86" rx="5" stroke-width="1.4" />
-        <text class="tag t-retrieval" x="618" y="66">HOOK LIFECYCLE — both harnesses</text>
+        <text class="tag t-retrieval" x="618" y="64">HOOK LIFECYCLE — both harnesses · two shipped, one missing</text>
 
-        <rect class="s-retrieval" x="618" y="78" width="132" height="34" rx="4" stroke-width="1.4" />
-        <text class="box-sub t-retrieval" x="632" y="99">SessionStart</text>
+        <rect class="s-retrieval" x="618" y="74" width="148" height="38" rx="4" stroke-width="1.4" />
+        <text class="box-sub t-retrieval" x="630" y="89">SessionStart · push</text>
+        <text class="box-sub" x="630" y="105">SHIPPED · 75 delivered</text>
 
-        <rect class="s-retrieval" x="766" y="78" width="132" height="34" rx="4" stroke-width="1.4" />
-        <text class="box-sub t-retrieval" x="780" y="99">SessionEnd</text>
+        <rect class="s-retrieval" x="778" y="74" width="148" height="38" rx="4" stroke-width="1.4" />
+        <text class="box-sub t-retrieval" x="790" y="89">SessionEnd · boundary</text>
+        <text class="box-sub" x="790" y="105">SHIPPED · 3 recorded</text>
 
-        <rect class="s-planned" x="914" y="78" width="140" height="34" rx="4" stroke-width="1.4" />
-        <text class="box-sub t-planned" x="928" y="99">PreToolUse</text>
+        <rect class="s-planned" x="938" y="74" width="184" height="38" rx="4" stroke-width="1.6" />
+        <text class="box-sub t-planned" x="950" y="89">UserPromptSubmit · push</text>
+        <text class="box-sub t-planned" x="950" y="105">PENDING — taken by CodeGraph</text>
 
-        <rect class="s-planned" x="1070" y="78" width="152" height="34" rx="4" stroke-width="1.4" />
-        <text class="box-sub t-planned" x="1084" y="99">PostToolUse</text>
+        <rect class="s-plain" x="1134" y="74" width="90" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub" x="1146" y="89">6 capture</text>
+        <text class="box-sub" x="1146" y="105">hooks — n/a</text>
 
-        <text class="edge-label" x="618" y="127">solid = registered and firing · dashed = handler exists, not registered</text>
+        <text class="edge-label" x="618" y="127">solid = shipped and firing · dashed = the gap · plain = not needed, the transcript already holds it</text>
 
         <!-- ============ BAND 2 — CAPTURE ============ -->
         <text class="band-label" x="40" y="196">2 · CAPTURE — brain-service.exe (Task Scheduler, 6 supervised loops)</text>
