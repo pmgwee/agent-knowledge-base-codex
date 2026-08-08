@@ -5,6 +5,7 @@ use brain_domain::{Harness, ProjectId};
 use brain_service::{DiskProbe, FilesystemDiskProbe, ServiceLaunchConfig};
 
 use crate::benchmark::directory_bytes;
+use crate::config_panel::{ConfigDashboard, read_config_panel};
 use crate::deployment::{DeploymentDashboard, read_deployment};
 use crate::providers::provider_status;
 use crate::status::read_status;
@@ -28,6 +29,8 @@ pub struct DashboardSnapshot {
     pub health: HealthDashboard,
     /// What retrieval would do with a query right now.
     pub retrieval: RetrievalDashboard,
+    /// What the brain is wired to do, and whether each wire reaches anything.
+    pub config: ConfigDashboard,
 }
 
 /// How retrieval is actually configured, and which of its stages can run.
@@ -236,6 +239,14 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
     let binaries_present = check_binaries(&manifest, brain_home);
     let recovery_command = format_recovery_command(brain_home, &backup_root, &drill_root);
 
+    let config_panel = read_config_panel(
+        &config,
+        &tasks
+            .iter()
+            .map(|task| (task.name.clone(), task.installed))
+            .collect::<Vec<_>>(),
+    )?;
+
     let service_running = tasks.first().map(|t| t.running).unwrap_or(false);
     let any_binary_missing = !binaries_present.service || !binaries_present.brain;
 
@@ -372,6 +383,7 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
         deployment: read_deployment(brain_home),
         projects,
         retrieval,
+        config: config_panel,
         storage: StorageDashboard {
             brain_home_bytes,
             backup_root_bytes,

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod benchmark;
+mod config_panel;
 mod dashboard;
 mod deployment;
 mod diagnose;
@@ -20,6 +21,10 @@ mod remember;
 mod service;
 mod status;
 
+pub use config_panel::{
+    BudgetContract, ConfigDashboard, CredentialBinding, HarnessWiring, McpWiring, ScheduledJob,
+    read_config_panel,
+};
 pub use dashboard::{DashboardSnapshot, read_dashboard};
 pub use deployment::{
     DEPLOY_MANIFEST, DEPLOYED_BINARIES, DeployManifest, DeployStatus, DeployedBinary,
