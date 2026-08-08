@@ -8,6 +8,7 @@ mod catalog;
 mod context_metrics;
 mod cursor;
 mod embedding;
+mod evict;
 mod jobs;
 mod ledger;
 mod markdown;
@@ -40,6 +41,7 @@ pub use embedding::{
     EMBEDDING_DIMENSIONS, Embedder, MAX_INPUT_TOKENS, cosine_similarity, decode_vector,
     default_model_dir, encode_vector, shared_embedder,
 };
+pub use evict::{EvictionCandidate, EvictionGate, EvictionPlan, MINIMUM_OBSERVATION, QUIET_FOR};
 pub use jobs::{
     ConsolidationJob, ConsolidationQueue, ConsolidationReason, JobStatus, MAX_JOB_EVENTS,
     MAX_JOB_PAYLOAD_BYTES, RedactionManifestEntry,

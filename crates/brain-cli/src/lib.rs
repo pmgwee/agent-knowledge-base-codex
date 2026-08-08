@@ -4,6 +4,7 @@ mod benchmark;
 mod dashboard;
 mod deployment;
 mod diagnose;
+mod evict;
 mod export;
 mod install_hooks;
 mod lint;
@@ -22,6 +23,7 @@ pub use deployment::{
     DeploymentDashboard, read_deployment, read_head_commit, source_fingerprint,
 };
 pub use diagnose::{DiagnosticBundle, RedactedCursor, RedactedSchemaDrift, read_diagnostics};
+pub use evict::render as render_eviction;
 pub use export::{ExportFormat, ExportReport, export_project};
 pub use install_hooks::{
     HookInstallResult, install_claude_hooks, install_codex_hooks, uninstall_claude_hooks,

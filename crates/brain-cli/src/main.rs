@@ -108,6 +108,17 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Show which memories eviction would retire — and refuse to retire them until access has
+    /// been counted long enough for "never retrieved" to mean anything.
+    Evict {
+        #[arg(long)]
+        project: String,
+        /// Actually retire them. Without this the plan is printed and nothing changes.
+        #[arg(long)]
+        apply: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Withdraw a memory. The claim stops being returned, projected or read; the ledger keeps
     /// the evidence and records the withdrawal.
     Forget {
@@ -970,6 +981,32 @@ fn main() -> Result<()> {
             };
             let filed = brain_cli::remember(&mut ledger, request)?;
             println!("{}", serde_json::to_string_pretty(&filed)?);
+        }
+        Command::Evict {
+            project,
+            apply,
+            json,
+        } => {
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let mut ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let now = time::OffsetDateTime::now_utc();
+            let plan = ledger.plan_eviction(now)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&plan)?);
+            } else {
+                print!("{}", brain_cli::render_eviction(&plan));
+            }
+            if apply {
+                // `apply_eviction` re-plans and enforces the gate itself, so this cannot retire
+                // anything the printed plan did not cover, and cannot run early.
+                let retired = ledger.apply_eviction(now, "brain evict")?;
+                println!(
+                    "
+retired {retired} memories as tombstones"
+                );
+            }
         }
         Command::Lint { project, json } => {
             let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;

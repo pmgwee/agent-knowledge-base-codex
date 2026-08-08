@@ -474,6 +474,24 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_memory_access_project
             ON memory_access(project_id, last_retrieved_at_ns);
 
+        -- When access counting became reliable, so eviction can refuse to run early.
+        --
+        -- Without this, "never retrieved" is indistinguishable between a memory nothing wants and a
+        -- memory that simply predates the counter — and on the day the counter ships, *every*
+        -- memory looks like the first. An eviction policy reading that would retire the entire
+        -- corpus and be able to justify every deletion.
+        --
+        -- `INSERT OR IGNORE` is what makes it honest on both paths: a fresh ledger stamps its
+        -- creation, and an existing one stamps the moment this migration first ran, which is
+        -- exactly when counting started there. Never rewritten afterwards.
+        CREATE TABLE IF NOT EXISTS memory_access_epoch (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            started_at_s INTEGER NOT NULL
+        );
+
+        INSERT OR IGNORE INTO memory_access_epoch(id, started_at_s)
+            VALUES (1, CAST(strftime('%s', 'now') AS INTEGER));
+
         CREATE INDEX IF NOT EXISTS idx_memory_tombstones_project
             ON memory_tombstones(project_id);
 
