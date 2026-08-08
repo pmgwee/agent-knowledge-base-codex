@@ -12,6 +12,9 @@ use crate::{
 const SERVICE_TASK: &str = "AgentBrain.Service";
 const BACKUP_TASK: &str = "AgentBrain.Backup";
 const DRILL_TASK: &str = "AgentBrain.RestoreDrill";
+/// The scheduled reflection. Derived only — no provider call — so it runs whether or not an LLM
+/// is reachable, which is the whole reason it is worth scheduling.
+const DIGEST_TASK: &str = "AgentBrain.Digest";
 const INSTALL_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Debug)]
@@ -152,6 +155,7 @@ fn install_windows_service_with(
     let service_xml = task_dir.join("service.xml");
     let backup_xml = task_dir.join("backup.xml");
     let drill_xml = task_dir.join("restore-drill.xml");
+    let digest_xml = task_dir.join("digest.xml");
     write_atomic(
         &service_xml,
         &task_xml_bytes(&service_task_xml(
@@ -188,10 +192,25 @@ fn install_windows_service_with(
             now,
         )?),
     )?;
+    write_atomic(
+        &digest_xml,
+        &task_xml_bytes(&daily_task_xml(
+            &user_id,
+            &options.brain_executable,
+            // No --project: every registered project, so registering one does not require
+            // reinstalling the task.
+            &format!(
+                "--brain-home {} digest --write",
+                quoted(&options.brain_home)
+            ),
+            now,
+        )?),
+    )?;
     let task_specs = [
         (SERVICE_TASK, service_xml.as_path()),
         (BACKUP_TASK, backup_xml.as_path()),
         (DRILL_TASK, drill_xml.as_path()),
+        (DIGEST_TASK, digest_xml.as_path()),
     ];
     let reinstall = manifest_path(&options.brain_home).is_file();
     if reinstall {
@@ -303,7 +322,12 @@ fn uninstall_windows_service_with(
         removed_hooks.push("codex".to_owned());
     }
     let runtime = brain_home.join("runtime");
-    for name in ["service.xml", "backup.xml", "restore-drill.xml"] {
+    for name in [
+        "service.xml",
+        "backup.xml",
+        "restore-drill.xml",
+        "digest.xml",
+    ] {
         let path = runtime.join("tasks").join(name);
         if path.is_file() {
             std::fs::remove_file(path)?;
@@ -335,6 +359,7 @@ fn status_with(
                 SERVICE_TASK.to_owned(),
                 BACKUP_TASK.to_owned(),
                 DRILL_TASK.to_owned(),
+                DIGEST_TASK.to_owned(),
             ]
         });
     let mut tasks = Vec::new();
@@ -441,6 +466,25 @@ fn hourly_task_xml(
         executable,
         arguments,
         "PT2H",
+        false,
+    )
+}
+
+fn daily_task_xml(
+    user_id: &str,
+    executable: &Path,
+    arguments: &str,
+    now: time::OffsetDateTime,
+) -> Result<String> {
+    let start = start_boundary(now)?;
+    task_xml(
+        user_id,
+        &format!(
+            "<CalendarTrigger><StartBoundary>{start}</StartBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>"
+        ),
+        executable,
+        arguments,
+        "PT30M",
         false,
     )
 }
@@ -679,7 +723,7 @@ mod tests {
             time::OffsetDateTime::UNIX_EPOCH + time::Duration::days(20_000),
         )
         .expect("install tasks");
-        assert_eq!(install.task_names.len(), 3);
+        assert_eq!(install.task_names.len(), 4);
         assert!(install.manifest_path.is_file());
         assert!(
             scheduler
@@ -693,13 +737,18 @@ mod tests {
         assert!(xml[SERVICE_TASK].contains("RestartOnFailure"));
         assert!(xml[BACKUP_TASK].contains("PT1H"));
         assert!(xml[DRILL_TASK].contains("ScheduleByMonth"));
+        assert!(xml[DIGEST_TASK].contains("ScheduleByDay"));
+        // No --project on the scheduled digest: registering a project must not require
+        // reinstalling the task, or the schedule silently skips whatever came later.
+        assert!(xml[DIGEST_TASK].contains("digest --write"));
+        assert!(!xml[DIGEST_TASK].contains("--project"));
         drop(xml);
         std::fs::write(backup_root.join("backup-marker"), "preserve").expect("backup marker");
         std::fs::write(drill_root.join("drill-marker"), "preserve").expect("drill marker");
 
         let uninstall =
             uninstall_windows_service_with(&scheduler, &brain_home).expect("uninstall tasks");
-        assert_eq!(uninstall.removed_tasks.len(), 3);
+        assert_eq!(uninstall.removed_tasks.len(), 4);
         assert!(uninstall.brain_home_preserved);
         assert!(uninstall.backup_root_preserved);
         assert!(uninstall.drill_reports_preserved);

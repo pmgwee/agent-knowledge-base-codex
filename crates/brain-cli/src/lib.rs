@@ -4,6 +4,7 @@ mod benchmark;
 mod dashboard;
 mod deployment;
 mod diagnose;
+mod digest;
 mod evict;
 mod explain;
 mod export;
@@ -25,6 +26,10 @@ pub use deployment::{
     DeploymentDashboard, read_deployment, read_head_commit, source_fingerprint,
 };
 pub use diagnose::{DiagnosticBundle, RedactedCursor, RedactedSchemaDrift, read_diagnostics};
+pub use digest::{
+    Digest, build as build_digest, render as render_digest,
+    render_markdown as render_digest_markdown,
+};
 pub use evict::render as render_eviction;
 pub use explain::{
     ExplainReport, ExplainedHit, explain as explain_query, render as render_explain,

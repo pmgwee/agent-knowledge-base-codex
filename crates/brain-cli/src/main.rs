@@ -112,6 +112,17 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// A derived health reading of the brain: what needs a decision, and what merely changed.
+    /// `--write` appends it to the project's vault log so a scheduled run leaves a trail.
+    Digest {
+        /// Omit to cover every registered project — what the scheduled task does.
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        write: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Replay one captured session as discrete events, or list sessions when none is named.
     Replay {
         #[arg(long)]
@@ -1014,6 +1025,57 @@ fn main() -> Result<()> {
             };
             let filed = brain_cli::remember(&mut ledger, request)?;
             println!("{}", serde_json::to_string_pretty(&filed)?);
+        }
+        Command::Digest {
+            project,
+            write,
+            json,
+        } => {
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            // Omitting --project covers every registered project. That is what the scheduled task
+            // uses, so registering a project brings it into the digest without reinstalling a task —
+            // a schedule that silently skips new projects is worse than no schedule.
+            let targets: Vec<ProjectId> = match &project {
+                Some(path) => vec![ProjectRegistry::open(&brain_home)?.resolve(path)?],
+                None => config
+                    .projects
+                    .iter()
+                    .map(|project| project.project_id)
+                    .collect(),
+            };
+            let mut digests = Vec::new();
+            for project_id in targets {
+                let project_config = config.project(Some(project_id))?;
+                let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+                let digest =
+                    brain_cli::build_digest(&ledger, project_id, time::OffsetDateTime::now_utc())?;
+                if !json {
+                    print!("{}", brain_cli::render_digest(&digest));
+                }
+                if write {
+                    // Appended to the same greppable log the projector writes, so a digest lands
+                    // where someone already looks rather than in a file only the schedule knows.
+                    let log =
+                        brain_store::project_vault_root(&brain_home.join("vault"), project_id)
+                            .join("log.md");
+                    if let Some(parent) = log.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    use std::io::Write as _;
+                    let mut file = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&log)?;
+                    file.write_all(brain_cli::render_digest_markdown(&digest).as_bytes())?;
+                    if !json {
+                        println!("  appended to {}", log.display());
+                    }
+                }
+                digests.push(digest);
+            }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&digests)?);
+            }
         }
         Command::Replay {
             project,
