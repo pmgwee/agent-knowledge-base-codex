@@ -297,7 +297,7 @@
         <text class="box-sub" x="328" y="110">~/.codex/sessions</text>
 
         <rect class="s-retrieval" x="600" y="44" width="640" height="86" rx="5" stroke-width="1.4" />
-        <text class="tag t-retrieval" x="618" y="64">HOOK LIFECYCLE — both harnesses · two shipped, one missing</text>
+        <text class="tag t-retrieval" x="618" y="64">HOOK LIFECYCLE — three shipped · push at start AND mid-session</text>
 
         <rect class="s-retrieval" x="618" y="74" width="148" height="38" rx="4" stroke-width="1.4" />
         <text class="box-sub t-retrieval" x="630" y="89">SessionStart · push</text>
@@ -307,15 +307,15 @@
         <text class="box-sub t-retrieval" x="790" y="89">SessionEnd · boundary</text>
         <text class="box-sub" x="790" y="105">SHIPPED · 3 recorded</text>
 
-        <rect class="s-planned" x="938" y="74" width="184" height="38" rx="4" stroke-width="1.6" />
-        <text class="box-sub t-planned" x="950" y="89">UserPromptSubmit · push</text>
-        <text class="box-sub t-planned" x="950" y="105">PENDING — taken by CodeGraph</text>
+        <rect class="s-retrieval" x="938" y="74" width="184" height="38" rx="4" stroke-width="1.6" />
+        <text class="box-sub t-retrieval" x="950" y="89">UserPromptSubmit · push</text>
+        <text class="box-sub" x="950" y="105">SHIPPED · 400 tok, metered</text>
 
         <rect class="s-plain" x="1134" y="74" width="90" height="38" rx="4" stroke-width="1.2" />
         <text class="box-sub" x="1146" y="89">6 capture</text>
         <text class="box-sub" x="1146" y="105">hooks — n/a</text>
 
-        <text class="edge-label" x="618" y="127">solid = shipped and firing · dashed = the gap · plain = not needed, the transcript already holds it</text>
+        <text class="edge-label" x="618" y="127">solid = shipped and firing · plain = not needed, the transcript already holds it · Claude only for the mid-session push</text>
 
         <!-- ============ BAND 2 — CAPTURE ============ -->
         <text class="band-label" x="40" y="196">2 · CAPTURE — brain-service.exe (Task Scheduler, 6 supervised loops)</text>
@@ -723,26 +723,72 @@
           <tr><td>Privacy filter — strip secrets</td><td><code>redact_string</code> + per-job redaction manifest</td><td><span class="pill live">Ahead — auditable, not silent</span></td></tr>
           <tr><td>Store raw observation</td><td>Append-only events</td><td><span class="pill live">Ahead — enforced, not conventional</span></td></tr>
           <tr><td>LLM compress → structured facts</td><td><code>ConsolidationLlm::propose</code>, evidence-cited</td><td><span class="pill live">Equal, and ours cites</span></td></tr>
-          <tr><td>Vector embedding</td><td>In-process MiniLM, one provider</td><td><span class="pill part">Behind on count — deliberate: no sidecar</span></td></tr>
+          <tr><td>Vector embedding</td><td>In-process MiniLM, one provider</td><td><span class="pill part">Behind on count — and count is not the constraint</span></td></tr>
           <tr><td>Index in BM25 + vector</td><td>FTS5 + vectors, fused by RRF</td><td><span class="pill live">Equal</span></td></tr>
         </tbody>
       </table>
     </div>
     <div class="callout" style="margin-top: 16px;">
-      <h3>Capture is covered. Push is not.</h3>
+      <h3>Capture was covered. Push now is too.</h3>
       <p>
         Seven of their nine hooks are redundant here because the transcript already holds what those
-        hooks capture. But capture is not all those hooks do — <code>UserPromptSubmit</code> and
-        <code>PreToolUse</code> also <em>inject</em> back into the conversation, and that is a
-        direction this system does not travel.
+        hooks capture. But capture is not all those hooks do — <code>UserPromptSubmit</code> also
+        <em>injects</em> back into the conversation, and for a long time this system did not travel
+        that direction at all: <strong>the brain pushed exactly once, at session start.</strong> A
+        session that ran for hours and pivoted to a different subject was never re-oriented.
       </p>
       <p>
-        <strong>The brain pushes exactly once, at session start.</strong> A session running for hours
-        that pivots to a different subject is never re-oriented; what arrived at minute zero is all it
-        ever gets. <code>UserPromptSubmit</code> is registered on this machine — by <em>CodeGraph</em>,
-        not by the brain — so the hook demonstrably works and the brain simply does not use it. It
-        stayed invisible because both halves work: nothing fails, the system just stops helping after
-        the first message.
+        <strong>Shipped.</strong> The brain now sits on <code>UserPromptSubmit</code> alongside
+        CodeGraph and re-queries retrieval on each prompt. Most of the work is restraint, because a
+        push on every message has the opposite failure mode from a push on none:
+      </p>
+      <p>
+        <strong>Never repeat</strong> — a memory reaches a session at most once, and a session takes
+        at most twenty in total. <strong>Silence is the common answer</strong> — short prompts, no new
+        matches, or nothing above the floor all return nothing. <strong>A stricter floor than search
+        uses</strong> — FTS terms are OR-joined, so a prompt shares "is"/"the"/"of" with almost
+        anything; measured, a question about unladen swallows retrieved a database-migration memory
+        and would have injected it. <strong>400 tokens, four memories, and a meter that names what it
+        dropped</strong> — the session-start budget is 1,000–1,500 and fires once; this fires every
+        message, and a session takes at most twenty memories in total.
+      </p>
+      <p>
+        The meter is the last line of every push, verbatim from a live run:
+        <code>[brain · 4 of 6 memories · 324 tokens · 2 dropped over budget]</code>. A silent
+        truncation reads as "that is all there was".
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>What the vector channel is, and is not, short of</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      One embedding provider against a competitor's six looks like the obvious gap. Building the
+      mid-session push showed it is not the one that bites.
+    </p>
+    <div class="callout">
+      <h3>Provider count is not the constraint. A trustworthy threshold is.</h3>
+      <p>
+        Six providers buy redundancy and a choice of quality tier. They do not change what a
+        bi-encoder can tell you, and running one model in-process is a real property: no sidecar, no
+        network, no install step, and a binary that loads under Task Scheduler and Codex's sandbox
+        where a dynamically-linked ONNX runtime does not.
+      </p>
+      <p>
+        <strong>What actually blocked the push was the absence of a similarity score anyone can put a
+        floor under.</strong> An unsolicited injection needs to answer "is this relevant enough to
+        interrupt with", and neither channel gives a usable yes/no. FTS terms are OR-joined, so BM25
+        returns something for every input — measured, a question about unladen swallows retrieved a
+        database-migration memory. Cosine over <code>all-MiniLM-L6-v2</code> is no better as a gate:
+        the same model scored a turn about deployment <em>speed</em> at 0.478 and the turn that
+        actually answered at 0.353, so no fixed cutoff separates them.
+      </p>
+      <p>
+        So the push ships with a <em>keyword</em> floor — two shared content terms — which is honest
+        and deliberately conservative. It will miss a memory that is genuinely relevant and shares no
+        vocabulary, which is the same gap the cross-encoder failed to close. The fix is query
+        expansion, not more providers: expand the prompt into the words the corpus actually uses, and
+        the floor stops being a handicap. That is the next retrieval item.
       </p>
     </div>
   </section>

@@ -117,13 +117,13 @@ Sizes: **S** ≈ a sitting, **M** ≈ a day, **L** ≈ several days.
 
 ### 1.1 What remains — the full ranked list
 
-**Nine items.** Four carried over, five added by the August competitor review (Part 8). Ranked by
+**Nine items, one shipped.** Four carried over, five added by the August competitor review. Ranked by
 value per effort, not by size.
 
 | # | Work | Why here | Blocked on | Size |
 |---|---|---|---|---|
 | **1** | **Run all 500 LongMemEval instances** | Settles the competitive question with a number instead of an argument. We have measured 40 of 500 — 8% — and reported the *hardest* category. Everything below is speculation until this exists | Nothing; ~4 h unattended with the service stopped | L |
-| **2** | **Mid-session push via `UserPromptSubmit`** | The largest architectural gap in the system. The brain pushes **once**, at session start; a session that pivots is never re-oriented | Nothing | M |
+| ~~**2**~~ | ~~**Mid-session push via `UserPromptSubmit`**~~ — **shipped** `af81e4d` `4aafe32` | Was the largest architectural gap: the brain pushed **once**, at session start, so a session that pivoted was never re-oriented. Now re-queries retrieval on every prompt, 400 tokens, four memories, twenty per session, metered | — | — |
 | **3** | **Query expansion** | The measured answer to the vocabulary gap the cross-encoder failed to fix (1.4). Likely also lifts the four unmeasured categories | Nothing — the provider is already wired | M |
 | **4** | **AI-first note format** | Notes are written for humans and retrieved by a model. A stable preamble and compiler-read frontmatter is cheap, and plausibly worth more than reranking was | Nothing | S |
 | **5** | **Contradiction resolution — proposed, never applied** | `brain lint` finds contradictions and stops. A cited proposal for one-click human approval closes the gap without a model silently deciding what is true | Nothing | M |
@@ -147,20 +147,38 @@ value per effort, not by size.
   links-only page intact.
 - **9** — `consolidation_jobs` holds zero `pending` for an hour with the service running.
 
-### 1.2 One caution, on item 2
+### 1.2 Item 2, as shipped — the caution and what it cost
 
-Mid-session push spends tokens on **every message**, not once per session. The context budget is a
-contract, and the discipline that has kept the orientation at 1,115 tokens with 5.1 citations —
-rather than drifting into a wall of text — is that adding a field means removing one.
+The caution was that a push on every message spends tokens on every message, and the discipline that
+kept the orientation at 1,115 tokens is that adding a field means removing one. That held: the push
+gets **400 tokens and four memories**, against 1,000–1,500 for a session start that fires once.
 
-So it needs its own budget, much smaller than the session-start one, and **an injection-size meter
-that reports what every push actually cost.** That idea is worth copying outright from the
-`obsidian-mind` pattern: the meter is the last line of every injection, and when the budget is
-exceeded the cheapest-to-lose sections degrade to pointers *and the meter names each one it
-dropped* — because a silent loss is worse than the bloat.
+The **injection-size meter** was copied outright from the `obsidian-mind` pattern and it is the last
+line of every push, naming anything dropped: `[brain · 4 of 6 memories · 324 tokens · 2 dropped over
+budget]`. A silent loss is worse than the bloat it avoids.
 
-We have the measuring half already: deliveries are recorded at receipt, after the pipe flushes. What
-is missing is the per-push ceiling and the honest report when it bites.
+Three guards were not in the plan and came out of building it:
+
+1. **A relevance floor stricter than search uses.** FTS terms are OR-joined, so a prompt shares
+   "is"/"the"/"of" with almost everything and the ranking returns *something* for any input.
+   Measured: a question about unladen swallows retrieved a database-migration memory and would have
+   injected it. Two shared content terms minimum.
+2. **A per-session cap**, found by live verification rather than by test. The no-repeat rule is per
+   *memory*, so asking the same question twice correctly surfaces the *next* matches — two identical
+   prompts pushed eight distinct memories. Right behaviour, unbounded; twenty per session bounds it.
+3. **Silence as the default.** Short prompt, no session id, nothing new, nothing above the floor —
+   all return nothing. Six of the nine tests are about when it stays quiet.
+
+**The floor is a keyword floor, and that is a known handicap.** It will miss a memory that is
+genuinely relevant and shares no vocabulary — the same gap the cross-encoder failed to close.
+Cosine is no better as a gate: `all-MiniLM-L6-v2` scored a deployment-*speed* turn at 0.478 and the
+turn that actually answered at 0.353, so no fixed cutoff separates them. Query expansion is what
+removes the handicap, and this is a second independent argument for it.
+
+**One finding worth carrying.** The first live push surfaced two memories that are now false —
+`decay/tiers has no code` and `this project uses embeddinggemma`. Both were true when written. That
+is the counter-metric from Part 2 arriving early: a memory system can mislead with stale context, and
+an unsolicited injection of a stale claim costs more attention than a stale note nobody opened.
 
 ### 1.3 The waves, as they finished
 
@@ -502,9 +520,10 @@ Look at what the `obsidian-mind` pattern actually uses them for:
 
 Those are *push*, not capture. Which surfaces the finding:
 
-> **The brain pushes exactly once, at session start.** A session that runs for hours and pivots to a
-> different subject is never re-oriented. The orientation it received at minute zero is all it ever
-> gets.
+> **The brain pushed exactly once, at session start.** A session that ran for hours and pivoted to a
+> different subject was never re-oriented. **Closed** — `af81e4d`: the brain now sits on
+> `UserPromptSubmit` alongside CodeGraph and re-queries retrieval on each prompt, under its own
+> 400-token budget with a meter.
 
 The proof is in this machine's own configuration: `UserPromptSubmit` **is** registered — by
 **CodeGraph**, not by the brain. CodeGraph re-orients on every prompt; the brain does not. Two
@@ -521,7 +540,7 @@ holding.
 |---|---|---|
 | `SessionStart` | project profile + inject | **Have** |
 | `SessionEnd` / `Stop` | summarize the session | **Have** — for the boundary, which transcripts cannot express |
-| **`UserPromptSubmit`** | capture prompts *and inject routing hints* | **Capture covered; the push is the gap.** Item 2 |
+| **`UserPromptSubmit`** | capture prompts *and inject routing hints* | **Both covered.** Capture from the transcript; push shipped `af81e4d`, Claude only |
 | `PreToolUse` | capture file access *and inject context* | Capture covered; the push is a lesser version of item 2 |
 | `PreCompact` | re-inject before compaction | **Not needed** — `SessionStart` already matches `compact` |
 | `PostToolUse` | capture tool + output | Not needed — in the transcript |

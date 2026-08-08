@@ -13,8 +13,11 @@ research it rests on, and the comparisons that shaped it. This file answers one 
 ## Summary
 
 Waves 2 and 4 are complete. Wave 0 is complete bar a quota-bound backlog. Wave 3 is complete except
-for one generation step held back on purpose. Wave 5 has three of six panels, plus one unplanned. Wave 1 is half done —
-retrieval quality is measured, the token saving never has been.
+for one generation step held back on purpose. Wave 5 has three of six panels, plus one unplanned.
+Wave 1 is half done — retrieval quality is measured, the token saving never has been.
+
+**Shipped since the August competitor review:** the mid-session push. The brain no longer hands over
+context only at minute zero.
 
 | | |
 |---|---|
@@ -37,6 +40,7 @@ retrieval quality is measured, the token saving never has been.
 | **2 · Trust** — done | ~~`brain export`~~ · ~~`brain verify memory`~~ · ~~`brain forget` as a tombstone~~ | Export runs clean. Verify resolves a claim to the transcript byte offset it came from. Withdrawal is a tombstone every read path honours, so the ledger stayed append-only |
 | **3 · Quality** — 7 of 8 | ~~Orientation ranked by relevance~~ · ~~subject pages~~ · ~~`brain remember`~~ · ~~`brain lint`~~ · ~~vault `log.md`~~ · ~~session summaries~~ · ~~cross-encoder rerank~~ · synthesis prose | The orientation's memories had been ordered *alphabetically*. Rerank shipped and was measured *worse*, so it ships off. Synthesis prose is the last piece, held back on purpose |
 | **4 · Lifecycle** — done | ~~Access counts~~ · ~~staleness marking~~ · ~~gated eviction~~ | Decay stays mechanical and logged — the model proposes, derivation disposes. Eviction refuses to run until thirty days of access data exist, because on day one every memory is never-retrieved |
+| **6 · Depth** — 1 of 6 | ~~Mid-session push~~ · 500-instance benchmark · query expansion · AI-first notes · contradiction proposals · scheduled reflection | Added by the August competitor review. The push closed the largest architectural gap: the brain used to orient once and then stop helping |
 | **5 · Console** — 3 of 6, plus one | ~~Vector coverage~~ · ~~jobs and dead letters~~ · ~~memory lifecycle~~ · session replay · retrieval explain · config · **+ retrieval configuration** *(unplanned)* | Every shipped figure already existed inside a command; the work was putting it where someone looks. The engine-console pages stay excluded — there is no such runtime here |
 
 **One correction to an earlier count.** I previously recorded Wave 5 as "4 of 6" on the strength of the
@@ -71,6 +75,7 @@ nothing but a test. The panel was worth building and is not the item it was coun
 | 4.1 | Access counting | **Shipped** `11f91dc` | Counted per result, not per search |
 | 4.2 | Staleness surfaced | **Shipped** `6707add` `2ba9729` | 23 notes carry `stale: true`, reversed by retrieval |
 | 4.3 | Gated eviction | **Shipped, gated** `73655b2` | Refuses for ~29 more days by design |
+| **6.1** | **Mid-session push** (`UserPromptSubmit`) | **Shipped** `af81e4d` `4aafe32` | 400 tokens, four memories, twenty per session, metered. Claude only — Codex documents no such hook |
 | 5.1–5.3 | Vector coverage · jobs · lifecycle panels | **Shipped** `89bd75a` `6d8c6cd` `7d12c15` | Per-project, live |
 | — | Retrieval configuration panel *(unplanned)* | **Shipped** `a4ce736` | Each channel's weight beside whether it can fire. In-browser render unverified — see *Known gaps* |
 | **5.4 / 5.5 / 5.6** | **Session replay · retrieval explain · config** | **Gap** | No dependency on anything. 5.5 is a renderer over `explain_text_search`, which exists in the store and is called from nothing but a test |
@@ -245,11 +250,11 @@ refetch interval, on *every* panel — not only the new one. The API returns cor
 markup is right. This predates the retrieval panel and could not be distinguished from a limitation
 of that browser pane; worth checking in a real browser.
 
-**The brain pushes exactly once, at session start.** A session that runs for hours and pivots to a
-different subject is never re-oriented. `UserPromptSubmit` is registered on this machine — by
-**CodeGraph**, not by the brain — so the hook demonstrably works here and the brain simply does not
-use it. Nothing fails; the system stops helping after the first message. Item 2 in
-[what to pick up next](#what-to-pick-up-next).
+**Two memories the mid-session push surfaced are false.** `decay/tiers has no code at all` and
+`this project uses embeddinggemma-300M and Qwen3-Reranker-0.6B` were both true when written and are
+both wrong now. They are among the four contradictions `brain lint` reports, and the push makes them
+*louder* — an unsolicited injection of a stale claim costs more attention than a stale note nobody
+opened. Resolving them needs your judgement about which side is true, which is item 5.
 
 **One number that could not be traced.** A 93.2% R@5 figure appears in an earlier roadmap and in no
 document or commit. The recorded numbers are per-category: 63.3% → 90.0% on
@@ -266,7 +271,7 @@ reasoning and done-when criteria in [roadmap.md, Part 1](roadmap.md#part-1--rank
 | # | Work | Blocked on | Size |
 |---|---|---|---|
 | 1 | **Run all 500 LongMemEval instances** | Nothing — ~4 h unattended, service stopped | L |
-| 2 | **Mid-session push via `UserPromptSubmit`** | Nothing | M |
+| ~~2~~ | ~~**Mid-session push via `UserPromptSubmit`**~~ — **shipped** `af81e4d` | — | — |
 | 3 | **Query expansion** | Nothing — the provider is already wired | M |
 | 4 | **AI-first note format** | Nothing | S |
 | 5 | **Contradiction resolution — proposed, never applied** | Nothing | M |
@@ -282,21 +287,31 @@ We have measured **40 of 500 LongMemEval instances — 8%** — and the one we r
 category. `single-session-preference` is 6.0% of the dataset; the other 92% has never been run. Every
 competitive claim about this system is speculation until that number exists, in either direction.
 
-### Why 2 is second — and it is a real architectural gap
+### Item 2 shipped — what it took, and what it revealed
 
-**The brain pushes exactly once, at session start.** A session that runs for hours and pivots to a
-different subject is never re-oriented; what it received at minute zero is all it ever gets.
+The brain used to push exactly once, at session start. It now re-queries retrieval on every prompt
+and re-injects when the subject moves. Live: a question about the rerank benchmark returned four
+cited memories at 324 tokens, with the meter reporting two dropped over budget.
 
-The proof is in this machine's own configuration: `UserPromptSubmit` **is** registered — by
-**CodeGraph**, not by the brain. CodeGraph re-orients on every prompt; the brain does not. It stayed
-invisible because both halves work — capture is complete and the session-start orientation is good.
-Nothing fails. The system simply stops helping after the first message.
+Most of the work was **restraint**, because a push on every message has the opposite failure mode
+from a push on none:
 
-**Caution.** A push on every message spends tokens on every message. The budget is a contract, and
-the discipline that kept the orientation at 1,115 tokens with 5.1 citations is that adding a field
-means removing one. This needs its own much smaller budget and an **injection-size meter** reporting
-what each push cost — including naming anything it dropped, because a silent loss is worse than the
-bloat.
+| Guard | Why |
+|---|---|
+| Never repeat a memory; twenty per session | Re-injecting what the model already has spends the budget hardest exactly when the topic is *not* moving |
+| Silence for short prompts, no session id, or no new match | "ok" and "continue" share no vocabulary with anything specific, so retrieval returns whatever is generally popular |
+| **A stricter floor than search uses** | FTS terms are OR-joined — measured, a question about unladen swallows retrieved a database-migration memory and would have injected it |
+| 400 tokens, four memories, and a meter naming what it dropped | Session start gets 1,000–1,500 and fires once; this fires every message |
+
+**Two things live verification caught that the tests could not.** Repeating a prompt surfaced the
+*next* four memories rather than the same four — correct behaviour, and unbounded, so a per-session
+cap was added afterwards. And the push surfaced two memories that are now **false**, which is exactly
+the counter-metric the benchmark design names: a memory system that misleads with stale context. See
+*Known gaps*.
+
+**The floor is a keyword floor**, deliberately conservative. It will miss a genuinely relevant memory
+that shares no vocabulary — the same gap the cross-encoder failed to close. Query expansion is what
+removes the handicap, which is why it is next.
 
 ### Why query expansion is third rather than later
 
