@@ -26,7 +26,9 @@ mod tombstone;
 mod upgrade;
 mod vector;
 
-pub use access::MemoryAccess;
+pub use access::{
+    MemoryAccess, MemoryRetention, RETENTION_HALF_LIFE_DAYS, STALE_RETENTION, retention_score,
+};
 pub use backup::{
     BACKUP_FORMAT_VERSION, BackupInventory, BackupManager, BackupReport, InventoryFile,
     InventoryKind, RecoveryDrillReport, RestoreReport, RetentionPolicy, RetentionReport,

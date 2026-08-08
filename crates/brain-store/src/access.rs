@@ -137,3 +137,109 @@ impl EventLedger {
         Ok(u64::try_from(count).unwrap_or(0))
     }
 }
+
+/// How long an unused memory takes to lose half its retention, before strengthening.
+///
+/// Ninety days matches the staleness threshold the projection already uses, so the continuous score
+/// and the boolean flag disagree as little as possible. It is a starting point from the same place
+/// that one was — not a tuned constant, and the benchmark is what would move it.
+pub const RETENTION_HALF_LIFE_DAYS: f64 = 90.0;
+
+/// Retention below which a memory is considered stale.
+///
+/// `0.5` is one half-life for a never-retrieved memory, which is exactly the old boolean rule. The
+/// point of the score is not to change that line but to say *how far* a memory sits from it, and to
+/// let use move it.
+pub const STALE_RETENTION: f64 = 0.5;
+
+/// A memory's derived retention, and the inputs that produced it.
+///
+/// Every field is a fact from the ledger. Nothing here is a model's opinion, which is the whole
+/// reason decay is allowed to be automatic at all.
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+pub struct MemoryRetention {
+    pub memory_id: uuid::Uuid,
+    /// Ebbinghaus retention in `(0, 1]`. Higher means better retained.
+    pub retention: f64,
+    /// How many times retrieval has returned it.
+    pub retrieved_count: u64,
+    /// Days since it was last returned, or since it was recorded if never.
+    pub quiet_days: f64,
+    /// The multiplier retrieval has earned it.
+    pub strength: f64,
+}
+
+impl MemoryRetention {
+    pub fn is_stale(&self) -> bool {
+        self.retention < STALE_RETENTION
+    }
+}
+
+/// Ebbinghaus retention: `exp(-t · ln2 / (half_life · strength))`.
+///
+/// The `ln 2` is not decoration. Without it the constant is a *time constant*, not a half-life:
+/// `exp(-1)` is 0.368, so an unused memory would cross the 0.5 stale line at 62 days while the
+/// constant claimed 90. A name that means something different from the arithmetic beside it is the
+/// quiet kind of wrong — it reads correctly forever.
+///
+/// **Strengthening is the half that makes this more than an age check.** A memory retrieved ten
+/// times decays roughly `1 + ln(11) ≈ 3.4` times slower than one never retrieved, so use buys
+/// survival rather than merely resetting a clock. `ln` rather than a linear term deliberately: the
+/// tenth retrieval should matter less than the first, or a single hot memory would become
+/// permanent and crowd out everything the corpus learned since.
+///
+/// Pure, so it is testable without a ledger and auditable without running one.
+pub fn retention_score(retrieved_count: u64, quiet_days: f64) -> (f64, f64) {
+    let strength = 1.0 + (1.0 + retrieved_count as f64).ln();
+    let quiet = quiet_days.max(0.0);
+    let retention = (-quiet * std::f64::consts::LN_2 / (RETENTION_HALF_LIFE_DAYS * strength)).exp();
+    (retention, strength)
+}
+
+impl EventLedger {
+    /// Retention for every current memory, newest-quietest first.
+    ///
+    /// Replaces nothing: `stale_memory_ids` still answers the boolean question the projection asks.
+    /// This answers *how stale*, which is what ranking needs and a flag cannot express.
+    pub fn memory_retention(&self, now: time::OffsetDateTime) -> Result<Vec<MemoryRetention>> {
+        let now_ns = timestamp_ns(now)?;
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT v.memory_id,
+                   coalesce(a.retrieved_count, 0),
+                   coalesce(a.last_retrieved_at_ns, v.valid_from_ns)
+            FROM memory_versions v
+            JOIN memory_records r ON r.memory_id = v.memory_id
+            LEFT JOIN memory_access a ON a.memory_id = v.memory_id
+            WHERE r.project_id = ?1 AND v.status = 'current'
+              AND NOT EXISTS (
+                  SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
+              )
+            "#,
+        )?;
+        let rows = statement.query_map(params![self.project_scope.0.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, count, last_ns) = row?;
+            let retrieved_count = u64::try_from(count).unwrap_or(0);
+            let quiet_days = (now_ns - last_ns).max(0) as f64 / 86_400_000_000_000.0;
+            let (retention, strength) = retention_score(retrieved_count, quiet_days);
+            out.push(MemoryRetention {
+                memory_id: uuid::Uuid::parse_str(&id)?,
+                retention,
+                retrieved_count,
+                quiet_days,
+                strength,
+            });
+        }
+        out.sort_by(|a, b| b.retention.total_cmp(&a.retention));
+        Ok(out)
+    }
+}
