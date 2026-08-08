@@ -337,6 +337,18 @@ const MID_SESSION_TOKENS: usize = 400;
 /// Most memories one push may carry, before the token budget is even consulted.
 const MAX_PUSHED_MEMORIES: usize = 4;
 
+/// Most memories one session may ever be handed by the push path.
+///
+/// The no-repeat rule is per *memory*, not per prompt, so asking the same question twice correctly
+/// surfaces the *next* four matches rather than the same four. Measured live: two identical prompts
+/// pushed eight distinct memories. That is the right behaviour and an unbounded one — over a long
+/// session it drains the corpus into context a few hundred tokens at a time, which is precisely the
+/// drift the session-start budget exists to prevent.
+///
+/// Twenty is roughly five pushes. Past that the session has had a fair share and the honest answer
+/// is silence; anything still missing can be asked for.
+const MAX_SESSION_PUSHES: usize = 20;
+
 /// Content terms a memory must share with the prompt before it may be pushed.
 ///
 /// **A push needs a stricter floor than a search does**, because the user did not ask for it. FTS
@@ -402,6 +414,10 @@ fn mid_session_push(
     ledger.enable_vector_search(&binding.brain_home);
 
     let already = ledger.session_pushed_ids(session_id)?;
+    if already.len() >= MAX_SESSION_PUSHES {
+        return Ok(None);
+    }
+    let room = MAX_PUSHED_MEMORIES.min(MAX_SESSION_PUSHES - already.len());
     let hits = ledger.search(
         &brain_store::SearchQuery::text(binding.project_id, prompt)
             .memories_only()
@@ -424,7 +440,7 @@ fn mid_session_push(
             // it would overstate what the budget cost.
             continue;
         }
-        if pushed_ids.len() >= MAX_PUSHED_MEMORIES {
+        if pushed_ids.len() >= room {
             dropped += 1;
             continue;
         }

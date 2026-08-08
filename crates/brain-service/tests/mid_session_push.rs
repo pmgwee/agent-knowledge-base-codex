@@ -316,3 +316,41 @@ fn event(project: ProjectId, worktree: WorktreeId) -> NormalizedEvent {
         raw: serde_json::json!({ "content": "the database migration rollback ran" }),
     }
 }
+
+#[test]
+fn a_session_stops_being_pushed_to_once_it_has_had_a_fair_share() {
+    // Found by live verification, not by the fixtures above. The no-repeat rule is per *memory*, so
+    // asking the same question twice correctly surfaces the *next* matches rather than the same
+    // ones — two identical prompts pushed eight distinct memories. Right behaviour, unbounded: over
+    // a long session it drains the corpus into context a few hundred tokens at a time, which is the
+    // drift the session-start budget exists to prevent.
+    let titles: Vec<String> = (0..40)
+        .map(|i| format!("Database migration rollback note {i}"))
+        .collect();
+    let refs: Vec<&str> = titles.iter().map(String::as_str).collect();
+    let (handler, ledger_path, project, root, _temp) = fixture(&refs);
+
+    let mut answered = 0;
+    for _ in 0..15 {
+        if handler
+            .handle(&envelope(&root, "session-a", PROMPT))
+            .expect("handle")
+            .reply
+            .additional_context
+            .is_some()
+        {
+            answered += 1;
+        }
+    }
+
+    let ledger = EventLedger::open(&ledger_path, project).expect("reopen");
+    let pushed = ledger.session_push_count("session-a").expect("count");
+    assert!(
+        pushed <= 20,
+        "a session must not accumulate without bound, got {pushed}"
+    );
+    assert!(
+        answered < 15,
+        "the push must fall silent once the session has had its share"
+    );
+}
