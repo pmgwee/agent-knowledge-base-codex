@@ -307,23 +307,25 @@ impl EventLedger {
             limit
         };
 
-        let mut keyword = Vec::new();
+        // Events and memories are **separate keyword channels**, not one merged list.
+        //
+        // They live in different FTS tables, with different field weights and different corpus
+        // statistics, so their BM25 scores are numbers on incompatible scales — exactly the thing
+        // RRF exists to avoid comparing. Merging them and sorting by raw score did compare them,
+        // and the bigger corpus won every time: measured on the live ledger, the same query scored
+        // events up to 16.7 and memories up to 13.2, so with 25,174 events against 2,097 memories
+        // a mixed search returned events for every slot. Forty-four memories mentioned the query
+        // term and not one of them was reachable.
+        //
+        // Ranked separately and fused by rank, the best memory and the best event both surface,
+        // which is what a caller asking for both was always asking for.
+        let mut channels: Vec<(f64, Vec<SearchHit>)> = Vec::new();
         if query.source_filter != SearchSourceFilter::Memories {
-            keyword.extend(self.search_events(query, depth, None)?);
+            channels.push((BM25_WEIGHT, self.search_events(query, depth, None)?));
         }
         if query.source_filter != SearchSourceFilter::Events {
-            keyword.extend(self.search_memories(query, depth, None)?);
+            channels.push((BM25_WEIGHT, self.search_memories(query, depth, None)?));
         }
-        keyword.sort_by(|left, right| {
-            right
-                .bm25_score
-                .total_cmp(&left.bm25_score)
-                .then_with(|| right.occurred_at.cmp(&left.occurred_at))
-                .then_with(|| right.source_id.cmp(&left.source_id))
-        });
-        keyword.truncate(depth);
-
-        let mut channels = vec![(BM25_WEIGHT, keyword)];
         let vector = self.vector_channel(query, depth)?;
         if !vector.is_empty() {
             channels.push((VECTOR_WEIGHT, vector));
