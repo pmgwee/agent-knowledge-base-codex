@@ -703,6 +703,71 @@
   </section>
 
   <section>
+    <h2>The pipeline, against a hook-driven one</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      Competing systems hang the whole capture pipeline off a <code>PostToolUse</code> hook. We run
+      every one of those stages, triggered by the transcript watcher instead — because a hook that
+      fails to fire loses an observation permanently and a transcript file does not.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Stage</th><th>Ours</th><th>Standing</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>SHA-256 dedup, 5-minute window</td><td><code>UNIQUE(idempotency_key)</code>, 32 bytes</td><td><span class="pill live">Ahead — permanent, not a window</span></td></tr>
+          <tr><td>Privacy filter — strip secrets</td><td><code>redact_string</code> + per-job redaction manifest</td><td><span class="pill live">Ahead — auditable, not silent</span></td></tr>
+          <tr><td>Store raw observation</td><td>Append-only events</td><td><span class="pill live">Ahead — enforced, not conventional</span></td></tr>
+          <tr><td>LLM compress → structured facts</td><td><code>ConsolidationLlm::propose</code>, evidence-cited</td><td><span class="pill live">Equal, and ours cites</span></td></tr>
+          <tr><td>Vector embedding</td><td>In-process MiniLM, one provider</td><td><span class="pill part">Behind on count — deliberate: no sidecar</span></td></tr>
+          <tr><td>Index in BM25 + vector</td><td>FTS5 + vectors, fused by RRF</td><td><span class="pill live">Equal</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout" style="margin-top: 16px;">
+      <h3>Capture is covered. Push is not.</h3>
+      <p>
+        Seven of their nine hooks are redundant here because the transcript already holds what those
+        hooks capture. But capture is not all those hooks do — <code>UserPromptSubmit</code> and
+        <code>PreToolUse</code> also <em>inject</em> back into the conversation, and that is a
+        direction this system does not travel.
+      </p>
+      <p>
+        <strong>The brain pushes exactly once, at session start.</strong> A session running for hours
+        that pivots to a different subject is never re-oriented; what arrived at minute zero is all it
+        ever gets. <code>UserPromptSubmit</code> is registered on this machine — by <em>CodeGraph</em>,
+        not by the brain — so the hook demonstrably works and the brain simply does not use it. It
+        stayed invisible because both halves work: nothing fails, the system just stops helping after
+        the first message.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Memory tiers</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      All four tiers of the working / episodic / semantic / procedural model exist. Every memory
+      additionally cites the events it came from — a tier label says what kind of thing a memory is; a
+      citation says whether it is true.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Tier</th><th>Ours</th><th>State</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Working</strong> — raw observations</td><td><code>events</code>, 140,134 captured</td><td><span class="pill live">Have</span></td></tr>
+          <tr><td><strong>Episodic</strong> — session summaries</td><td>Boundary hook + <code>session_stopped</code> consolidation</td><td><span class="pill live">Have — 8 Aug</span></td></tr>
+          <tr><td><strong>Semantic</strong> — facts and patterns</td><td><code>Fact</code> · <code>Decision</code> · <code>Investigation</code> · <code>Preference</code></td><td><span class="pill live">Have</span></td></tr>
+          <tr><td><strong>Procedural</strong> — workflows</td><td><code>Procedure</code> · <code>Task</code> · <code>Deployment</code> · <code>Checkpoint</code> · <code>Timeline</code></td><td><span class="pill live">Have</span></td></tr>
+          <tr><td>Decay curve · access-strengthening</td><td>Staleness is a boolean; retrievals counted but never ranked up</td><td><span class="pill off">Not built</span></td></tr>
+          <tr><td>Contradiction resolution</td><td><code>brain lint</code> finds them and stops</td><td><span class="pill part">Detect only — on purpose</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
     <h2>Against the LLM Wiki pattern</h2>
     <p class="standfirst" style="margin-bottom: 4px;">
       Karpathy's LLM Wiki is a <em>maintenance discipline</em>, not a retrieval source: pages compiled

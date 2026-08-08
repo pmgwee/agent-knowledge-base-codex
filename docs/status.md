@@ -77,6 +77,37 @@ nothing but a test. The panel was worth building and is not the item it was coun
 
 ---
 
+## Memory tiers
+
+All four tiers exist. The lifecycle over them is where the remaining work is.
+
+| Tier | Ours | State |
+|---|---|---|
+| **Working** — raw observations | `events`, 140,134 captured | ✅ |
+| **Episodic** — session summaries | Boundary hook + `session_stopped` consolidation | ✅ shipped 8 Aug |
+| **Semantic** — facts and patterns | `Fact`, `Decision`, `Investigation`, `Preference` | ✅ |
+| **Procedural** — workflows | `Procedure`, `Task`, `Deployment`, `Checkpoint`, `Timeline` | ✅ |
+
+Every memory additionally cites the events it came from, which no tier label supplies: a tier says
+what kind of thing a memory is; a citation says whether it is true.
+
+**What the lifecycle does and does not do:**
+
+| | State |
+|---|---|
+| Access counting | ✅ per result, not per search |
+| Derived staleness | ✅ 23 notes flagged, reversed the moment retrieval returns one |
+| Gated eviction | ✅ refuses until thirty days of access data exist |
+| Ebbinghaus decay curve | ❌ not built — staleness is a boolean, not a continuous score |
+| Access-strengthening | ❌ half — retrievals are counted; nothing ranks up for being used |
+| Contradiction resolution | ❌ detect only — `brain lint` finds them and stops |
+
+The last one is a position, not a gap: resolving means a model deciding which claim is true, and that
+leaves no evidence trail. The middle we have not built is *proposing* a resolution with citations for
+approval — item 5.
+
+---
+
 ## The four that are not simply "done"
 
 **0.2 is quota-bound, not code-bound.** 1,693 jobs pending against 2,884 completed. The deferral
@@ -87,7 +118,10 @@ allows. There is no work here to do.
 — the headline this project is usually asked about — has never been measured, and only the
 numerator ever has. Design in [roadmap.md, Part 2](roadmap.md#part-2--proving-the-saving).
 
-**3.2b is deliberately incomplete.** The validator, store and rendering ship with 16 tests. The
+**3.2b is deliberately incomplete, and it is the last piece of the Karpathy pattern.** 450 subject
+pages exist and every one of them only *lists* — **nothing in this vault has ever been revised in
+place.** Supersession replaces a claim; it does not fold a new observation into an existing page.
+The validator, store and rendering ship with 16 tests. The
 generation call does not, and the reason is not effort: a subject page that only links *cannot*
 contradict the ledger and a paragraph *can*, so the citation validation should be watched rejecting
 a real bad citation from a real provider before prose reaches the vault. Building it against a stub
@@ -127,6 +161,25 @@ expansion, not a second scoring model.**
 
 `--rerank` stays available because it separates cleanly on factual questions (6.230 / 2.365 /
 −11.348). That half has not been benchmarked, and nothing should enable it globally on that basis.
+
+### This number is not comparable to a published one
+
+`single-session-preference` is **30 of 500 instances — 6.0% of the dataset**, and it is the hardest
+slice. We have measured **40 of 500 — 8%** — and the figure we report is our worst category.
+Competing systems publish a weighted mean across all six.
+
+| Category | Instances | Share | Measured |
+|---|---|---|---|
+| multi-session | 133 | 26.6% | **never** |
+| temporal-reasoning | 133 | 26.6% | **never** |
+| knowledge-update | 78 | 15.6% | 10 → **100%** |
+| single-session-user | 70 | 14.0% | **never** |
+| single-session-assistant | 56 | 11.2% | **never** |
+| single-session-preference | 30 | 6.0% | 30 → 90.0% |
+
+**Do not quote 90.0% against anyone else's headline.** The honest statement is: *on the hardest
+category, hybrid retrieval takes this system from 63.3% to 90.0%.* Running the other 92% is item 1 in
+[what to pick up next](#what-to-pick-up-next), and it is first for exactly this reason.
 
 ---
 
@@ -192,6 +245,12 @@ refetch interval, on *every* panel — not only the new one. The API returns cor
 markup is right. This predates the retrieval panel and could not be distinguished from a limitation
 of that browser pane; worth checking in a real browser.
 
+**The brain pushes exactly once, at session start.** A session that runs for hours and pivots to a
+different subject is never re-oriented. `UserPromptSubmit` is registered on this machine — by
+**CodeGraph**, not by the brain — so the hook demonstrably works here and the brain simply does not
+use it. Nothing fails; the system stops helping after the first message. Item 2 in
+[what to pick up next](#what-to-pick-up-next).
+
 **One number that could not be traced.** A 93.2% R@5 figure appears in an earlier roadmap and in no
 document or commit. The recorded numbers are per-category: 63.3% → 90.0% on
 `single-session-preference`. Those are not the same measurement and should not be quoted as one.
@@ -200,31 +259,50 @@ document or commit. The recorded numbers are per-category: 63.3% → 90.0% on
 
 ## What to pick up next
 
-The wave table above is the inventory; this is the order to work it in. Five items. Only three are code, and the ordering has one real decision in it. Full reasoning and
-done-when criteria in [roadmap.md, Part 1](roadmap.md#part-1--ranked-plan); this is the same list,
-kept here so the status document answers the question on its own.
+**Nine items.** Four carried over from the original waves, five added by the August competitor review.
+The wave table above is the inventory of what was planned; this is the order to work in now. Full
+reasoning and done-when criteria in [roadmap.md, Part 1](roadmap.md#part-1--ranked-plan).
 
-| | Work | Blocked on | Size |
+| # | Work | Blocked on | Size |
 |---|---|---|---|
-| 1 | **0.2** — drain the consolidation backlog | **Quota.** 1,693 pending; nothing to build | — |
-| 2 | **3.2b** — the synthesis *generation* call | A live provider, to watch the citation check refuse a real bad citation | M |
-| 3 | **Wave 1** — the token-saving A/B | 0.2 first, then a day of runs | L |
-| 4 | **Query expansion** — *new* | Nothing | M |
-| 5 | **5.4 / 5.5 / 5.6** — session replay, retrieval explain, config | Nothing | M each |
+| 1 | **Run all 500 LongMemEval instances** | Nothing — ~4 h unattended, service stopped | L |
+| 2 | **Mid-session push via `UserPromptSubmit`** | Nothing | M |
+| 3 | **Query expansion** | Nothing — the provider is already wired | M |
+| 4 | **AI-first note format** | Nothing | S |
+| 5 | **Contradiction resolution — proposed, never applied** | Nothing | M |
+| 6 | **Scheduled reflection** — nightly, weekly | Nothing | M |
+| 7 | **3.2b** — the synthesis generation call | A live provider, to watch the citation check refuse a real bad citation | M |
+| 8 | **5.4 / 5.5 / 5.6** — session replay, retrieval explain, config | Nothing | M each |
+| 9 | **0.2** — drain the consolidation backlog | **Quota.** 1,693 pending; nothing to build | — |
+| — | **Token-saving A/B** | 0.2 first, then a day of runs | L |
 
-**Query expansion is on this list because the cross-encoder failed.** 3.4 was meant to fix ranking on
-the category hybrid retrieval exists for, and measuring it showed the opposite — it moves the
-answering session *down*, out of the top five. The isolated cause is a vocabulary gap that neither
-the bi-encoder nor the cross-encoder bridges: `ship` and `deploy` are the same claim and score ten
-points apart. A second scoring model cannot invent that link. Query expansion can, and the LLM
-provider needed for it is already wired for consolidation.
+### Why 1 is first
 
-**The decision: does query expansion outrank Wave 1?** It probably does. Wave 1 measures the value of
-the system, and query expansion is the last known defect in the part of the system that measurement
-would be measuring — so running the benchmark first risks publishing a number that a week of work
-would have moved.
+We have measured **40 of 500 LongMemEval instances — 8%** — and the one we report is the *hardest*
+category. `single-session-preference` is 6.0% of the dataset; the other 92% has never been run. Every
+competitive claim about this system is speculation until that number exists, in either direction.
 
-Items 4 and 5 have no dependency on quota and are the obvious things to pick up while 0.2 drains.
+### Why 2 is second — and it is a real architectural gap
+
+**The brain pushes exactly once, at session start.** A session that runs for hours and pivots to a
+different subject is never re-oriented; what it received at minute zero is all it ever gets.
+
+The proof is in this machine's own configuration: `UserPromptSubmit` **is** registered — by
+**CodeGraph**, not by the brain. CodeGraph re-orients on every prompt; the brain does not. It stayed
+invisible because both halves work — capture is complete and the session-start orientation is good.
+Nothing fails. The system simply stops helping after the first message.
+
+**Caution.** A push on every message spends tokens on every message. The budget is a contract, and
+the discipline that kept the orientation at 1,115 tokens with 5.1 citations is that adding a field
+means removing one. This needs its own much smaller budget and an **injection-size meter** reporting
+what each push cost — including naming anything it dropped, because a silent loss is worse than the
+bloat.
+
+### Why query expansion is third rather than later
+
+It is the measured answer to the vocabulary gap the cross-encoder failed to fix — `ship` and `deploy`
+are the same claim and score ten points apart, and a second scoring model cannot invent that link.
+It is also the change most likely to lift the four categories item 1 will expose.
 
 ---
 

@@ -115,24 +115,54 @@ running something, because "implemented" is not a state anyone can verify.
 
 Sizes: **S** ≈ a sitting, **M** ≈ a day, **L** ≈ several days.
 
-### 1.1 What remains
+### 1.1 What remains — the full ranked list
 
-Four items, and only one of them is code.
+**Nine items.** Four carried over, five added by the August competitor review (Part 8). Ranked by
+value per effort, not by size.
 
-| | Work | Blocked on | Size |
-|---|---|---|---|
-| **0.2** | Drain the consolidation backlog — 1,693 pending against 2,884 completed | **Provider quota.** 290 of 294 deferrals were plain HTTP 429. Nothing to build | — |
-| **1** | The token-saving A/B — design in Part 2 | 0.2, and a day of runs | L |
-| **3.2b** | The synthesis *generation* call. Validator, store and rendering ship | Watching the citation check refuse a real bad citation from a live provider | M |
-| **5.4/5.5/5.6** | Session replay · retrieval explain · config | Nothing | M each |
+| # | Work | Why here | Blocked on | Size |
+|---|---|---|---|---|
+| **1** | **Run all 500 LongMemEval instances** | Settles the competitive question with a number instead of an argument. We have measured 40 of 500 — 8% — and reported the *hardest* category. Everything below is speculation until this exists | Nothing; ~4 h unattended with the service stopped | L |
+| **2** | **Mid-session push via `UserPromptSubmit`** | The largest architectural gap in the system. The brain pushes **once**, at session start; a session that pivots is never re-oriented | Nothing | M |
+| **3** | **Query expansion** | The measured answer to the vocabulary gap the cross-encoder failed to fix (1.4). Likely also lifts the four unmeasured categories | Nothing — the provider is already wired | M |
+| **4** | **AI-first note format** | Notes are written for humans and retrieved by a model. A stable preamble and compiler-read frontmatter is cheap, and plausibly worth more than reranking was | Nothing | S |
+| **5** | **Contradiction resolution — proposed, never applied** | `brain lint` finds contradictions and stops. A cited proposal for one-click human approval closes the gap without a model silently deciding what is true | Nothing | M |
+| **6** | **Scheduled reflection** — nightly consolidation, weekly review | The "maintains itself" claim. The service loops exist; the reflection does not | Nothing | M |
+| **7** | **3.2b** — the synthesis *generation* call | The last piece of the Karpathy pattern. Validator, store and rendering ship | Watching the citation check refuse a real bad citation from a live provider | M |
+| **8** | **5.4 / 5.5 / 5.6** — session replay · retrieval explain · config | Console completeness. 5.5 is a renderer over `explain_text_search`, which exists and is called from nothing but a test | Nothing | M each |
+| **9** | **0.2** — drain the consolidation backlog | 1,693 pending against 2,884 completed | **Provider quota.** 290 of 294 deferrals were plain HTTP 429. *Nothing to build* | — |
+| **—** | **1 (token-saving A/B)** — design in Part 2 | The headline this project is asked about, and the numerator is all that has ever been counted | 0.2 first, then a day of runs | L |
 
-**Done when**, for each: 0.2 — `consolidation_jobs` holds zero `pending` for an hour with the service
-running. 1 — a written report carrying per-task and pooled token deltas *with spread*, the rubric
-scores, and the counter-metric, whose first paragraph states the sample size and who chose the tasks.
-3.2b — a paragraph cites only memory ids present on its own page, and a bad citation leaves the
-links-only page intact. 5.4 — a captured session can be scrubbed as discrete events.
+**Done when**, for the ones where it is not obvious:
 
-### 1.2 The waves, as they finished
+- **1 (500-run)** — a report stating R@5, R@10 and MRR *per category and pooled*, with the
+  configuration printed beside every number.
+- **2** — a session that changes subject receives a re-orientation, and the injection meter shows
+  what it cost. See the caution in 1.2.
+- **4** — the compiler reads a note's frontmatter rather than re-parsing prose, and orientation
+  quality is re-measured after the change rather than assumed.
+- **5** — a proposed resolution cites both sides and applies only on explicit approval; refusing it
+  leaves both memories current.
+- **7** — a paragraph cites only memory ids present on its own page, and a bad citation leaves the
+  links-only page intact.
+- **9** — `consolidation_jobs` holds zero `pending` for an hour with the service running.
+
+### 1.2 One caution, on item 2
+
+Mid-session push spends tokens on **every message**, not once per session. The context budget is a
+contract, and the discipline that has kept the orientation at 1,115 tokens with 5.1 citations —
+rather than drifting into a wall of text — is that adding a field means removing one.
+
+So it needs its own budget, much smaller than the session-start one, and **an injection-size meter
+that reports what every push actually cost.** That idea is worth copying outright from the
+`obsidian-mind` pattern: the meter is the last line of every injection, and when the budget is
+exceeded the cheapest-to-lose sections degrade to pointers *and the meter names each one it
+dropped* — because a silent loss is worse than the bloat.
+
+We have the measuring half already: deliveries are recorded at receipt, after the pipe flushes. What
+is missing is the per-push ceiling and the honest report when it bites.
+
+### 1.3 The waves, as they finished
 
 | Wave | Outcome |
 |---|---|
@@ -143,7 +173,7 @@ links-only page intact. 5.4 — a captured session can be scrubbed as discrete e
 | **4 — Lifecycle** | Complete. Access counting, derived staleness, gated eviction |
 | **5 — Console** | 3 of 6 panels, plus one unplanned. Session replay, retrieval explain and config remain — the retrieval panel that shipped shows *configuration*, not per-query explain |
 
-### 1.3 The rerank result, and why it changed the plan
+### 1.4 The rerank result, and why it changed the plan
 
 3.4 was written as *"LongMemEval `single-session-preference` R@5 improves on 90.0%, and no category
 regresses"*. It shipped, it was measured, and it **failed its own done-when**: 90.0% → 86.7%, MRR
@@ -164,14 +194,14 @@ disk, ~2.3 GB resident in a permanently-running service, and 26× the parameters
 costing 81–98 ms per candidate, no CPU-only configuration fits an interactive query. Revisit on a
 GPU; the next rung short of that is `bge-reranker-base`.
 
-### 1.4 Out of scope, and worth naming
+### 1.5 Out of scope, and worth naming
 
 **Hermes as a third harness.** `Harness::Hermes` exists in the domain model and the dashboard already
 counts its events, so the brain would capture it the moment a transcript root existed. Out of scope
 only because nothing writes one on this machine yet. When it arrives it is a transcript root and an
 `AGENTS.md` section, not a wave.
 
-### 1.5 Deliberately not building
+### 1.6 Deliberately not building
 
 Team memory · git snapshots of memory state · PostToolUse vault validation · orphan cross-linker ·
 iii-style Workers/Functions/Triggers/States pages. The last deserves a sentence: those pages expose a
@@ -397,6 +427,39 @@ that"*. Push the irreplaceable thing; make the re-derivable thing available on d
 
 ---
 
+### 5.5 Taken further — `obsidian-second-brain`
+
+A third system takes Karpathy's pattern past where we stopped, and its first row is the one that
+hurts. Reviewed August 2026.
+
+| | Them | Us |
+|---|---|---|
+| **New sources** | **Rewrite existing pages.** People get updated, claims revised, stale facts replaced | **Append.** 13,246 memories and not one revised in place |
+| Contradictions | Resolved automatically | Detected and surfaced; never resolved |
+| Patterns | Synthesised on their own into new pages | Not at all |
+| When it runs | Four scheduled agents — morning brief, nightly consolidation, weekly review, health check | On capture only |
+| Note format | **AI-first** — a `## For future Claude` preamble plus frontmatter written for retrieval | Human-readable Markdown |
+
+Three of those five are already ranked in Part 1: revision is item 7, contradiction resolution is
+item 5, scheduled reflection is item 6.
+
+**The note-format row is new, and it is the cheapest idea on this page.** Our notes are written for a
+human to read and then retrieved by a model. Nothing about that ordering was decided; it is inherited
+from the vault being an Obsidian vault. Shaping notes *for retrieval* — a stable preamble the
+compiler can anchor on, frontmatter it reads rather than re-derives from prose — costs a projection
+change and no new machinery, and it plausibly does more for orientation quality than re-ranking did.
+It is item 4, and unlike the reranker it should be **measured after shipping rather than argued
+before**.
+
+**On auto-resolving contradictions, we should not follow them.** Resolving means a model deciding
+which of two claims is true, and that decision leaves no evidence trail — the exact conversion of a
+verifiable system into a plausible one this project exists to avoid. But "detect and stop" is not the
+only alternative. The middle we have not built is a **proposal**: cite both sides, state which
+supersedes which and why, and apply only on explicit approval. That keeps derivation in charge of the
+disposition while letting the model do what it is good at. Item 5.
+
+---
+
 ## Part 6 — Do we match agentmemory, and where do we beat it?
 
 ### 6.1 The Session 1 → Session 2 scenario
@@ -413,29 +476,57 @@ recency-ordered; **memories were ordered alphabetically by subject**, so with 2,
 for three, the alphabet was the selection. The orientation is still recency-shaped by design; the
 ranking now operates within that.
 
-### 6.2 Their nine hooks — we needed two
+### 6.2 Their nine hooks — and the half of the question we got wrong
 
-The decisive architectural difference: **their capture is hook-driven, ours is transcript-driven.** We
-tail the JSONL each agent already writes. A hook that fails to fire loses an observation permanently;
-a transcript file does not, and our watcher rescans every 120 s and resumes from a byte-offset cursor.
+**For capture, seven of nine are genuinely redundant, and that conclusion holds.** Their capture is
+hook-driven; ours is transcript-driven. We tail the JSONL each agent already writes. A hook that
+fails to fire loses an observation permanently; a transcript does not, and our watcher rescans every
+120 s and resumes from a byte-offset cursor.
+
+Their entire `PostToolUse` pipeline we already run, triggered by a file watcher rather than a hook:
+
+| Their stage | Ours | Standing |
+|---|---|---|
+| SHA-256 dedup, 5-minute window | `UNIQUE(idempotency_key)`, 32 bytes | **Ahead** — schema-enforced and permanent, not a time window |
+| Privacy filter — strip secrets | `redact_string` **plus a per-job redaction manifest** | **Ahead** — theirs strips silently; ours leaves an audit trail |
+| Store raw observation | Append-only events | **Ahead** — immutability is enforced, not conventional |
+| LLM compress → structured facts | `ConsolidationLlm::propose`, evidence-cited | **Equal**, and ours carries citations |
+| Vector embedding | In-process MiniLM | **Behind on count** — one provider against six. Deliberate: no sidecar, no network, no install step |
+| Index in BM25 + vector | FTS5 + vectors, fused by RRF | **Equal** |
+
+**But capture is not the only thing those hooks do, and that is what the earlier analysis missed.**
+Look at what the `obsidian-mind` pattern actually uses them for:
+
+- `UserPromptSubmit` → injects **routing hints** back into the conversation
+- `PreToolUse` → injects **enriched context** before a tool runs
+
+Those are *push*, not capture. Which surfaces the finding:
+
+> **The brain pushes exactly once, at session start.** A session that runs for hours and pivots to a
+> different subject is never re-oriented. The orientation it received at minute zero is all it ever
+> gets.
+
+The proof is in this machine's own configuration: `UserPromptSubmit` **is** registered — by
+**CodeGraph**, not by the brain. CodeGraph re-orients on every prompt; the brain does not. Two
+systems on the same hook, one using it and one not.
+
+It stayed invisible because both halves work: capture is complete, and the session-start orientation
+is good. Nothing fails. The system simply stops helping after the first message.
+
+That is item 2 in Part 1, and the caution in 1.2 applies — a push on every message needs its own
+budget and a meter, or the contract that has held the orientation to 1,115 tokens quietly stops
+holding.
 
 | Hook | Their use | Us |
 |---|---|---|
-| `SessionStart` | project profile + inject | **Needed — have it** |
-| `SessionEnd` / `Stop` | summarize the session | **Needed — have it.** Not for capture: for the boundary, which transcripts cannot express |
-| `PreCompact` | re-inject before compaction | **Not needed — cut.** `SessionStart` already matches `compact` |
-| `UserPromptSubmit` | capture prompts | Not needed — in the transcript |
-| `PreToolUse` | capture file access | Not needed — in the transcript |
+| `SessionStart` | project profile + inject | **Have** |
+| `SessionEnd` / `Stop` | summarize the session | **Have** — for the boundary, which transcripts cannot express |
+| **`UserPromptSubmit`** | capture prompts *and inject routing hints* | **Capture covered; the push is the gap.** Item 2 |
+| `PreToolUse` | capture file access *and inject context* | Capture covered; the push is a lesser version of item 2 |
+| `PreCompact` | re-inject before compaction | **Not needed** — `SessionStart` already matches `compact` |
 | `PostToolUse` | capture tool + output | Not needed — in the transcript |
 | `PostToolUseFailure` | capture errors | Not needed — in the transcript |
 | `SubagentStart/Stop` | subagent lifecycle | Not needed — in the transcript |
-
-Seven of nine are redundant here, and that is a strength rather than a shortfall: fewer moving parts
-in the path that loses data when it breaks.
-
-**The one thing transcripts genuinely cannot supply is the boundary.** A session ending writes no
-line — the file simply stops growing — which is why `session.ended` had been emitted zero times
-across 139,192 events while looking fully wired.
 
 ### 6.3 Their four tiers against our nine kinds
 
@@ -450,9 +541,18 @@ Ours is finer-grained where it matters and carries a property theirs does not re
 memory cites the events it came from.** A tier label says what kind of thing a memory is; a citation
 says whether it is true.
 
-The *lifecycle* gap — Ebbinghaus decay, access-strengthening, auto-evict — has closed, though
-deliberately more conservatively than theirs: we surface conflicts rather than resolving them, and
-eviction is gated on thirty days of evidence rather than a decay curve.
+The *lifecycle* comparison needs splitting rather than a single verdict:
+
+| Theirs | Ours |
+|---|---|
+| Ebbinghaus decay curve | **Not built.** Staleness is a boolean derived from age *and* disuse, not a continuous score |
+| Access-strengthening | **Half.** We count retrievals; nothing is ranked up for being used |
+| Auto-evict | **Built, gated.** Refuses until thirty days of access data exist |
+| Automatic contradiction resolution | **Detect only** — `brain lint` finds them and stops. Item 5 proposes rather than applies |
+
+The conservatism is deliberate in two of those four and simply unbuilt in the other two. Worth being
+precise about which is which: a decay curve and access-strengthening are ordinary work nobody has
+done, while refusing to auto-resolve is a position.
 
 **Verdict: better on structure and trust, and no longer worse on freshness.**
 
@@ -490,6 +590,44 @@ at 1,115 tokens with 5.1 citations instead of drifting into a wall of text.
 
 **What remains genuinely theirs:** session replay in the viewer, and a provider fallback chain. Both
 are work, neither is architectural.
+
+---
+
+### 6.6 Their LongMemEval number, and why ours is not comparable to it
+
+They publish **95.2% R@5 / 98.6% R@10 / 88.2% MRR** over all 500 questions, with an 86.2% BM25
+fallback. We publish 90.0% R@5. Read side by side that looks like a five-point deficit. It is not a
+comparison at all.
+
+`single-session-preference` is **30 of 500 instances — 6.0% of the dataset**, and it is the hardest
+slice: the category where BM25 alone scores 63.3%. Their figure is a weighted mean across all six
+categories. Ours is our worst one.
+
+| Category | Instances | Share | We have measured |
+|---|---|---|---|
+| multi-session | 133 | 26.6% | **never** |
+| temporal-reasoning | 133 | 26.6% | **never** |
+| knowledge-update | 78 | 15.6% | 10 → **100%** |
+| single-session-user | 70 | 14.0% | **never** |
+| single-session-assistant | 56 | 11.2% | **never** |
+| single-session-preference | 30 | 6.0% | 30 → 90.0% |
+
+**We have measured 40 of 500 instances — 8% — and reported the hardest 6%.** Their BM25 baseline tells
+the same story from the other side: 86.2% against our 63.3% is not evidence their keyword search is
+better, it is the same category-mix artefact. BM25 scores 100% on `knowledge-update` in our own
+harness.
+
+So the answer to "is their number bombast, or are we behind?" is **neither, and we cannot say yet**.
+It is not a data problem and not a time problem in the sense of needing more history — the corpus is
+the published dataset, identical for both. It is 3.5–4 hours of embedding we have not spent, on 92% of
+the questions.
+
+**Until that run exists, stop quoting 90.0% against 95.2%.** The honest statement is: *on the hardest
+category, hybrid retrieval takes us from 63.3% to 90.0%.* That is a real result about a real
+weakness. It is not a headline, and pooling it against someone else's headline is the kind of
+comparison this project is supposed to be better than.
+
+Item 1 in Part 1, and it is first for exactly this reason.
 
 ---
 
