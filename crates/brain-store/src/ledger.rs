@@ -686,35 +686,6 @@ fn insert_event(transaction: &rusqlite::Transaction<'_>, event: &NormalizedEvent
     )?)
 }
 
-#[cfg(test)]
-mod tests {
-    use brain_domain::ProjectId;
-
-    use super::{EventLedger, LATEST_EVENT_AT_SQL};
-
-    #[test]
-    fn latest_event_lookup_uses_the_project_occurrence_index() {
-        let project = ProjectId(uuid::Uuid::now_v7());
-        let ledger = EventLedger::open_in_memory(project).expect("ledger");
-        let mut statement = ledger
-            .connection
-            .prepare(&format!("EXPLAIN QUERY PLAN {LATEST_EVENT_AT_SQL}"))
-            .expect("plan statement");
-        let details = statement
-            .query_map([project.0.to_string()], |row| row.get::<_, String>(3))
-            .expect("plan rows")
-            .collect::<Result<Vec<_>, _>>()
-            .expect("plan details");
-
-        assert!(
-            details
-                .iter()
-                .any(|detail| detail.contains("idx_events_project_occurred")),
-            "latest-event lookup must use the scoped occurrence index: {details:?}"
-        );
-    }
-}
-
 impl EventLedger {
     /// Every captured event in one session, oldest first.
     ///
@@ -814,5 +785,34 @@ impl EventLedger {
             ))
         })
         .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use brain_domain::ProjectId;
+
+    use super::{EventLedger, LATEST_EVENT_AT_SQL};
+
+    #[test]
+    fn latest_event_lookup_uses_the_project_occurrence_index() {
+        let project = ProjectId(uuid::Uuid::now_v7());
+        let ledger = EventLedger::open_in_memory(project).expect("ledger");
+        let mut statement = ledger
+            .connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {LATEST_EVENT_AT_SQL}"))
+            .expect("plan statement");
+        let details = statement
+            .query_map([project.0.to_string()], |row| row.get::<_, String>(3))
+            .expect("plan rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("plan details");
+
+        assert!(
+            details
+                .iter()
+                .any(|detail| detail.contains("idx_events_project_occurred")),
+            "latest-event lookup must use the scoped occurrence index: {details:?}"
+        );
     }
 }
