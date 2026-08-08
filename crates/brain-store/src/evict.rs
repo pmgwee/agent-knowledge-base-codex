@@ -20,6 +20,7 @@ use anyhow::{Result, ensure};
 use brain_domain::Authority;
 use rusqlite::params;
 
+use crate::CURRENT_CLAIM;
 use crate::cursor::timestamp_ns;
 use crate::ledger::EventLedger;
 
@@ -121,12 +122,12 @@ impl EventLedger {
         };
 
         let cutoff = timestamp_ns(now - QUIET_FOR)?;
-        let mut statement = self.connection.prepare(
+        let mut statement = self.connection.prepare(&format!(
             r#"
             SELECT v.memory_id, v.title, v.valid_from_ns, v.authority
             FROM memory_versions v
             JOIN memory_records r ON r.memory_id = v.memory_id
-            WHERE r.project_id = ?1 AND v.status = 'current'
+            WHERE r.project_id = ?1 AND {CURRENT_CLAIM}
               AND v.valid_from_ns < ?2
               AND NOT EXISTS (
                   SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
@@ -135,8 +136,8 @@ impl EventLedger {
                   SELECT 1 FROM memory_access a WHERE a.memory_id = v.memory_id
               )
             ORDER BY v.valid_from_ns ASC
-            "#,
-        )?;
+            "#
+        ))?;
         let rows =
             statement.query_map(params![self.project_scope.0.to_string(), cutoff], |row| {
                 Ok((
@@ -170,14 +171,16 @@ impl EventLedger {
         }
 
         let total_current: i64 = self.connection.query_row(
-            r#"
+            &format!(
+                r#"
             SELECT COUNT(*) FROM memory_versions v
             JOIN memory_records r ON r.memory_id = v.memory_id
-            WHERE r.project_id = ?1 AND v.status = 'current'
+            WHERE r.project_id = ?1 AND {CURRENT_CLAIM}
               AND NOT EXISTS (
                   SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
               )
-            "#,
+            "#
+            ),
             [self.project_scope.0.to_string()],
             |row| row.get(0),
         )?;

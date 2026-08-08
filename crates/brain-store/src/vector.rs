@@ -24,6 +24,7 @@
 use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
 
+use crate::CURRENT_CLAIM;
 use crate::embedding::{EMBEDDING_DIMENSIONS, cosine_similarity, decode_vector, encode_vector};
 use crate::ledger::EventLedger;
 
@@ -79,7 +80,7 @@ impl EventLedger {
     /// by wording it no longer has. `limit` bounds a pass so a backfill yields to other work
     /// rather than holding the ledger for its whole duration.
     pub fn memories_awaiting_embedding(&self, limit: usize) -> Result<Vec<PendingEmbedding>> {
-        let mut statement = self.connection.prepare(
+        let mut statement = self.connection.prepare(&format!(
             r#"
             SELECT v.version_id, v.memory_id, v.title, v.content
             FROM memory_versions v
@@ -88,14 +89,14 @@ impl EventLedger {
                    ON e.version_id = v.version_id AND e.model = ?2
             WHERE r.project_id = ?1
               AND e.version_id IS NULL
-              AND v.status = 'current'
+              AND {CURRENT_CLAIM}
               AND NOT EXISTS (
                   SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
               )
             ORDER BY v.recorded_at_ns DESC
             LIMIT ?3
-            "#,
-        )?;
+            "#
+        ))?;
         let rows = statement.query_map(
             params![
                 self.project_scope.0.to_string(),
@@ -160,12 +161,14 @@ impl EventLedger {
         let embedded: i64 = self
             .connection
             .query_row(
-                r#"
+                &format!(
+                    r#"
                 SELECT COUNT(*)
                 FROM memory_embeddings e
                 JOIN memory_versions v ON v.version_id = e.version_id
-                WHERE e.project_id = ?1 AND e.model = ?2 AND v.status = 'current'
-                "#,
+                WHERE e.project_id = ?1 AND e.model = ?2 AND {CURRENT_CLAIM}
+                "#
+                ),
                 params![self.project_scope.0.to_string(), EMBEDDING_MODEL],
                 |row| row.get(0),
             )
@@ -174,12 +177,14 @@ impl EventLedger {
         let total: i64 = self
             .connection
             .query_row(
-                r#"
+                &format!(
+                    r#"
                 SELECT COUNT(*)
                 FROM memory_versions v
                 JOIN memory_records r ON r.memory_id = v.memory_id
-                WHERE r.project_id = ?1 AND v.status = 'current'
-                "#,
+                WHERE r.project_id = ?1 AND {CURRENT_CLAIM}
+                "#
+                ),
                 params![self.project_scope.0.to_string()],
                 |row| row.get(0),
             )
@@ -200,17 +205,17 @@ impl EventLedger {
         if limit == 0 || query_vector.len() != EMBEDDING_DIMENSIONS {
             return Ok(Vec::new());
         }
-        let mut statement = self.connection.prepare(
+        let mut statement = self.connection.prepare(&format!(
             r#"
             SELECT e.memory_id, e.version_id, e.vector
             FROM memory_embeddings e
             JOIN memory_versions v ON v.version_id = e.version_id
-            WHERE e.project_id = ?1 AND e.model = ?2 AND v.status = 'current'
+            WHERE e.project_id = ?1 AND e.model = ?2 AND {CURRENT_CLAIM}
               AND NOT EXISTS (
                   SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
               )
-            "#,
-        )?;
+            "#
+        ))?;
         let rows = statement.query_map(
             params![self.project_scope.0.to_string(), EMBEDDING_MODEL],
             |row| -> rusqlite::Result<(String, String, Vec<u8>)> {
@@ -248,18 +253,18 @@ impl EventLedger {
     /// need to know which memories cluster, which is a property of the whole set and not of any
     /// one search.
     pub fn current_memory_vectors(&self) -> Result<Vec<(uuid::Uuid, Vec<f32>)>> {
-        let mut statement = self.connection.prepare(
+        let mut statement = self.connection.prepare(&format!(
             r#"
             SELECT e.memory_id, e.vector
             FROM memory_embeddings e
             JOIN memory_versions v ON v.version_id = e.version_id
-            WHERE e.project_id = ?1 AND e.model = ?2 AND v.status = 'current'
+            WHERE e.project_id = ?1 AND e.model = ?2 AND {CURRENT_CLAIM}
               AND NOT EXISTS (
                   SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
               )
             ORDER BY e.memory_id
-            "#,
-        )?;
+            "#
+        ))?;
         let rows = statement.query_map(
             params![self.project_scope.0.to_string(), EMBEDDING_MODEL],
             |row| -> rusqlite::Result<(String, Vec<u8>)> { Ok((row.get(0)?, row.get(1)?)) },

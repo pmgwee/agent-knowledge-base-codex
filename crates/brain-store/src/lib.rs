@@ -1,5 +1,25 @@
 #![forbid(unsafe_code)]
 
+/// The predicate that means "this row is the memory's current claim", for a `memory_versions v`.
+///
+/// Two conditions, and for most of this system's history only one of them mattered. Every memory
+/// had exactly one version, so `v.status = 'current'` and "the memory's latest version" selected
+/// the same rows and the difference was unobservable. The first supersession made them diverge in
+/// **both** directions at once:
+///
+/// - A **retired** memory keeps its original `current` version and gains a `superseded` one, so a
+///   status-only filter still returns the claim that was withdrawn.
+/// - A **keeper** gains a second `current` version carrying the supersession edges, so a
+///   status-only filter returns it twice.
+///
+/// Measured the moment folding first ran: `brain digest` reported 2,101 memories where `brain lint`
+/// reported 2,090 — 2,097 originals, plus 4 keepers counted twice, minus nothing for the 7 retired
+/// claims that should have left. Neither number was arithmetic; one query was right and eleven were
+/// wrong in a way no test could have caught before a fold existed to catch it.
+///
+/// So it lives here, once, rather than as twelve copies of subtle SQL that drift apart.
+pub(crate) const CURRENT_CLAIM: &str = "v.status = 'current' AND v.version_number = (SELECT MAX(w.version_number) FROM memory_versions w WHERE w.memory_id = v.memory_id)";
+
 mod access;
 mod backup;
 mod basic_memory;

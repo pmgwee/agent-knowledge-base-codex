@@ -65,6 +65,29 @@ fn the_keeper_records_what_it_absorbed() {
 }
 
 #[test]
+fn every_counting_read_path_agrees_after_a_fold() {
+    // The defect the first live fold exposed, pinned so it cannot come back. Eleven queries
+    // selected versions by `status = 'current'`, which was indistinguishable from "the memory's
+    // latest version" while every memory had exactly one. A fold breaks that in both directions at
+    // once: the keeper gains a second current version and is counted twice, and the loser keeps its
+    // original current version and never leaves. Live, that read as 2,101 memories in `brain
+    // digest` against 2,090 in `brain lint`.
+    let (mut ledger, project) = fixture();
+    brain_cli::apply_reconciliation(&mut ledger, project, later()).expect("apply");
+
+    let current = ledger.current_project_memories().expect("current").len();
+    let retention = ledger.memory_retention(later()).expect("retention").len();
+    assert_eq!(
+        current, retention,
+        "the projection and the retention curve must count the same corpus"
+    );
+    assert_eq!(
+        current, 1,
+        "three duplicates fold to one claim, counted once"
+    );
+}
+
+#[test]
 fn folding_twice_changes_nothing_the_second_time() {
     // A scheduled run must be safe to repeat. After the first fold there is no contradiction left,
     // so the second pass has nothing to find.

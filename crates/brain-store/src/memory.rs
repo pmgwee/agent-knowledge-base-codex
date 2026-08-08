@@ -6,6 +6,7 @@ use brain_domain::{
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
+use crate::CURRENT_CLAIM;
 use crate::EventLedger;
 use crate::cursor::timestamp_ns;
 use crate::migrations::{configure, migrate};
@@ -164,10 +165,11 @@ impl EventLedger {
     /// than a connected picture.
     pub fn memories_without_shared_evidence(&self) -> Result<usize> {
         let count: i64 = self.connection.query_row(
-            r#"
+            &format!(
+                r#"
             SELECT COUNT(*) FROM memory_versions v
             JOIN memory_records r ON r.memory_id = v.memory_id
-            WHERE r.project_id = ?1 AND v.status = 'current'
+            WHERE r.project_id = ?1 AND {CURRENT_CLAIM}
               AND NOT EXISTS (
                   SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
               )
@@ -180,7 +182,8 @@ impl EventLedger {
                     AND other.memory_id <> v.memory_id
                     AND other.status = 'current'
               )
-            "#,
+            "#
+            ),
             [self.project_scope.0.to_string()],
             |row| row.get(0),
         )?;
