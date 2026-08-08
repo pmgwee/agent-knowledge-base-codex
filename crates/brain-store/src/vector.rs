@@ -242,6 +242,39 @@ impl EventLedger {
         Ok(hits)
     }
 
+    /// Every current memory's vector, keyed by memory id.
+    ///
+    /// For deriving structure over the memory set rather than answering a query — subject pages
+    /// need to know which memories cluster, which is a property of the whole set and not of any
+    /// one search.
+    pub fn current_memory_vectors(&self) -> Result<Vec<(uuid::Uuid, Vec<f32>)>> {
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT e.memory_id, e.vector
+            FROM memory_embeddings e
+            JOIN memory_versions v ON v.version_id = e.version_id
+            WHERE e.project_id = ?1 AND e.model = ?2 AND v.status = 'current'
+              AND NOT EXISTS (
+                  SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
+              )
+            ORDER BY e.memory_id
+            "#,
+        )?;
+        let rows = statement.query_map(
+            params![self.project_scope.0.to_string(), EMBEDDING_MODEL],
+            |row| -> rusqlite::Result<(String, Vec<u8>)> { Ok((row.get(0)?, row.get(1)?)) },
+        )?;
+        let mut vectors = Vec::new();
+        for row in rows {
+            let (memory_id, blob) = row?;
+            let Some(vector) = decode_vector(&blob) else {
+                continue;
+            };
+            vectors.push((uuid::Uuid::parse_str(&memory_id)?, vector));
+        }
+        Ok(vectors)
+    }
+
     /// Events with no vector for the active model, newest first.
     ///
     /// Newest first because a backfill that starts at the oldest turn makes the index useful last;

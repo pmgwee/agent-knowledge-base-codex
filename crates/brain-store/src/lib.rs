@@ -16,6 +16,7 @@ mod notes;
 mod provider_cache;
 mod search;
 mod segment;
+mod subjects;
 mod tombstone;
 mod upgrade;
 mod vector;
@@ -49,6 +50,9 @@ pub use provider_cache::{ProviderCacheEntry, ProviderCacheStore};
 pub use search::{SearchHit, SearchQuery, SearchSource, SearchSourceFilter, TimeRange};
 pub use segment::{
     SEGMENT_FORMAT_VERSION, SegmentManifest, SegmentSealReport, SegmentStore, should_seal,
+};
+pub use subjects::{
+    MAX_SUBJECTS, MINIMUM_LIFT, MINIMUM_MEMORIES, Subject, SubjectInput, derive_subjects,
 };
 pub use tombstone::Tombstone;
 pub use upgrade::{UpgradeIssue, UpgradeManager, UpgradeReport, UpgradeStageReport};

@@ -56,11 +56,15 @@ impl MarkdownProjector {
         let index = (!memories.is_empty())
             .then(|| render_index(project_id, &memories, &links))
             .transpose()?;
+        // Subject pages are what turn a pile of episodic notes into a wiki: one page per recurring
+        // subject, gaining entries as work continues. Derived, never asserted — see `subjects`.
+        let subject_pages = render_subject_pages(ledger, project_id, &memories, &links)?;
         let mut rendered = memories
             .into_iter()
             .map(|memory| render_memory(project_id, memory, &links))
             .collect::<Result<Vec<_>>>()?;
         rendered.extend(index);
+        rendered.extend(subject_pages);
         rendered.sort_by(|left, right| left.logical_path.cmp(&right.logical_path));
         let generation = generation_id(&rendered);
         let generation_root = generated_root.join("generations").join(&generation);
@@ -606,6 +610,132 @@ fn render_memory(
         memory_id: Some(memory.id),
         version_id: Some(memory.version_id),
     })
+}
+
+/// One page per recurring subject, each asserting nothing of its own.
+///
+/// The rule the project index already follows applies here with more force: everything on the page
+/// is a title and a link to a note that carries its own evidence, so a subject page cannot become
+/// wrong independently of the memories it lists. It compounds in *coverage* — a new memory
+/// mentioning the subject appears at the next projection, with no revision step and nothing to go
+/// stale.
+///
+/// Returns nothing when no model is installed, because subjects are derived from embeddings and a
+/// brain without vectors has no way to tell `deploy` from `fix`. That is the honest outcome: fewer
+/// pages, never invented ones.
+fn render_subject_pages(
+    ledger: &EventLedger,
+    project_id: ProjectId,
+    memories: &[MemoryRecord],
+    links: &LinkIndex,
+) -> Result<Vec<RenderedMemory>> {
+    let vectors: std::collections::HashMap<uuid::Uuid, Vec<f32>> = ledger
+        .current_memory_vectors()
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    if vectors.is_empty() {
+        return Ok(Vec::new());
+    }
+    let inputs: Vec<crate::SubjectInput<'_>> = memories
+        .iter()
+        .map(|memory| crate::SubjectInput {
+            memory_id: memory.id,
+            title: &memory.title,
+        })
+        .collect();
+    let subjects = crate::derive_subjects(&inputs, &vectors);
+
+    let titles: std::collections::HashMap<uuid::Uuid, &MemoryRecord> =
+        memories.iter().map(|memory| (memory.id, memory)).collect();
+
+    subjects
+        .iter()
+        .map(|subject| {
+            let mut listed: Vec<&MemoryRecord> = subject
+                .memory_ids
+                .iter()
+                .filter_map(|id| titles.get(id).copied())
+                .collect();
+            // Newest first: a subject page is read for what happened lately far more often than
+            // for where it started. Ties break on id so the generation hash is stable.
+            listed.sort_by(|left, right| {
+                right
+                    .valid_from
+                    .cmp(&left.valid_from)
+                    .then_with(|| left.id.cmp(&right.id))
+            });
+
+            let mut body = String::new();
+            body.push_str(&format!(
+                concat!(
+                    "---
+",
+                    "title: \"{term}\"
+",
+                    "type: note
+",
+                    "permalink: {permalink}
+",
+                    "tags: [agent-brain, subject]
+",
+                    "brain_generated: true
+",
+                    "project_id: \"{project_id}\"
+",
+                    "memory_count: {count}
+",
+                    "---
+
+",
+                    "# {term}
+
+",
+                    "{count} memories mention this subject. Every entry links to a note that
+",
+                    "carries its own evidence citations; nothing is asserted here.
+
+",
+                    "This page exists because those memories sit measurably closer together than
+",
+                    "two memories picked at random from this project — {lift:.3} above the
+",
+                    "baseline. The subject was derived, not proposed.
+
+"
+                ),
+                term = subject.term,
+                permalink = yaml_string(&format!("brain-subject-{}", subject.term))?,
+                project_id = project_id.0,
+                count = listed.len(),
+                lift = subject.lift,
+            ));
+            for memory in &listed {
+                if let Some(link) = links.wikilink(memory.id) {
+                    body.push_str(&format!("- {link}\n"));
+                }
+            }
+            body.push('\n');
+            RenderedMemory::page(
+                project_id,
+                &format!("subjects/{}.md", slug_for_subject(&subject.term)),
+                body,
+            )
+        })
+        .collect()
+}
+
+/// A filesystem-safe name for a subject page.
+fn slug_for_subject(term: &str) -> String {
+    term.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }
 
 /// The project index — the note to open first.
