@@ -285,6 +285,7 @@ fn packet_from_events(job: &ConsolidationJob, events: Vec<StoredEvent>) -> Evide
     EvidencePacket {
         job_id: job.id,
         project_id: job.project_id,
+        trigger: Some(job.reason.as_str().to_owned()),
         events,
         redactions,
         allowed_supersession_ids: Vec::new(),

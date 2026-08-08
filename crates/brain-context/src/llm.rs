@@ -12,6 +12,14 @@ use sha2::{Digest, Sha256};
 pub struct EvidencePacket {
     pub job_id: uuid::Uuid,
     pub project_id: ProjectId,
+    /// Why this batch is being consolidated now.
+    ///
+    /// Serialized deliberately. A span ending because a *session ended* is an episode — it has a
+    /// beginning, a shape and an outcome — where a span ending because it crossed 200 events is an
+    /// arbitrary cut through whatever was happening. Without this the prompt could not tell them
+    /// apart, and `session_stopped` would be nothing more than "consolidate slightly sooner".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<String>,
     pub events: Vec<RedactedEvidence>,
     #[serde(skip)]
     pub redactions: Vec<RedactionManifestEntry>,

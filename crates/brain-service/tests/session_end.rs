@@ -209,3 +209,28 @@ fn event(project_id: ProjectId, worktree_id: WorktreeId, sequence: i64) -> Norma
         raw: serde_json::json!({ "content": "work happened here" }),
     }
 }
+
+#[test]
+fn a_session_stopped_job_tells_the_model_it_is_looking_at_a_finished_episode() {
+    // Without this the trigger changes *when* consolidation runs and nothing about *what* it
+    // produces — a span ending because a session ended would get the same prompt as a span ending
+    // because it crossed 200 events, and `session_stopped` would be worth nothing but a few
+    // minutes' latency. An episode has a beginning, a shape and an outcome; an arbitrary cut
+    // through ongoing work has none of those and must not be summarised as though it did.
+    let (handler, ledger_path, project_id, root, _temp) = fixture();
+    handler
+        .handle(&envelope("SessionEnd", &root, "session-alpha", "clear"))
+        .expect("handle");
+
+    let mut ledger = EventLedger::open(&ledger_path, project_id).expect("reopen");
+    let job = ledger
+        .lease_consolidation_job(
+            "test-worker",
+            time::OffsetDateTime::now_utc(),
+            time::Duration::minutes(5),
+        )
+        .expect("lease")
+        .expect("a job must be queued");
+
+    assert_eq!(job.reason.as_str(), "session_stopped");
+}

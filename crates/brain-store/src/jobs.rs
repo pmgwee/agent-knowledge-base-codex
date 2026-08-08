@@ -46,7 +46,7 @@ pub enum ConsolidationReason {
 }
 
 impl ConsolidationReason {
-    const fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::SessionStopped => "session_stopped",
             Self::SessionCompacted => "session_compacted",
@@ -77,7 +77,7 @@ pub enum JobStatus {
 }
 
 impl JobStatus {
-    const fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Pending => "pending",
             Self::Leased => "leased",

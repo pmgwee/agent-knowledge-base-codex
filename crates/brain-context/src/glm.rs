@@ -64,7 +64,8 @@ impl ConsolidationLlm for GlmClient {
         confidence MUST be a number between 0 and 1.\n\
         evidence_ids MUST be a non-empty array of event_id values copied verbatim from the supplied evidence. Never invent one.\n\
         supersedes MUST be an array, [] when nothing is superseded. Never null.\n\
-        Add no fields beyond those seven. Never propose preferences or secrets."
+        Add no fields beyond those seven. Never propose preferences or secrets.
+        When trigger is \"session_stopped\" the evidence is one complete working session: propose one memory of kind checkpoint summarising what was attempted, what was decided and where it was left, in addition to any specific facts or decisions worth keeping on their own. For any other trigger the span is an arbitrary cut through ongoing work, so propose only the specific claims the evidence supports and do not summarise it as though it were finished."
                 },
                 {"role": "user", "content": packet.serialized()}
             ]
