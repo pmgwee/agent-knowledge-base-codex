@@ -108,6 +108,16 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Explain why a query returned what it did — per channel, with the fused position beside it.
+    Explain {
+        #[arg(long)]
+        project: String,
+        text: String,
+        #[arg(long, default_value = "10")]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
     /// Propose a resolution for each contradiction `brain lint` finds — derived from authority,
     /// recency and evidence weight, never from a model. Reports rather than applies.
     Reconcile {
@@ -989,6 +999,24 @@ fn main() -> Result<()> {
             };
             let filed = brain_cli::remember(&mut ledger, request)?;
             println!("{}", serde_json::to_string_pretty(&filed)?);
+        }
+        Command::Explain {
+            project,
+            text,
+            limit,
+            json,
+        } => {
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let mut ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            ledger.enable_vector_search(&brain_home);
+            let report = brain_cli::explain_query(&ledger, project_id, &text, limit)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", brain_cli::render_explain(&report));
+            }
         }
         Command::Reconcile { project, json } => {
             let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
