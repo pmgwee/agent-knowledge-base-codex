@@ -6,7 +6,7 @@ proved, and where the dashboard goes.
 Written 2026-08-08. Every status below was checked against the code or the live system, not
 recalled.
 
-**Progress since:** Wave 0 and half of Wave 2 are built and deployed. Shipped items are struck
+**Progress since:** Waves 0 and 2 are complete, and Wave 3 is under way. Shipped items are struck
 through in the tables below and listed in *What has shipped*, immediately after this line.
 
 ---
@@ -19,6 +19,9 @@ through in the tables below and listed in *What has shipped*, immediately after 
 | **0.3** Consolidation queue and dead letters on the dashboard | `6d8c6cd` | Live snapshot shows pending / leased / completed / dead per project |
 | **2.1** `brain export` | `5c6eebc` | 2,045 memories, 3,382 events, 41 MB, zero unresolved citations |
 | **2.3** `brain verify memory` | `fa610b0` | Resolves a real claim to `…jsonl:1051092` with the originating turn quoted |
+| **2.2** `brain forget` as a tombstone | `b05e67f` | A withdrawn memory leaves listing, lookup, both keyword statements, the vector channel and the embedding queue — one test walks all six |
+| **3.1** Orientation ranked by relevance | `bc75702` | A ranked memory outranks one that only sorts earlier; unranked ones are demoted, not dropped |
+| **3.8** Greppable vault `log.md` | `e78762a` | `grep "^## \[" log.md \| tail -5` returns the last projections |
 | — Abandoned staging directories collected | `b4ffb34` | 5,834 orphaned vault files, and both directions pinned by test |
 | — Job failures record why, not just what | `6d8c6cd` | Parse errors now name the field; three dead letters had said nothing |
 
@@ -26,7 +29,22 @@ through in the tables below and listed in *What has shipped*, immediately after 
 1,691 and 373 pending. 290 of 294 provider deferrals were plain HTTP 429, and the deferral path is
 working exactly as designed — no attempt consumed, nothing lost. It finishes when quota allows.
 
-Two findings worth carrying forward:
+**3.5 turned out to be mostly redundant, and is cut.** `SESSION_MATCHER` is
+`startup|resume|clear|compact|fork`, so Claude Code already re-fires `SessionStart` *after* a
+compaction and the orientation is already re-delivered at exactly the moment context was
+discarded. A `PreCompact` hook would inject *before* the compaction, which helps the compactor
+summarise rather than helping the session — a different and much smaller benefit than the one the
+item was written for. Recorded rather than built.
+
+**A second alphabetical-selection finding.** Wave 3.1 was written here as "the orientation is
+recency-shaped and retrieval never reaches it". That was wrong in an interesting way: events *were*
+recency-ordered, correctly, but memories were ordered **alphabetically by subject** —
+`resolve_candidates` ends with `current.sort_by_key(subject_key)`. With 2,097 memories and room for
+two or three, the alphabet was the selection. Every session opened with a note about a 150 ms
+status message flashing because it sorted first, and a memory titled *"Zero of 1,265 vault files
+contain wikilinks"* could never appear at all.
+
+Other findings worth carrying forward:
 
 - **A dangling citation is unreachable through the supported path.** `append_memory` refuses a
   memory citing an event the ledger does not hold, so the guarantee is enforced at write time
@@ -102,10 +120,10 @@ derived. This tool would find almost nothing.
 
 | Item | Status | Note |
 |---|---|---|
-| **Governance: delete + export + audit trail** | **Partly closed** | `brain export` ships (`5c6eebc`). `brain forget` (Wave 2.2) is the remaining half, and on an append-only ledger holding every keystroke it is still the most serious gap on the list |
+| **Governance: delete + export + audit trail** | **Closed** | `brain export` (`5c6eebc`) and `brain forget` (`b05e67f`). Withdrawal is a tombstone every read path honours, so the ledger stayed append-only and the withdrawal is itself on the record |
 | **`memory_verify` — provenance as a tool** | **Shipped** | `brain verify memory` (`fa610b0`) resolves a claim to the transcript file and byte offset its evidence came from |
 | **Session replay** | **Gap** | Dashboard shows aggregates and cannot show you a single session |
-| Auto-forgetting (TTL, importance eviction) | **Gap** | Same item as decay/tiers |
+| Auto-forgetting (TTL, importance eviction) | **Gap** | Same item as decay/tiers. *Manual* withdrawal now ships; the automatic half is what is missing |
 | Knowledge graph: entity extraction + BFS | **Gap** | Subsumed by entity pages (0.2 #4) |
 | Team memory (namespaced shared/private) | **Not building** | Single-operator system. Cost is real, value is zero here |
 | Git snapshots of memory state | **Not building** | Append-only ledger plus GFS backups already give version, rollback and diff |
@@ -167,7 +185,7 @@ states the sample size and who chose the tasks. **Size: L.**
 | | Work | Done when | Size |
 |---|---|---|---|
 | ~~2.1~~ | ~~`brain export --project <p> [--since]`~~ **Shipped `5c6eebc`.** | A bundle restores into a fresh ledger and `brain verify` passes against it | M |
-| 2.2 | `brain forget <selector>` — **tombstone, not deletion** | A forgotten memory disappears from search, orientation and the vault; its evidence chain is intact; the tombstone records who, when and why; `brain export` includes the tombstone, not the content | L |
+| ~~2.2~~ | ~~`brain forget` — tombstone, not deletion~~ **Shipped `b05e67f`.** | A forgotten memory disappears from search, orientation and the vault; its evidence chain is intact; the tombstone records who, when and why; `brain export` includes the tombstone, not the content | L |
 | ~~2.3~~ | ~~`brain verify memory` — walk a claim back to its source events~~ **Shipped `fa610b0`.** | Prints the memory, every cited `event:<uuid>`, each event's source file and offset, and flags any citation that no longer resolves | S |
 
 A hard delete would break the append-only invariant; a tombstone that retrieval and projection both
@@ -177,15 +195,15 @@ honour gives the same user-visible result without breaking it.
 
 | | Work | Done when | Size |
 |---|---|---|---|
-| 3.1 | **Orientation uses hybrid retrieval**, not just recency | A session opened after a week on another project receives that project's relevant memories, not the last 500 events; orientation stays inside the 1,500-token contract | M |
+| ~~3.1~~ | ~~**Orientation ranked by relevance**~~ **Shipped `bc75702`.** | A session opened after a week on another project receives that project's relevant memories, not the last 500 events; orientation stays inside the 1,500-token contract | M |
 | 3.2a | **Subject pages**, derived — one page per recurring subject, asserting nothing of its own | `vault` and `consolidation` each have a page listing their memories; `fix`, `only` and `via` have none. Design in Part 7 | M |
 | 3.2b | **Synthesis section** on each subject page, LLM-written and memory-cited | The paragraph cites only memory ids that exist on the page, validated the same way consolidation output is; it changes when a new memory joins the subject | L |
 | 3.3 | **Episodic session summaries** at `SessionEnd` | Every completed session has exactly one summary memory citing events from that session only | M |
 | 3.4 | **Cross-encoder rerank** over the fused top-k | LongMemEval `single-session-preference` R@5 improves on 90.0%, and no category regresses | L |
-| 3.5 | `PreCompact` re-injection | A compaction is followed by an orientation in the transcript | S |
+| ~~3.5~~ | ~~`PreCompact` re-injection~~ **Cut — redundant.** `SessionStart` already matches `compact`, so the orientation is already re-delivered after one | — |
 | 3.6 | File kept query answers back as cited pages | An answer filed from `brain query` appears in the vault next session and cites the events it drew on | M |
 | 3.7 | `brain lint` — contradictions, stale claims, concepts without a page | Run on the live vault it reports findings a human agrees with, and reports **nothing** on a freshly rebuilt one | L |
-| 3.8 | `log.md` in the vault, append-only and greppable | `grep "^## \[" log.md \| tail -5` returns the last five operations | S |
+| ~~3.8~~ | ~~`log.md` in the vault, append-only and greppable~~ **Shipped `e78762a`.** | `grep "^## \[" log.md \| tail -5` returns the last five operations | S |
 | 3.9 | **Ship CodeGraph on the pull path** — a seventh MCP tool | Codex can ask where a symbol lives and get an answer; orientation token count is **unchanged** | M |
 
 3.2 was the one item that could not be estimated. **The design pass is done — Part 7** — and it
@@ -632,7 +650,11 @@ other and can run in either order; 2 is higher risk-reduction, 3 is higher visib
 depends on 3.3 (episodic summaries) for anything to decay meaningfully. Wave 5 trails everything,
 because a console is most useful once there is more to show.
 
-If only one wave gets built: **Wave 0 then Wave 2.** Instruments that lie and a brain you cannot
-export from are the two things that would make everything above it untrustworthy. Both are now
-done bar `brain forget` (2.2) and the quota-bound backlog (0.2), so the next real decision is
-Wave 1 against Wave 3 — proof, or the quality that proof would measure.
+Waves 0 and 2 are done bar the quota-bound backlog (0.2). Wave 3 has 3.1 and 3.8 shipped and 3.5
+cut. What remains there is the substantial half: subject pages (3.2a/b), session summaries (3.3),
+the reranker (3.4), filing answers back (3.6), `brain lint` (3.7), and CodeGraph on the pull path
+(3.9) — then Waves 1, 4 and 5.
+
+The next real decision is **Wave 1 against the rest of Wave 3**: prove the saving, or build the
+quality the proof would then measure. Wave 1 still needs the backlog drained first, and that is
+waiting on provider quota rather than on work.
