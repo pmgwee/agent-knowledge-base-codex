@@ -20,6 +20,7 @@ mod rerank;
 mod search;
 mod segment;
 mod subjects;
+mod synthesis_store;
 mod tombstone;
 mod upgrade;
 mod vector;
@@ -60,6 +61,7 @@ pub use segment::{
 pub use subjects::{
     MAX_SUBJECTS, MINIMUM_LIFT, MINIMUM_MEMORIES, Subject, SubjectInput, derive_subjects,
 };
+pub use synthesis_store::{StoredSynthesis, memory_set_hash};
 pub use tombstone::Tombstone;
 pub use upgrade::{UpgradeIssue, UpgradeManager, UpgradeReport, UpgradeStageReport};
 pub use vector::{

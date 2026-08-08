@@ -484,6 +484,21 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
         -- `INSERT OR IGNORE` is what makes it honest on both paths: a fresh ledger stamps its
         -- creation, and an existing one stamps the moment this migration first ran, which is
         -- exactly when counting started there. Never rewritten afterwards.
+        -- A validated paragraph for a subject page, keyed by the memory set it describes.
+        --
+        -- Keyed by hash rather than by term alone because prose describing five memories is simply
+        -- wrong once there are seven. Storing it against the set means a changed subject has no
+        -- synthesis rather than a stale one, and the page falls back to links — which is the state
+        -- that was already known to be safe.
+        CREATE TABLE IF NOT EXISTS subject_synthesis (
+            project_id TEXT NOT NULL,
+            term TEXT NOT NULL,
+            memory_set_hash TEXT NOT NULL,
+            markdown TEXT NOT NULL,
+            generated_at_ns INTEGER NOT NULL,
+            PRIMARY KEY (project_id, term)
+        );
+
         CREATE TABLE IF NOT EXISTS memory_access_epoch (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             started_at_s INTEGER NOT NULL

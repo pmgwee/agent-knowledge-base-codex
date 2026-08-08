@@ -12,6 +12,7 @@ mod providers;
 mod query;
 mod retrieval;
 mod supersession;
+mod synthesis;
 mod token_budget;
 
 pub use authority::authority_rank;
@@ -36,4 +37,9 @@ pub use providers::{
 pub use query::{ContextQuery, HARD_MAX_TOKENS, NORMAL_STARTUP_TOKENS, RetrievalQuery};
 pub use retrieval::{RankedCandidate, RetrievalEngine, ScoreComponents};
 pub use supersession::{MemoryConflict, ResolvedMemorySet, resolve_candidates};
+pub use synthesis::{
+    MAX_SENTENCE_CHARACTERS, ProposedSentence, ProposedSynthesis, SynthesisRejection,
+    ValidatedSentence, ValidatedSynthesis, parse_synthesis_response, synthesis_instruction,
+    validate_synthesis,
+};
 pub use token_budget::token_count;

@@ -730,6 +730,18 @@ fn render_subject_pages(
                 count = listed.len(),
                 lift = subject.lift,
             ));
+            // A validated paragraph, when one exists for *this exact* memory set.
+            //
+            // `subject_synthesis` returns `None` the moment the set changes, so a subject that has
+            // gained a memory since the paragraph was written renders without it rather than with
+            // prose that no longer describes it. The page reverts to asserting nothing, which is
+            // the state it was designed around — and the only state that cannot go wrong.
+            if let Ok(Some(synthesis)) =
+                ledger.subject_synthesis(&subject.term, &subject.memory_ids)
+            {
+                body.push_str(&synthesis.markdown);
+                body.push_str("\n\n");
+            }
             for memory in &listed {
                 if let Some(link) = links.wikilink(memory.id) {
                     body.push_str(&format!("- {link}\n"));
