@@ -156,6 +156,37 @@ impl EventLedger {
         Ok(())
     }
 
+    /// Current memories citing no event that any other current memory also cites.
+    ///
+    /// These are the vault's islands: no wikilink reaches them, because links are derived from
+    /// shared evidence. One is honest — a claim really can be isolated — but the proportion is a
+    /// signal, since a rising share means consolidation is producing disconnected memories rather
+    /// than a connected picture.
+    pub fn memories_without_shared_evidence(&self) -> Result<usize> {
+        let count: i64 = self.connection.query_row(
+            r#"
+            SELECT COUNT(*) FROM memory_versions v
+            JOIN memory_records r ON r.memory_id = v.memory_id
+            WHERE r.project_id = ?1 AND v.status = 'current'
+              AND NOT EXISTS (
+                  SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM memory_evidence mine
+                  JOIN memory_evidence theirs ON theirs.event_id = mine.event_id
+                  JOIN memory_versions other ON other.version_id = theirs.version_id
+                  WHERE mine.version_id = v.version_id
+                    AND other.memory_id <> v.memory_id
+                    AND other.status = 'current'
+              )
+            "#,
+            [self.project_scope.0.to_string()],
+            |row| row.get(0),
+        )?;
+        Ok(usize::try_from(count).unwrap_or(0))
+    }
+
     pub fn memory_versions(&self, memory_id: uuid::Uuid) -> Result<Vec<MemoryRecord>> {
         load_project_versions(&self.connection, self.project_scope, memory_id)
     }

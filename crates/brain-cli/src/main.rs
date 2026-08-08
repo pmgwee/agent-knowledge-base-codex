@@ -80,6 +80,13 @@ enum Command {
         #[arg(long)]
         limit: Option<usize>,
     },
+    /// Health-check a project's memories: contradictions, unrefreshed claims, islands.
+    Lint {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Withdraw a memory. The claim stops being returned, projected or read; the ledger keeps
     /// the evidence and records the withdrawal.
     Forget {
@@ -900,6 +907,24 @@ fn main() -> Result<()> {
         } => {
             let report = rebuild_basic_memory(&brain_home, parse_project_id(&project)?)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Lint { project, json } => {
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let report =
+                brain_cli::lint_project(&ledger, project_id, time::OffsetDateTime::now_utc())?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", brain_cli::render_lint(&report));
+            }
+            // Findings that need a decision exit non-zero so this is usable in a check, while
+            // observations — unrefreshed claims, islands, a running backfill — do not.
+            if report.actionable {
+                anyhow::bail!("lint found something that needs a decision");
+            }
         }
         Command::Forget {
             project,

@@ -6,6 +6,7 @@ mod deployment;
 mod diagnose;
 mod export;
 mod install_hooks;
+mod lint;
 mod longmemeval;
 mod provenance;
 mod providers;
@@ -25,6 +26,7 @@ pub use install_hooks::{
     HookInstallResult, install_claude_hooks, install_codex_hooks, uninstall_claude_hooks,
     uninstall_codex_hooks,
 };
+pub use lint::{LintFinding, LintReport, lint_project, render as render_lint};
 pub use longmemeval::{
     LongMemEvalInstance, LongMemEvalOptions, LongMemEvalReport, run_longmemeval,
 };
