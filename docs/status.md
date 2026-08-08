@@ -13,7 +13,7 @@ research it rests on, and the comparisons that shaped it. This file answers one 
 ## Summary
 
 Waves 2 and 4 are complete. Wave 0 is complete bar a quota-bound backlog. Wave 3 is complete except
-for one generation step held back on purpose. Wave 5 has four of six panels. Wave 1 is half done —
+for one generation step held back on purpose. Wave 5 has three of six panels, plus one unplanned. Wave 1 is half done —
 retrieval quality is measured, the token saving never has been.
 
 | | |
@@ -25,6 +25,25 @@ retrieval quality is measured, the token saving never has been.
 | Consolidation | 2,884 completed · **1,693 pending** · 3 dead-lettered |
 | Orientation | mean **1,115** tokens over 35 receipts, max 1,490, against a 3,000 hard cap |
 | Gates | `fmt` clean · clippy 0 errors · **124 test binaries green** |
+
+---
+
+## What is left, in order
+
+| Wave | Work | Where it stands |
+|---|---|---|
+| **0 · Instruments** — done bar one | ~~Record deliveries after the flush~~ · ~~surface jobs and dead letters~~ · drain the backlog | Deliveries count receipts. The queue is visible. The backlog is quota-bound — 290 of 294 provider deferrals were plain HTTP 429 — so it finishes when quota allows, not when code changes |
+| **1 · Proof** — half | ~~Retrieval quality on LongMemEval~~ · matched-pair A/B, 5 tasks × 2 conditions × 3 repeats | Retrieval measured and reproduced at 90.0% R@5. The token-saving percentage still does not exist; only the numerator has ever been counted |
+| **2 · Trust** — done | ~~`brain export`~~ · ~~`brain verify memory`~~ · ~~`brain forget` as a tombstone~~ | Export runs clean. Verify resolves a claim to the transcript byte offset it came from. Withdrawal is a tombstone every read path honours, so the ledger stayed append-only |
+| **3 · Quality** — 7 of 8 | ~~Orientation ranked by relevance~~ · ~~subject pages~~ · ~~`brain remember`~~ · ~~`brain lint`~~ · ~~vault `log.md`~~ · ~~session summaries~~ · ~~cross-encoder rerank~~ · synthesis prose | The orientation's memories had been ordered *alphabetically*. Rerank shipped and was measured *worse*, so it ships off. Synthesis prose is the last piece, held back on purpose |
+| **4 · Lifecycle** — done | ~~Access counts~~ · ~~staleness marking~~ · ~~gated eviction~~ | Decay stays mechanical and logged — the model proposes, derivation disposes. Eviction refuses to run until thirty days of access data exist, because on day one every memory is never-retrieved |
+| **5 · Console** — 3 of 6, plus one | ~~Vector coverage~~ · ~~jobs and dead letters~~ · ~~memory lifecycle~~ · session replay · retrieval explain · config · **+ retrieval configuration** *(unplanned)* | Every shipped figure already existed inside a command; the work was putting it where someone looks. The engine-console pages stay excluded — there is no such runtime here |
+
+**One correction to an earlier count.** I previously recorded Wave 5 as "4 of 6" on the strength of the
+retrieval panel. That panel shows retrieval's *configuration* — which channels exist, their weights,
+whether each can currently fire. **5.5 asked for something different**: a per-query explain showing
+why *that* result came back. `explain_text_search` still exists in the store and is still called from
+nothing but a test. The panel was worth building and is not the item it was counted as.
 
 ---
 
@@ -53,8 +72,8 @@ retrieval quality is measured, the token saving never has been.
 | 4.2 | Staleness surfaced | **Shipped** `6707add` `2ba9729` | 23 notes carry `stale: true`, reversed by retrieval |
 | 4.3 | Gated eviction | **Shipped, gated** `73655b2` | Refuses for ~29 more days by design |
 | 5.1–5.3 | Vector coverage · jobs · lifecycle panels | **Shipped** `89bd75a` `6d8c6cd` `7d12c15` | Per-project, live |
-| 5.5 | Retrieval panel | **Shipped** `a4ce736` | Each channel's weight beside whether it can fire. In-browser render unverified — see *Known gaps* |
-| **5.4 / 5.6** | **Session replay · config panels** | **Gap** | No dependency on anything. The obvious thing to pick up while waiting on quota |
+| — | Retrieval configuration panel *(unplanned)* | **Shipped** `a4ce736` | Each channel's weight beside whether it can fire. In-browser render unverified — see *Known gaps* |
+| **5.4 / 5.5 / 5.6** | **Session replay · retrieval explain · config** | **Gap** | No dependency on anything. 5.5 is a renderer over `explain_text_search`, which exists in the store and is called from nothing but a test |
 
 ---
 
@@ -179,9 +198,9 @@ document or commit. The recorded numbers are per-category: 63.3% → 90.0% on
 
 ---
 
-## What is left, and in what order
+## What to pick up next
 
-Five items. Only three are code, and the ordering has one real decision in it. Full reasoning and
+The wave table above is the inventory; this is the order to work it in. Five items. Only three are code, and the ordering has one real decision in it. Full reasoning and
 done-when criteria in [roadmap.md, Part 1](roadmap.md#part-1--ranked-plan); this is the same list,
 kept here so the status document answers the question on its own.
 
@@ -191,7 +210,7 @@ kept here so the status document answers the question on its own.
 | 2 | **3.2b** — the synthesis *generation* call | A live provider, to watch the citation check refuse a real bad citation | M |
 | 3 | **Wave 1** — the token-saving A/B | 0.2 first, then a day of runs | L |
 | 4 | **Query expansion** — *new* | Nothing | M |
-| 5 | **5.4 / 5.6** — session replay, config panels | Nothing | M each |
+| 5 | **5.4 / 5.5 / 5.6** — session replay, retrieval explain, config | Nothing | M each |
 
 **Query expansion is on this list because the cross-encoder failed.** 3.4 was meant to fix ranking on
 the category hybrid retrieval exists for, and measuring it showed the opposite — it moves the

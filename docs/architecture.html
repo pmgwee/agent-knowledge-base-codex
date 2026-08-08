@@ -258,7 +258,8 @@
     </p>
     <p class="stamp">
       Rebuilt 8 August 2026 · every figure below read from the running system, not recalled ·
-      3 projects · 140,134 events · 124 test binaries green
+      3 projects · 140,134 events · 124 test binaries green<br />
+      Per-item status and what is left live in <code>docs/status.md</code> — maintained there, not here.
     </p>
   </header>
 
@@ -702,31 +703,45 @@
   </section>
 
   <section>
-    <h2>Every item, and where it stands</h2>
+    <h2>Against the LLM Wiki pattern</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      Karpathy's LLM Wiki is a <em>maintenance discipline</em>, not a retrieval source: pages compiled
+      once and then kept current, rather than another way to search. Measured against it, the
+      architecture was there from the start and the <em>operations</em> were what was missing.
+    </p>
     <div class="table-scroll">
       <table>
         <thead>
-          <tr><th>Item</th><th>State</th><th>Evidence, or why not</th></tr>
+          <tr><th>Karpathy's piece</th><th>Ours</th><th>Status</th></tr>
         </thead>
         <tbody>
-          <tr><td>0.1</td><td><span class="pill live">Shipped</span></td><td>Deliveries counted at receipt, not at compile — a dropped outcome now records nothing</td></tr>
-          <tr><td>0.2</td><td><span class="pill part">Quota</span></td><td>1,693 pending against 2,884 completed. 290 of 294 deferrals were plain HTTP 429; nothing lost, and no work exists to do</td></tr>
-          <tr><td>0.3</td><td><span class="pill live">Shipped</span></td><td>Queue and dead letters visible per project, with the reason a job died rather than only that it did</td></tr>
-          <tr><td>1</td><td><span class="pill part">Half</span></td><td>Retrieval quality measured — baseline reproduced exactly at 90.0 / 96.7 / 0.779. The <em>token-saving</em> A/B has still never been run</td></tr>
-          <tr><td>2.1–2.3</td><td><span class="pill live">Shipped</span></td><td>Export, forget as a tombstone, and verify a claim back to a transcript byte offset</td></tr>
-          <tr><td>3.1</td><td><span class="pill live">Shipped</span></td><td>Orientation ranked by relevance — memories had been ordered <em>alphabetically by subject</em>, so with 2,097 of them the alphabet was the selection</td></tr>
-          <tr><td>3.2a</td><td><span class="pill live">Shipped</span></td><td>450 subject pages, derived from embedding tightness, each asserting nothing of its own</td></tr>
-          <tr><td>3.2b</td><td><span class="pill part">Partial</span></td><td>Validator, store and rendering shipped with 16 tests. The generation call is withheld until the citation check can be watched refusing a real bad citation from a live provider</td></tr>
-          <tr><td>3.3</td><td><span class="pill live">Shipped</span></td><td>Session boundary observed for the first time — 3 <code>session.ended</code> events and 3 <code>session_stopped</code> jobs, against zero in the system's entire prior history</td></tr>
-          <tr><td>3.4</td><td><span class="pill live">Shipped, off</span></td><td>Opt-in per query. Off because it was measured, not out of caution</td></tr>
-          <tr><td>3.5</td><td><span class="pill off">Cut</span></td><td>Redundant — <code>SessionStart</code> already re-fires after a compaction, so the orientation is already re-delivered at the moment context was discarded</td></tr>
-          <tr><td>3.6–3.8</td><td><span class="pill live">Shipped</span></td><td><code>brain remember</code>, <code>brain lint</code>, greppable vault <code>log.md</code></td></tr>
-          <tr><td>3.9</td><td><span class="pill off">Dissolved</span></td><td>CodeGraph runs its <em>own</em> MCP against both harnesses and indexes all three projects. The brain's internal provider stays off — proxying it would build a second path to data both agents already reach</td></tr>
-          <tr><td>4.1–4.2</td><td><span class="pill live">Shipped</span></td><td>Access counted per result rather than per search; 23 notes carry <code>stale: true</code></td></tr>
-          <tr><td>4.3</td><td><span class="pill part">Gated</span></td><td>Refuses to run for ~29 more days by design — on day one every memory is never-retrieved, and a policy reading that would retire the whole corpus</td></tr>
-          <tr><td>5</td><td><span class="pill live">Shipped</span></td><td>Lifecycle and retrieval panels. In-browser render unverified — the dashboard did not hydrate in the preview pane, on every panel, which predates these changes</td></tr>
+          <tr><td>Raw sources — immutable</td><td>Captured events, append-only by invariant</td><td><span class="pill live">Have — stricter</span></td></tr>
+          <tr><td>The wiki — LLM writes, you read</td><td><code>vault/generated/</code>; <code>notes/</code> stays yours</td><td><span class="pill live">Have</span></td></tr>
+          <tr><td>The schema — <code>CLAUDE.md</code> / <code>AGENTS.md</code></td><td>Both exist and are mirrored</td><td><span class="pill live">Have</span></td></tr>
+          <tr><td><code>index.md</code> — content catalog</td><td><code>render_index</code>, regenerated each pass</td><td><span class="pill live">Have</span></td></tr>
+          <tr><td><code>log.md</code> — chronological, greppable</td><td>One per project in the vault, append-only</td><td><span class="pill live">Closed</span></td></tr>
+          <tr><td><strong>Ingest</strong> — integrate into existing pages</td><td>Appends a memory per episode; 450 subject pages compound in <em>coverage</em>, but no page is ever revised</td><td><span class="pill part">The whole gap</span></td></tr>
+          <tr><td>Query — good answers filed back</td><td><code>brain remember</code>, refusing uncited claims</td><td><span class="pill live">Closed</span></td></tr>
+          <tr><td>Lint — contradictions, stale, orphans</td><td><code>brain lint</code>, six derived rules</td><td><span class="pill live">Closed</span></td></tr>
         </tbody>
       </table>
+    </div>
+    <div class="callout" style="margin-top: 16px;">
+      <h3>Three of the four operations have closed. The fourth is the pattern.</h3>
+      <p>
+        The sentence that indicted the original design: the LLM <em>"doesn't just index it for later
+        retrieval — it integrates it into the existing wiki."</em> Ours now indexes, appends, links,
+        supersedes, tombstones and retires. It still does not <em>integrate</em> — <strong>13,246
+        memories and not one has been revised in place.</strong> Supersession replaces a claim; it does
+        not fold a new observation into an existing page. That is what the subject-page synthesis step
+        is for, and it is the last piece of the pattern still open.
+      </p>
+      <p>
+        This is a different thing from the <code>llm_wiki</code> provider in the codebase, which is a
+        keyword searcher over a Markdown directory. Pointed at this vault it would search our own
+        generated notes with a weaker index than the FTS5 already running over the same memories.
+        Shipping the provider is not adopting the pattern, and adopting the pattern did not need it.
+      </p>
     </div>
   </section>
 

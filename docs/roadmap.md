@@ -124,7 +124,7 @@ Four items, and only one of them is code.
 | **0.2** | Drain the consolidation backlog — 1,693 pending against 2,884 completed | **Provider quota.** 290 of 294 deferrals were plain HTTP 429. Nothing to build | — |
 | **1** | The token-saving A/B — design in Part 2 | 0.2, and a day of runs | L |
 | **3.2b** | The synthesis *generation* call. Validator, store and rendering ship | Watching the citation check refuse a real bad citation from a live provider | M |
-| **5.4/5.6** | Session replay · config panels | Nothing | M each |
+| **5.4/5.5/5.6** | Session replay · retrieval explain · config | Nothing | M each |
 
 **Done when**, for each: 0.2 — `consolidation_jobs` holds zero `pending` for an hour with the service
 running. 1 — a written report carrying per-task and pooled token deltas *with spread*, the rubric
@@ -141,7 +141,7 @@ links-only page intact. 5.4 — a captured session can be scrubbed as discrete e
 | **2 — Close the trust gap** | Complete. Export, tombstoned withdrawal, provenance walk. A hard delete would have broken the append-only invariant; a tombstone every read path honours gives the same user-visible result without breaking it |
 | **3 — Quality** | 7 of 8 shipped, 3.5 cut, 3.2b half. The one item that could not be estimated was 3.2 — designed in Part 7 |
 | **4 — Lifecycle** | Complete. Access counting, derived staleness, gated eviction |
-| **5 — Console** | 4 of 6 panels. Session replay and config remain |
+| **5 — Console** | 3 of 6 panels, plus one unplanned. Session replay, retrieval explain and config remain — the retrieval panel that shipped shows *configuration*, not per-query explain |
 
 ### 1.3 The rerank result, and why it changed the plan
 
@@ -307,7 +307,8 @@ about memory.
 | Vector coverage | "Is the index built?" | **Shipped** `89bd75a` — per-project progress with the no-model case called out |
 | Jobs & dead letters | "Is consolidation keeping up?" | **Shipped** `6d8c6cd` — with the *reason* a job died, not only that it did |
 | Memory lifecycle | "Is anything being used?" | **Shipped** `7d12c15` — retrieved / stale / unlinked / withdrawn |
-| **Retrieval** | "What would a query actually do?" | **Shipped** `a4ce736` — each channel's weight beside whether it can fire |
+| **Retrieval configuration** *(unplanned)* | "What would a query do — and which stages can fire?" | **Shipped** `a4ce736` — each channel's weight beside whether it is available |
+| Retrieval explain | "Why did *that* come back?" | **Gap** — and not what the panel above does. Per-channel contribution and fused rank for *one query*. `explain_text_search` exists in the store and is called from nothing but a test |
 | Session replay | "What happened in that session?" | **Gap** — all the data exists; nothing renders it |
 | Config | "What is actually configured?" | **Gap** — providers, ports, paths, model, brain home |
 | Live stream | "Is it capturing right now?" | **Dropped** — lowest value of the set; the 30 s poll covers it |
@@ -633,8 +634,8 @@ The remaining order is short and has one real decision in it:
 3. **Wave 1**, which needs 0.2 first.
 4. **Query expansion**, the new item — the measured answer to the vocabulary gap that the
    cross-encoder did not fix.
-5. **Session replay and config**, which have no dependencies and are the obvious thing to pick up
-   while waiting on quota.
+5. **Session replay, retrieval explain and config**, which have no dependencies and are the obvious
+   things to pick up while waiting on quota.
 
 The decision is whether query expansion outranks Wave 1. It probably does: Wave 1 measures the value
 of a system, and query expansion is the last known defect in the part of that system the measurement
