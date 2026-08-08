@@ -12,8 +12,9 @@ research it rests on, and the comparisons that shaped it. This file answers one 
 
 ## Summary
 
-Waves 0, 2, 4 and 5 are complete. Wave 3 is complete except for one generation step held back on
-purpose. Wave 1 is half done — retrieval quality is measured, the token saving never has been.
+Waves 2 and 4 are complete. Wave 0 is complete bar a quota-bound backlog. Wave 3 is complete except
+for one generation step held back on purpose. Wave 5 has four of six panels. Wave 1 is half done —
+retrieval quality is measured, the token saving never has been.
 
 | | |
 |---|---|
@@ -51,7 +52,9 @@ purpose. Wave 1 is half done — retrieval quality is measured, the token saving
 | 4.1 | Access counting | **Shipped** `11f91dc` | Counted per result, not per search |
 | 4.2 | Staleness surfaced | **Shipped** `6707add` `2ba9729` | 23 notes carry `stale: true`, reversed by retrieval |
 | 4.3 | Gated eviction | **Shipped, gated** `73655b2` | Refuses for ~29 more days by design |
-| 5 | Lifecycle + retrieval panels | **Shipped** `7d12c15` `a4ce736` | In-browser render unverified — see *Known gaps* |
+| 5.1–5.3 | Vector coverage · jobs · lifecycle panels | **Shipped** `89bd75a` `6d8c6cd` `7d12c15` | Per-project, live |
+| 5.5 | Retrieval panel | **Shipped** `a4ce736` | Each channel's weight beside whether it can fire. In-browser render unverified — see *Known gaps* |
+| **5.4 / 5.6** | **Session replay · config panels** | **Gap** | No dependency on anything. The obvious thing to pick up while waiting on quota |
 
 ---
 
@@ -176,11 +179,41 @@ document or commit. The recorded numbers are per-category: 63.3% → 90.0% on
 
 ---
 
+## What is left, and in what order
+
+Five items. Only three are code, and the ordering has one real decision in it. Full reasoning and
+done-when criteria in [roadmap.md, Part 1](roadmap.md#part-1--ranked-plan); this is the same list,
+kept here so the status document answers the question on its own.
+
+| | Work | Blocked on | Size |
+|---|---|---|---|
+| 1 | **0.2** — drain the consolidation backlog | **Quota.** 1,693 pending; nothing to build | — |
+| 2 | **3.2b** — the synthesis *generation* call | A live provider, to watch the citation check refuse a real bad citation | M |
+| 3 | **Wave 1** — the token-saving A/B | 0.2 first, then a day of runs | L |
+| 4 | **Query expansion** — *new* | Nothing | M |
+| 5 | **5.4 / 5.6** — session replay, config panels | Nothing | M each |
+
+**Query expansion is on this list because the cross-encoder failed.** 3.4 was meant to fix ranking on
+the category hybrid retrieval exists for, and measuring it showed the opposite — it moves the
+answering session *down*, out of the top five. The isolated cause is a vocabulary gap that neither
+the bi-encoder nor the cross-encoder bridges: `ship` and `deploy` are the same claim and score ten
+points apart. A second scoring model cannot invent that link. Query expansion can, and the LLM
+provider needed for it is already wired for consolidation.
+
+**The decision: does query expansion outrank Wave 1?** It probably does. Wave 1 measures the value of
+the system, and query expansion is the last known defect in the part of the system that measurement
+would be measuring — so running the benchmark first risks publishing a number that a week of work
+would have moved.
+
+Items 4 and 5 have no dependency on quota and are the obvious things to pick up while 0.2 drains.
+
+---
+
 ## Where to look next
 
 | Question | File |
 |---|---|
-| What is left to build, and in what order | [roadmap.md](roadmap.md) |
+| Why each remaining item is ranked where it is | [roadmap.md](roadmap.md) |
 | How the system fits together | [architecture.html](architecture.html) |
 | How to register a project | [registering-a-project.md](registering-a-project.md) |
 | Storage sizing and retention | [storage-and-backup.md](storage-and-backup.md) |
