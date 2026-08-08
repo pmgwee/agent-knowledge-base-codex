@@ -80,6 +80,23 @@ enum Command {
         #[arg(long)]
         limit: Option<usize>,
     },
+    /// File a conclusion back into the brain, citing the events it rests on.
+    Remember {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        content: String,
+        /// One or more `event:<uuid>` this conclusion rests on. At least one is required.
+        #[arg(long = "evidence", required = true)]
+        evidence: Vec<String>,
+        /// Memory ids this replaces. Their current versions are superseded, never deleted.
+        #[arg(long = "supersedes")]
+        supersedes: Vec<String>,
+        #[arg(long, default_value = "fact")]
+        kind: String,
+    },
     /// Health-check a project's memories: contradictions, unrefreshed claims, islands.
     Lint {
         #[arg(long)]
@@ -907,6 +924,46 @@ fn main() -> Result<()> {
         } => {
             let report = rebuild_basic_memory(&brain_home, parse_project_id(&project)?)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Remember {
+            project,
+            title,
+            content,
+            evidence,
+            supersedes,
+            kind,
+        } => {
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let mut ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let parse_ids = |values: &[String], label: &str| -> Result<Vec<uuid::Uuid>> {
+                values
+                    .iter()
+                    .map(|value| {
+                        uuid::Uuid::parse_str(
+                            value
+                                .trim()
+                                .trim_start_matches("event:")
+                                .trim_start_matches("memory:"),
+                        )
+                        .with_context(|| format!("{label} must be a UUID, got {value:?}"))
+                    })
+                    .collect()
+            };
+            let request = brain_cli::RememberRequest {
+                project_id,
+                worktree_id: project_config.worktree_id,
+                kind: brain_domain::MemoryKind::from_name(&kind)
+                    .with_context(|| format!("unknown memory kind {kind:?}"))?,
+                title: &title,
+                content: &content,
+                evidence_ids: parse_ids(&evidence, "--evidence")?,
+                supersedes: parse_ids(&supersedes, "--supersedes")?,
+                now: time::OffsetDateTime::now_utc(),
+            };
+            let filed = brain_cli::remember(&mut ledger, request)?;
+            println!("{}", serde_json::to_string_pretty(&filed)?);
         }
         Command::Lint { project, json } => {
             let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;

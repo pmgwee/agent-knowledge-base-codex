@@ -12,6 +12,7 @@ mod provenance;
 mod providers;
 mod rebuild;
 mod register;
+mod remember;
 mod service;
 mod status;
 
@@ -43,6 +44,7 @@ pub use register::{
     AgentSourceOptions, RegisterOptions, RegistrationResult, register_project,
     register_project_with_sources,
 };
+pub use remember::{RememberRequest, RememberedMemory, remember};
 pub use service::{
     ServiceInstallOptions, ServiceInstallReport, ServiceStatusReport, ServiceTaskStatus,
     ServiceUninstallReport, install_windows_service, start_windows_service, stop_windows_service,
