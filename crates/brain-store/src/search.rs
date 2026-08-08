@@ -62,6 +62,23 @@ const MAX_HITS_PER_SESSION: usize = 3;
 /// wrong; picking this one by feel would have repeated exactly that.
 const RERANK_DEPTH: usize = 16;
 
+/// How many top hits the expansion harvests vocabulary from.
+///
+/// Classic pseudo-relevance feedback: assume the best few results are relevant, take the words they
+/// actually use, and ask again. Five is small on purpose — the assumption is wrong sometimes, and a
+/// wide seed turns one bad first hit into six bad terms.
+const EXPANSION_SEED_HITS: usize = 5;
+
+/// How many harvested terms are added to the query.
+const EXPANSION_TERMS: usize = 6;
+
+/// The expanded query's weight in the fusion.
+///
+/// Below BM25's 0.4 deliberately. The original query is what the user *said*; the expansion is a
+/// guess about how this corpus words the same idea. A guess that outvoted the question would be
+/// worse than no expansion at all.
+const EXPANSION_WEIGHT: f64 = 0.3;
+
 /// Most documents a graph expansion may append.
 const MAX_EXPANDED_HITS: usize = 20;
 
@@ -102,6 +119,12 @@ pub struct SearchQuery {
     /// Off is for callers that asked *about* a session, and for the benchmark, which needs
     /// to attribute a change to fusion rather than to this.
     pub diversify_sessions: bool,
+    /// Expand the query with the corpus's own vocabulary before ranking.
+    ///
+    /// Off by default. It costs a second retrieval pass, and it is a *guess about wording* rather
+    /// than evidence — so it is fused in as an extra channel rather than replacing the query, which
+    /// makes it incapable of losing a result the plain query already found.
+    pub expand_query: bool,
     pub limit: usize,
 }
 
@@ -117,6 +140,7 @@ impl SearchQuery {
             native_session_id: None,
             source_filter: SearchSourceFilter::All,
             diversify_sessions: true,
+            expand_query: false,
             limit: DEFAULT_LIMIT,
         }
     }
@@ -171,6 +195,12 @@ impl SearchQuery {
 
     pub fn memories_only(mut self) -> Self {
         self.source_filter = SearchSourceFilter::Memories;
+        self
+    }
+
+    /// Turn on pseudo-relevance feedback for this query.
+    pub fn with_expansion(mut self) -> Self {
+        self.expand_query = true;
         self
     }
 
@@ -378,6 +408,37 @@ impl EventLedger {
         // Fusing a single channel is the identity: RRF's score falls strictly with rank, so the
         // input order survives untouched. That is what keeps a brain with no model on exactly the
         // path it was measured on.
+        // Pseudo-relevance feedback, when asked for.
+        //
+        // The measured problem it exists for: `ship to production` and `deploy` are the same claim
+        // and score ten points apart, because neither the bi-encoder nor the cross-encoder can
+        // invent a link between words the corpus keeps separate. Neither has to. The corpus itself
+        // contains both words — the top hits for one are written using the other — so asking twice,
+        // the second time in the corpus's own vocabulary, closes the gap without a second model.
+        //
+        // Fused as an extra channel rather than replacing the query, so it is structurally incapable
+        // of losing a result the plain query found. That is the optional-retrieval invariant: an
+        // added stage may only add.
+        if query.expand_query {
+            let seeded = fuse(&channels);
+            if let Some(expanded_text) = expansion_terms(query, &seeded) {
+                let mut expanded = query.clone();
+                expanded.text = Some(expanded_text);
+                // Never recursive: the expanded pass must not expand again.
+                expanded.expand_query = false;
+                let mut extra = Vec::new();
+                if query.source_filter != SearchSourceFilter::Memories {
+                    extra.extend(self.search_events(&expanded, depth, None)?);
+                }
+                if query.source_filter != SearchSourceFilter::Events {
+                    extra.extend(self.search_memories(&expanded, depth, None)?);
+                }
+                if !extra.is_empty() {
+                    channels.push((EXPANSION_WEIGHT, extra));
+                }
+            }
+        }
+
         let seeds = fuse(&channels);
         let expansion = self.expand_by_evidence(&seeds, query)?;
         let mut ranked = if expansion.is_empty() {
@@ -896,6 +957,56 @@ impl EventLedger {
 /// "What degree did I graduate with?" under `AND` demands that one event contain *what*, *did*,
 /// *I* and *with* together, and the benchmark scored **0.0% R@5** across every question type
 /// before this changed.
+/// Harvest the corpus's own words from the best hits, and append them to the query.
+///
+/// Returns `None` when there is nothing to add — no seeds, or every frequent word was already in
+/// the question. Silence is the correct answer far more often than a guess is.
+///
+/// Terms are ranked by how many of the seed documents contain them, not by raw frequency: a word
+/// repeated forty times in one document says something about that document, while a word appearing
+/// once in four of five says something about the *subject*, which is what an expansion wants.
+fn expansion_terms(query: &SearchQuery, seeds: &[SearchHit]) -> Option<String> {
+    let original = query.text.as_deref()?.trim();
+    if original.is_empty() {
+        return None;
+    }
+    let asked: HashSet<String> = original
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+
+    let mut document_frequency: HashMap<String, usize> = HashMap::new();
+    for hit in seeds.iter().take(EXPANSION_SEED_HITS) {
+        let mut seen = HashSet::new();
+        for word in format!("{} {}", hit.title, hit.text)
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|word| word.chars().count() >= 4 && word.chars().count() <= MAX_TERM_CHARACTERS)
+            .map(str::to_lowercase)
+        {
+            if asked.contains(&word) || !seen.insert(word.clone()) {
+                continue;
+            }
+            *document_frequency.entry(word).or_default() += 1;
+        }
+    }
+
+    let mut ranked: Vec<(String, usize)> = document_frequency
+        .into_iter()
+        // A term in only one seed document is about that document, not about the subject.
+        .filter(|(_, count)| *count >= 2)
+        .collect();
+    if ranked.is_empty() {
+        return None;
+    }
+    // Ties broken alphabetically so the expanded query — and therefore the cache key — is stable.
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    ranked.truncate(EXPANSION_TERMS);
+
+    let added: Vec<String> = ranked.into_iter().map(|(term, _)| term).collect();
+    Some(format!("{original} {}", added.join(" ")))
+}
+
 fn match_expression(_project_id: ProjectId, text: Option<&str>) -> Option<String> {
     let terms = text?
         .split(|character: char| !character.is_alphanumeric())

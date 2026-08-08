@@ -49,6 +49,8 @@ pub struct RetrievalQuery {
     pub paths: Vec<String>,
     pub source_filter: SearchSourceFilter,
     pub now: time::OffsetDateTime,
+    /// Expand the query with the corpus's own vocabulary before ranking.
+    pub expand_query: bool,
     pub limit: usize,
 }
 
@@ -65,6 +67,7 @@ impl RetrievalQuery {
             paths: Vec::new(),
             source_filter: SearchSourceFilter::All,
             now,
+            expand_query: false,
             limit: 20,
         }
     }
@@ -150,6 +153,7 @@ impl RetrievalQuery {
             )
         };
         query.occurred = self.occurred;
+        query.expand_query = self.expand_query;
         query.as_of = self.as_of;
         query.worktree_id = self.worktree_id;
         query.task_id = self.task_id;

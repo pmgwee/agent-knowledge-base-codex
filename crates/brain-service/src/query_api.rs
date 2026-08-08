@@ -51,6 +51,10 @@ pub struct BrainSearchRequest {
     /// the question's vocabulary; it does not bridge a vocabulary gap.
     #[serde(default)]
     pub rerank: bool,
+    /// Expand the query with the corpus's own vocabulary. Fused as an extra channel, so it can
+    /// add results and never remove them.
+    #[serde(default)]
+    pub expand: bool,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -362,6 +366,7 @@ impl BrainQueryService {
         query.task_id = request.task_id;
         query.native_session_id = request.native_session_id;
         query.source_filter = request.source.into();
+        query.expand_query = request.expand;
         self.retrieve(&ledger, query, bounded_limit(request.limit))
     }
 

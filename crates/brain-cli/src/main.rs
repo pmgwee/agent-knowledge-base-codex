@@ -83,6 +83,10 @@ enum Command {
         /// `models/ms-marco-MiniLM-L6-v2`, and costs roughly 1.5 s.
         #[arg(long)]
         rerank: bool,
+        /// Expand the query with the corpus's own vocabulary before ranking. Costs a second
+        /// retrieval pass and cannot lose a result the plain query found.
+        #[arg(long)]
+        expand: bool,
     },
     /// File a conclusion back into the brain, citing the events it rests on.
     Remember {
@@ -708,6 +712,7 @@ fn main() -> Result<()> {
             as_of,
             limit,
             rerank,
+            expand,
         } => {
             let response = BrainQueryService::open(&brain_home)?.search(BrainSearchRequest {
                 project,
@@ -720,6 +725,7 @@ fn main() -> Result<()> {
                 source: SourceSelector::All,
                 limit,
                 rerank,
+                expand,
             })?;
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
