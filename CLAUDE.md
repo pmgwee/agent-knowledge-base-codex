@@ -204,7 +204,36 @@ our fusion is the one everyone else measured.
   scale — sorting them together is the same defect as the events-versus-memories merge above, and
   it would look exactly like working code.
 
-### Measured on LongMemEval-S
+### Measured on LongMemEval-S — all 500 instances
+
+Run 9 August 2026: 23,867 sessions, 246,750 turns, 243,657 vectors, 3 h 54 m with the service
+stopped. BM25 + vector RRF-fused; **no rerank and no query expansion** — the harness has no switch
+for expansion, so `6b431c0` contributed nothing to these numbers and remains unmeasured at scale.
+
+| | Pooled, all 500 |
+|---|---|
+| R@5 | **96.0%** |
+| R@10 | 98.2% |
+| MRR | **0.922** |
+
+| Category | Instances | R@5 |
+|---|---|---|
+| `single-session-assistant` | 56 | **100.0%** |
+| `knowledge-update` | 78 | 98.7% |
+| `multi-session` | 133 | 97.0% |
+| `single-session-user` | 70 | 94.3% |
+| `temporal-reasoning` | 133 | 94.0% |
+| `single-session-preference` | 30 | 90.0% |
+
+**`single-session-preference` reproduced at exactly 90.0%** — identical to the 30-instance run below,
+against a corpus seventeen times larger. Two independent measurements agreeing to the decimal is the
+reason to trust either.
+
+Against the published comparison — 95.2% R@5 / 98.6% R@10 / 88.2% MRR — we are ahead on R@5 and MRR
+and **behind on R@10**. Say that second part when quoting the first two. And note it is the same
+dataset, not a controlled head-to-head: two independent harnesses computing the same metric.
+
+#### The earlier per-category runs, kept
 
 | Category | Instances | BM25 R@5 | Hybrid R@5 | BM25 MRR | Hybrid MRR |
 |---|---|---|---|---|---|
@@ -234,8 +263,14 @@ preference-shaped questions.** It remains available because it separates cleanly
 (6.230 / 2.365 / −11.348), and that half has not been benchmarked yet — but nothing should turn it
 on globally on the strength of that.
 
-The full 500-instance number has **not** been run. Each hybrid instance costs ~25 s of embedding,
-so a full sweep is several hours and contends directly with the service's own backfill.
+A full sweep is ~4 hours and contends directly with the service's own backfill. Two things killed
+the first attempt at 2 h 07 m with no report, both worth knowing before starting another:
+
+- **`cargo test` relinks the harness mid-run.** Any `cargo build` in another shell tries to replace
+  the running executable. Build once with `--no-run`, copy the binary out of `target/`, and execute
+  the copy.
+- **Committing deploys, and deploying restarts the service.** A run you carefully gave the machine
+  to is back to contending with the backfill the moment you commit anything touching `crates/`.
 
 ### Measuring a change
 

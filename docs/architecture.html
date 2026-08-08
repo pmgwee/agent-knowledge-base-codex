@@ -258,7 +258,7 @@
     </p>
     <p class="stamp">
       Rebuilt 9 August 2026 · every figure below read from the running system, not recalled ·
-      3 projects · 142,830 events · 120 test binaries green<br />
+      3 projects · 142,830 events · 120 test binaries green · <strong>96.0% R@5 on all 500 LongMemEval-S questions</strong><br />
       Per-item status and what is left live in <code>docs/status.md</code> — maintained there, not here.
     </p>
   </header>
@@ -636,7 +636,60 @@
   </section>
 
   <section>
-    <h2>Retrieval quality — and what the benchmark decided</h2>
+    <h2>Retrieval quality — all 500 instances</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      Run 9 August 2026: every LongMemEval-S question, 23,867 sessions, 246,750 turns, 243,657 vectors,
+      3 h 54 m with the service stopped. BM25 + vector RRF-fused — no rerank, and no query expansion,
+      because the harness has no switch for it.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Pooled, all 500</th><th>Ours</th><th>Published comparison</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>R@5</td><td class="num win">96.0%</td><td class="num">95.2%</td></tr>
+          <tr><td>R@10</td><td class="num lose">98.2%</td><td class="num">98.6%</td></tr>
+          <tr><td>MRR</td><td class="num win">0.922</td><td class="num">0.882</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-scroll" style="margin-top: 12px;">
+      <table>
+        <thead>
+          <tr><th>Question type</th><th>Instances</th><th>R@5</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>single-session-assistant</td><td class="num">56</td><td class="num win">100.0%</td></tr>
+          <tr><td>knowledge-update</td><td class="num">78</td><td class="num">98.7%</td></tr>
+          <tr><td>multi-session</td><td class="num">133</td><td class="num">97.0%</td></tr>
+          <tr><td>single-session-user</td><td class="num">70</td><td class="num">94.3%</td></tr>
+          <tr><td>temporal-reasoning</td><td class="num">133</td><td class="num">94.0%</td></tr>
+          <tr><td>single-session-preference</td><td class="num">30</td><td class="num">90.0%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout" style="margin-top: 16px;">
+      <h3>Two things to say every time these are quoted.</h3>
+      <p>
+        <strong>R@10 is behind.</strong> 98.2% against 98.6%. This system ranks better inside the top
+        five and retrieves marginally less inside ten, and that belongs beside the two wins rather
+        than under them. And this is the <em>same dataset</em>, not a controlled head-to-head — two
+        independent harnesses computing one metric over the same 500 questions is far closer than
+        anything sayable before, and still not one harness running both systems.
+      </p>
+      <p>
+        <strong><code>single-session-preference</code> reproduced at exactly 90.0%</strong> — the same
+        figure the 30-instance run returned, against a corpus seventeen times larger. Two independent
+        measurements agreeing to the decimal is the reason to trust either. It is also still the
+        weakest category, which is what the section below is about.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>What the earlier per-category runs decided</h2>
     <p class="standfirst" style="margin-bottom: 4px;">
       Thirty <code>single-session-preference</code> instances, 1,427 sessions, 14,551 vectors, the service
       stopped so the run had the machine. One switch changed between the last two rows.
@@ -940,7 +993,7 @@
         <h3>One number that could not be traced</h3>
         <p>
           A 93.2% R@5 figure appears in an earlier roadmap and in no document or commit. The recorded numbers
-          are per-category: 63.3% → 90.0% on <code>single-session-preference</code>. Those are not the same
+          are 96.0% pooled over all 500, and per-category 63.3% → 90.0% on <code>single-session-preference</code>. Those are not the same
           measurement and should not be quoted as one.
         </p>
       </div>

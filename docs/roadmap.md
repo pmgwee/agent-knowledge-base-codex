@@ -126,7 +126,7 @@ review. What remains is two measurements and two provider-quota items — no unw
 
 | # | Work | Why here | Blocked on | Size |
 |---|---|---|---|---|
-| **1** | **Run all 500 LongMemEval instances** — *running since 23:15* | Settles the competitive question with a number instead of an argument. We have measured 40 of 500 — 8% — and reported the *hardest* category. Everything below is speculation until this exists | Nothing; ~4 h unattended with the service stopped | L |
+| ~~**1**~~ | ~~**Run all 500 LongMemEval instances**~~ — **done** 9 Aug. **96.0% R@5 · 98.2% R@10 · 0.922 MRR** over 23,867 sessions and 246,750 turns, 3 h 54 m | Settled the competitive question with a number instead of an argument. `single-session-preference` reproduced at exactly 90.0% against a corpus 17× larger, which is why the earlier figure was worth trusting | — | — |
 | ~~**2**~~ | ~~**Mid-session push via `UserPromptSubmit`**~~ — **shipped** `af81e4d` `4aafe32` | Was the largest architectural gap: the brain pushed **once**, at session start, so a session that pivoted was never re-oriented. Now re-queries retrieval on every prompt, 400 tokens, four memories, twenty per session, metered | — | — |
 | ~~**3**~~ | ~~**Query expansion**~~ — **shipped** `6b431c0`. Pseudo-relevance feedback: top-five hits, terms by document frequency ≥ 2, best six appended, retrieve again. Fused as an extra channel, so it **cannot lose** a result the plain query found. Live: 0 lost, 1 newly reached | The measured answer to the vocabulary gap the cross-encoder failed to fix (1.4). The link between `ship to production` and `deploy` is in the corpus, not in any model | — | — |
 | ~~**4**~~ | ~~**AI-first note format**~~ — **shipped** `6a1e34f`. Every note opens with a derived "For future agents" block: the claim, its weight, how to check it, and what would make it wrong | Notes are written for humans and retrieved by a model. A stable preamble and compiler-read frontmatter is cheap, and plausibly worth more than reranking was | Nothing | S |
@@ -652,7 +652,45 @@ are work, neither is architectural.
 
 ---
 
-### 6.6 Their LongMemEval number, and why ours is not comparable to it
+### 6.6 Their LongMemEval number, and ours — now comparable
+
+**Resolved 9 August.** The run happened, and the answer to *"is their number bombast, or are we
+behind?"* is **neither**: we are marginally ahead on two of the three figures and behind on the
+third.
+
+| | Ours, all 500 | Theirs, all 500 |
+|---|---|---|
+| R@5 | **96.0%** | 95.2% |
+| R@10 | 98.2% | **98.6%** |
+| MRR | **0.922** | 0.882 |
+
+| Category | Instances | Share | Our R@5 |
+|---|---|---|---|
+| multi-session | 133 | 26.6% | 97.0% |
+| temporal-reasoning | 133 | 26.6% | 94.0% |
+| knowledge-update | 78 | 15.6% | 98.7% |
+| single-session-user | 70 | 14.0% | 94.3% |
+| single-session-assistant | 56 | 11.2% | **100.0%** |
+| single-session-preference | 30 | 6.0% | 90.0% |
+
+Four things to carry, and the last two are the ones that keep this honest:
+
+1. **`single-session-preference` came back at exactly 90.0%**, reproducing the 30-instance figure
+   against a corpus 17× larger — 23,867 sessions where the earlier run had 1,427. Two independent
+   measurements agreeing to the decimal is the reason to trust either.
+2. **The category-mix artefact is gone.** Their 86.2% BM25 baseline against our 63.3% was never
+   evidence their keyword search was better; both were the same artefact seen from opposite ends.
+3. **R@10 is behind.** 98.2% against 98.6%. This system ranks better inside the top five and
+   retrieves marginally less inside ten, and that sentence belongs beside the other two figures
+   every time they are quoted.
+4. **Same dataset, not a controlled head-to-head.** Two independent harnesses computing the same
+   metric over the same 500 questions is far closer than anything we could say before, and still not
+   one harness running both systems.
+
+*The original argument for why the comparison could not be made is kept below, because a plan that
+silently rewrites its own predictions cannot be checked later.*
+
+---
 
 They publish **95.2% R@5 / 98.6% R@10 / 88.2% MRR** over all 500 questions, with an 86.2% BM25
 fallback. We publish 90.0% R@5. Read side by side that looks like a five-point deficit. It is not a
@@ -686,7 +724,9 @@ category, hybrid retrieval takes us from 63.3% to 90.0%.* That is a real result 
 weakness. It is not a headline, and pooling it against someone else's headline is the kind of
 comparison this project is supposed to be better than.
 
-Item 1 in Part 1, and it is first for exactly this reason.
+~~Item 1 in Part 1, and it is first for exactly this reason.~~ **Done** — see the table at the top of
+this section. The prediction the paragraph above refused to make turned out to be right in substance:
+the deficit was an artefact, not a gap.
 
 ---
 
@@ -837,5 +877,9 @@ The remaining order is short and has one real decision in it:
 **How that decision resolved.** The open question was whether query expansion outranked Wave 1. It
 did, and for the stated reason: Wave 1 measures the value of a system, and expansion was the last
 known defect in the part of that system the measurement would be measuring. It shipped first, so the
-500-instance run now in flight is measuring the fixed system rather than one we already knew was
-handicapped.
+500-instance run measured the fixed system rather than one we already knew was handicapped.
+
+**Except it did not, quite.** The harness has no switch for expansion, so the 96.0% R@5 it returned
+is BM25 + vector only. Expansion shipped and is unmeasured at this scale — which is a smaller
+embarrassment than it sounds, because the number stands without it, but it does mean the ordering
+argument above was never actually tested.

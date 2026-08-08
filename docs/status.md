@@ -12,9 +12,14 @@ research it rests on, and the comparisons that shaped it. This file answers one 
 
 ## Summary
 
+**All 500 LongMemEval-S instances are measured: 96.0% R@5, 98.2% R@10, 0.922 MRR.** For the first
+time this is a pooled number over the whole dataset rather than one category, so it can be set
+beside a published one — 95.2% / 98.6% / 88.2% — without the caveat that killed every earlier
+comparison. We are ahead on R@5 and MRR and behind on R@10. Caveats below, and they matter.
+
 Waves 2, 4 and **5** are complete. Wave 0 is complete bar a quota-bound backlog. Wave 3 is complete
-except for one generation step held back on purpose. Wave 1 is half done — retrieval quality is
-measured, the token saving never has been, and the harness for measuring it now exists.
+except for one generation step held back on purpose. Wave 1 is half done — retrieval quality is now
+fully measured, the token saving never has been, and the harness for measuring it exists.
 
 **The vault has revised a claim in place for the first time.** `brain reconcile --apply` folded four
 contradictions into four claims, superseding seven memories without deleting anything. Before it ran
@@ -23,9 +28,9 @@ was schema and reader filters production had never once exercised. `brain lint` 
 contradictions on this project.
 
 **Shipped since the August competitor review:** the mid-session push, a continuous decay curve with
-access-strengthening, `brain reconcile`, `brain explain`, `brain replay`, retrieval-shaped notes,
-**query expansion**, and a **scheduled health digest**. Every item that review raised except the
-500-instance benchmark, which is still running.
+access-strengthening, `brain reconcile` and the fold, `brain explain`, `brain replay`,
+retrieval-shaped notes, query expansion, a scheduled health digest, and the 500-instance benchmark.
+**Every item that review raised.**
 
 Two things remain that nothing external is holding up: the benchmark (running) and the token-saving
 A/B (never started). Two more wait on provider quota by choice — draining the consolidation backlog,
@@ -48,11 +53,11 @@ and 3.2b's generation call.
 | Wave | Work | Where it stands |
 |---|---|---|
 | **0 · Instruments** — done bar one | ~~Record deliveries after the flush~~ · ~~surface jobs and dead letters~~ · drain the backlog | Deliveries count receipts. The queue is visible. The backlog is quota-bound — 290 of 294 provider deferrals were plain HTTP 429 — so it finishes when quota allows, not when code changes |
-| **1 · Proof** — half | ~~Retrieval quality on LongMemEval~~ · matched-pair A/B, 5 tasks × 2 conditions × 3 repeats | Retrieval measured and reproduced at 90.0% R@5. The token-saving percentage still does not exist; only the numerator has ever been counted |
+| **1 · Proof** — half | ~~Retrieval quality on LongMemEval~~ · matched-pair A/B, 5 tasks × 2 conditions × 3 repeats | **All 500 instances measured: 96.0% R@5, 98.2% R@10, 0.922 MRR.** The token-saving percentage still does not exist; only the numerator has ever been counted |
 | **2 · Trust** — done | ~~`brain export`~~ · ~~`brain verify memory`~~ · ~~`brain forget` as a tombstone~~ | Export runs clean. Verify resolves a claim to the transcript byte offset it came from. Withdrawal is a tombstone every read path honours, so the ledger stayed append-only |
 | **3 · Quality** — 7 of 8 | ~~Orientation ranked by relevance~~ · ~~subject pages~~ · ~~`brain remember`~~ · ~~`brain lint`~~ · ~~vault `log.md`~~ · ~~session summaries~~ · ~~cross-encoder rerank~~ · synthesis prose | The orientation's memories had been ordered *alphabetically*. Rerank shipped and was measured *worse*, so it ships off. Synthesis prose is the last piece, held back on purpose |
 | **4 · Lifecycle** — done | ~~Access counts~~ · ~~staleness marking~~ · ~~gated eviction~~ | Decay stays mechanical and logged — the model proposes, derivation disposes. Eviction refuses to run until thirty days of access data exist, because on day one every memory is never-retrieved |
-| **6 · Depth** — 6 of 7 | ~~Mid-session push~~ · ~~AI-first notes~~ · ~~contradiction proposals~~ · ~~decay + strengthening~~ · ~~query expansion~~ · ~~scheduled reflection~~ · 500-instance benchmark *(running)* | Added by the August competitor review. The push closed the largest architectural gap: the brain used to orient once and then stop helping. Expansion closed the second — the corpus's own words bridge a vocabulary gap no scoring model could invent |
+| **6 · Depth** — **done**, 7 of 7 | ~~Mid-session push~~ · ~~AI-first notes~~ · ~~contradiction proposals~~ · ~~decay + strengthening~~ · ~~query expansion~~ · ~~scheduled reflection~~ · ~~500-instance benchmark~~ | Added by the August competitor review. The push closed the largest architectural gap: the brain used to orient once and then stop helping. Expansion closed the second — the corpus's own words bridge a vocabulary gap no scoring model could invent |
 | **7 · Integration** — done | ~~Fold a contradiction by supersession~~ · ~~revision trail on subject pages~~ · ~~one definition of "current"~~ | The Karpathy operation nothing here had ever performed. Closing it immediately exposed a defect eleven queries deep: `status = 'current'` had been indistinguishable from "the memory's latest version" for as long as no memory had two |
 | **5 · Console** — **done**, 6 of 6 plus one | ~~Vector coverage~~ · ~~jobs and dead letters~~ · ~~memory lifecycle~~ · ~~session replay~~ · ~~retrieval explain~~ · ~~config~~ · **+ retrieval configuration** *(unplanned)* | Every shipped figure already existed inside a command; the work was putting it where someone looks. The engine-console pages stay excluded — there is no such runtime here |
 
@@ -70,7 +75,7 @@ separate things (`ec30787` and `a4ce736`), so the wave is complete rather than c
 | 0.1 | Deliveries counted at receipt | **Shipped** `407d345` | An outcome dropped without recording leaves zero rows |
 | **0.2** | **Consolidation drained** | **Quota-bound** | 1,933 pending across 3 projects; 290 of 294 deferrals were plain HTTP 429 |
 | 0.3 | Queue and dead letters visible | **Shipped** `6d8c6cd` | Pending / leased / completed / dead per project, with the reason a job died |
-| **1** | **Value proved** | **Half** | Retrieval measured; the token-saving A/B has never been run |
+| **1** | **Value proved** | **Half** | Retrieval measured on all 500 — 96.0% R@5. The token-saving A/B has never been run |
 | 2.1 | `brain export` | **Shipped** `5c6eebc` | 41 MB, zero unresolved citations |
 | 2.2 | `brain forget` | **Shipped** `b05e67f` | One test walks all six read paths |
 | 2.3 | `brain verify memory` | **Shipped** `fa610b0` | Resolves a claim to `…jsonl:1051092` |
@@ -221,24 +226,42 @@ expansion, not a second scoring model.**
 `--rerank` stays available because it separates cleanly on factual questions (6.230 / 2.365 /
 −11.348). That half has not been benchmarked, and nothing should enable it globally on that basis.
 
-### This number is not comparable to a published one
+### All 500 instances — the number that was missing
 
-`single-session-preference` is **30 of 500 instances — 6.0% of the dataset**, and it is the hardest
-slice. We have measured **40 of 500 — 8%** — and the figure we report is our worst category.
-Competing systems publish a weighted mean across all six.
+Run 9 August, 3 h 54 m, service stopped, harness pinned outside `target/` so nothing could relink it
+mid-run. **23,867 sessions, 246,750 turns, 243,657 vectors** — a corpus 17× the one the 30-instance
+run used.
 
-| Category | Instances | Share | Measured |
+| | Ours, all 500 | Published comparison |
+|---|---|---|
+| **R@5** | **96.0%** | 95.2% |
+| **R@10** | 98.2% | **98.6%** |
+| **MRR** | **0.922** | 0.882 |
+
+**R@5 by question type**
+
+| Category | Instances | Share | R@5 |
 |---|---|---|---|
-| multi-session | 133 | 26.6% | **never** |
-| temporal-reasoning | 133 | 26.6% | **never** |
-| knowledge-update | 78 | 15.6% | 10 → **100%** |
-| single-session-user | 70 | 14.0% | **never** |
-| single-session-assistant | 56 | 11.2% | **never** |
-| single-session-preference | 30 | 6.0% | 30 → 90.0% |
+| single-session-assistant | 56 | 11.2% | **100.0%** |
+| knowledge-update | 78 | 15.6% | 98.7% |
+| multi-session | 133 | 26.6% | 97.0% |
+| single-session-user | 70 | 14.0% | 94.3% |
+| temporal-reasoning | 133 | 26.6% | 94.0% |
+| single-session-preference | 30 | 6.0% | 90.0% |
 
-**Do not quote 90.0% against anyone else's headline.** The honest statement is: *on the hardest
-category, hybrid retrieval takes this system from 63.3% to 90.0%.* Running the other 92% is item 1 in
-[what to pick up next](#what-to-pick-up-next), and it is first for exactly this reason.
+**Read the caveats before quoting any of this.**
+
+- **`single-session-preference` reproduced at exactly 90.0%** — identical to the 30-instance run,
+  against a corpus seventeen times larger. That is the strongest stability signal in this table, and
+  it is why the earlier number was worth trusting.
+- **R@10 is behind**, 98.2% against 98.6%, and that is stated here rather than buried under the two
+  wins. We rank better within the top five; they retrieve marginally more within ten.
+- **This is the same dataset, not a controlled head-to-head.** Two independent harnesses computing
+  the same metric over the same 500 questions is much closer than what we could say yesterday, and
+  still not the same thing as one harness running both systems.
+- **Query expansion was off.** The harness has no switch for it, so `6b431c0` contributed nothing to
+  these numbers. Whatever it is worth at scale is unmeasured.
+- **The cross-encoder was off**, as it should be — measured harmful on the preference category.
 
 ---
 
@@ -367,21 +390,25 @@ original nine-item list has shipped. Full reasoning and done-when criteria in
 
 | # | Work | Blocked on | Size |
 |---|---|---|---|
-| 1 | **Run all 500 LongMemEval instances** | **running** — restarted 02:38 from a pinned binary after the first attempt died at 2h07m | L |
+| ~~1~~ | ~~**Run all 500 LongMemEval instances**~~ — **done** 9 Aug. 96.0% R@5 / 98.2% R@10 / 0.922 MRR over 23,867 sessions in 3 h 54 m | — | — |
 | 2 | **Run the token-saving A/B** — 5 tasks × **3** conditions × 3 repeats | **An authenticated terminal** (`claude -p` returns 401 here), then 0.2. The harness is built and verified | L |
 | 3 | **3.2b** — the synthesis generation call | **Quota**, by choice: watching the citation check refuse a *real* bad citation is the point | M |
 | 4 | **0.2** — drain the consolidation backlog | **Quota.** 1,933 pending; nothing to build | — |
 | ~~5~~ | ~~**Resolve the 4 contradictions**~~ — **done** `fbc6fe5`. Folded, not decided: all four were re-derivations of one claim, which is arithmetic | — | — |
 | ~~—~~ | ~~Mid-session push~~ `af81e4d` · ~~AI-first notes~~ `6a1e34f` · ~~contradiction proposals~~ `eec8925` · ~~query expansion~~ `6b431c0` · ~~scheduled reflection~~ `d4629d6` · ~~5.6 config panel~~ `10b72f8` · ~~the fold~~ `fbc6fe5` | — | — |
 
-### Why 1 is first
+### What the 500-instance run settled, and what it did not
 
-We have measured **40 of 500 LongMemEval instances — 8%** — and the one we report is the *hardest*
-category. `single-session-preference` is 6.0% of the dataset; the other 92% has never been run. Every
-competitive claim about this system is speculation until that number exists, in either direction.
+**Settled.** Every competitive claim about retrieval was speculation while 92% of the dataset had
+never been run. It has now: 96.0% R@5 pooled, and the category we had been reporting —
+`single-session-preference` — came back at **exactly 90.0%**, reproducing the 30-instance figure
+against a corpus seventeen times larger. Two independent measurements agreeing to the decimal is the
+reason to believe either.
 
-It is also the first run that will include query expansion, so it doubles as the measurement of
-whether expansion helps the five categories the fixture could not speak for.
+**Not settled.** The run predates query expansion having any effect — the harness has no switch for
+it — so `6b431c0` is still unmeasured at scale. And R@10 came back *behind* the published
+comparison, 98.2% against 98.6%, which is the honest counterweight to the two wins: this system
+ranks better inside the top five and retrieves marginally less inside ten.
 
 ### Item 2 shipped — what it took, and what it revealed
 
