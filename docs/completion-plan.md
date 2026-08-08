@@ -27,6 +27,7 @@ through in the tables below and listed in *What has shipped*, immediately after 
 | **4.1** Access counting | `11f91dc` | Counted per result, not per search; never-retrieved share reported by lint |
 | **3.6** `brain remember` | `22f9e97` | An uncited claim is refused; a correction supersedes without deleting |
 | **4.2** Staleness surfaced | `6707add` `2ba9729` | `stale: true` in note frontmatter, demoted in the orientation, reversed by retrieval |
+| **5** Memory lifecycle on the dashboard | `7d12c15` | Retrieved / stale / unlinked / withdrawn per project, live |
 | — Abandoned staging directories collected | `b4ffb34` | 5,834 orphaned vault files, and both directions pinned by test |
 | — Job failures record why, not just what | `6d8c6cd` | Parse errors now name the field; three dead letters had said nothing |
 
@@ -259,8 +260,19 @@ See Part 3 for why decay is deliberately mechanical here.
 
 ### Wave 5 — The dashboard becomes a console
 
-Panels in Part 4. **Done when** each panel answers its question without a terminal. **Size: L**,
-and every panel is independently shippable — this wave has no internal ordering.
+Panels in Part 4. Every panel is independently shippable; this wave has no internal ordering.
+
+| | Panel | Status |
+|---|---|---|
+| 5.1 | Vector coverage | **Shipped** `89bd75a` |
+| 5.2 | Jobs and dead letters | **Shipped** `6d8c6cd` |
+| 5.3 | Memory lifecycle — retrieved / stale / unlinked / withdrawn | **Shipped** `7d12c15` |
+| 5.4 | Session replay | Gap |
+| 5.5 | Retrieval explain | Gap — `explain_text_search` already exists in the store; this is a renderer over it |
+| 5.6 | Config | Gap |
+
+Every figure in 5.3 already existed inside a command. The work was putting them where someone
+looks without being told to.
 
 ### Out of scope, and worth naming
 
@@ -689,8 +701,9 @@ depends on 3.3 (episodic summaries) for anything to decay meaningfully. Wave 5 t
 because a console is most useful once there is more to show.
 
 Waves 0 and 2 are done bar the quota-bound backlog (0.2). Wave 3 has 3.1, 3.2a, 3.6, 3.7 and 3.8
-shipped and 3.5 cut; Wave 4 has 4.1 and 4.2. What remains is listed under *What is blocked* above — 1, 3.2b, 3.3, 3.4, 3.9 and 4.3 — plus
-Wave 5, which is dashboard work with no external dependency.
+shipped and 3.5 cut; Wave 4 has 4.1 and 4.2. What remains is listed under *What is blocked* above — 1, 3.2b, 3.3, 3.4, 3.9 and 4.3 — plus the
+three unbuilt Wave 5 panels (session replay, retrieval explain, config), which have no external
+dependency and are the obvious next thing to pick up.
 
 **4.3 is deliberately gated.** The access counter started today, so a dry run over thirty days of
 real data is the precondition — evicting on a counter this young would be retiring memories for
