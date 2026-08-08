@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod access;
 mod backup;
 mod basic_memory;
 mod blob;
@@ -21,6 +22,7 @@ mod tombstone;
 mod upgrade;
 mod vector;
 
+pub use access::MemoryAccess;
 pub use backup::{
     BACKUP_FORMAT_VERSION, BackupInventory, BackupManager, BackupReport, InventoryFile,
     InventoryKind, RecoveryDrillReport, RestoreReport, RetentionPolicy, RetentionReport,

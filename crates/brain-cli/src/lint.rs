@@ -179,7 +179,27 @@ pub fn lint_project(
         });
     }
 
-    // 6. Withdrawn memories, so a vault that looks smaller than the ledger has an explanation
+    // 6. Memories retrieval has never reached. The number that makes decay discussable: a brain
+    //    where most memories are never retrieved is storing rather than remembering, and until
+    //    access was counted there was no way to tell the two apart. Reported, never acted on —
+    //    the counter has to run for a while before it means anything.
+    let never = ledger.never_retrieved_memory_count()?;
+    if never > 0 && !memories.is_empty() {
+        let share = (never as f64 / memories.len() as f64) * 100.0;
+        findings.push(LintFinding {
+            rule: "never-retrieved",
+            explanation: "Retrieval has never returned these. Counting only began recently, so a                           high share here means the counter is young rather than the memories are                           useless — it becomes a decay signal once it has run for a while."
+                .to_owned(),
+            count: usize::try_from(never).unwrap_or(0),
+            examples: vec![format!(
+                "{never} of {} memories ({share:.1}%)",
+                memories.len()
+            )],
+            actionable: false,
+        });
+    }
+
+    // 7. Withdrawn memories, so a vault that looks smaller than the ledger has an explanation
     //    rather than a discrepancy.
     let tombstones = ledger.tombstones()?;
     if !tombstones.is_empty() {

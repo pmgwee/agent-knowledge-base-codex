@@ -455,6 +455,25 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             redacted_at_ns INTEGER NOT NULL
         );
 
+        -- What retrieval has actually reached.
+        --
+        -- Decay needs an input, and the only honest one is use. Age alone does not make a claim
+        -- wrong; a decision from March can be perfectly current. What distinguishes a memory worth
+        -- keeping from one worth retiring is whether anything ever asks for it — and nothing was
+        -- recording that, so any eviction policy would have been guessing.
+        --
+        -- Deliberately mechanical. This counts; it does not judge. A model deciding what to forget
+        -- leaves no evidence trail, which would turn a verifiable brain into a plausible one.
+        CREATE TABLE IF NOT EXISTS memory_access (
+            memory_id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            retrieved_count INTEGER NOT NULL DEFAULT 0,
+            last_retrieved_at_ns INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_memory_access_project
+            ON memory_access(project_id, last_retrieved_at_ns);
+
         CREATE INDEX IF NOT EXISTS idx_memory_tombstones_project
             ON memory_tombstones(project_id);
 

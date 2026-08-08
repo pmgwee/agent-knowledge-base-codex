@@ -252,6 +252,14 @@ impl EventLedger {
             }
         }
         let hits = self.ranked_hits(query)?;
+        // Which memories retrieval actually reached — the only honest input to a decay policy,
+        // and nothing was recording it. Best-effort: a search that cannot write a counter has
+        // still answered the question, and failing it to protect a statistic would be the wrong
+        // trade in the wrong direction.
+        let retrieved: Vec<uuid::Uuid> = hits.iter().filter_map(|hit| hit.memory_id).collect();
+        if !retrieved.is_empty() {
+            let _ = self.record_memory_access(&retrieved, time::OffsetDateTime::now_utc());
+        }
         let entry_bytes = estimated_cache_entry_bytes(query, &hits);
         if entry_bytes <= MAX_SEARCH_CACHE_BYTES {
             let mut cache = self.search_cache.borrow_mut();
