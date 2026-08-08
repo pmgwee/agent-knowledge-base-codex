@@ -23,6 +23,8 @@ through in the tables below and listed in *What has shipped*, immediately after 
 | **3.1** Orientation ranked by relevance | `bc75702` | A ranked memory outranks one that only sorts earlier; unranked ones are demoted, not dropped |
 | **3.8** Greppable vault `log.md` | `e78762a` | `grep "^## \[" log.md \| tail -5` returns the last projections |
 | **3.2a** Subject pages, derived | `56cfb8a` | 150 pages live in the vault — `rrf`, `longmemeval`, `sessionstart`, `vcruntime140`, `mcp` — each asserting nothing of its own |
+| **3.7** `brain lint` | `7816bc3` | Found 4 contradictions, 660 islands (31.5%), and 4 memories dated 1970-01-01 nobody was looking for |
+| **4.1** Access counting | `11f91dc` | Counted per result, not per search; never-retrieved share reported by lint |
 | — Abandoned staging directories collected | `b4ffb34` | 5,834 orphaned vault files, and both directions pinned by test |
 | — Job failures record why, not just what | `6d8c6cd` | Parse errors now name the field; three dead letters had said nothing |
 
@@ -44,6 +46,20 @@ recency-ordered, correctly, but memories were ordered **alphabetically by subjec
 two or three, the alphabet was the selection. Every session opened with a note about a 150 ms
 status message flashing because it sorted first, and a memory titled *"Zero of 1,265 vault files
 contain wikilinks"* could never appear at all.
+
+**`brain lint` found something nobody was looking for.** Four memories carry `valid_from` of
+1970-01-01 — the Unix epoch, so they are not old but *undated*: the provider supplied no date, and
+they sort to the front of every chronological view, which is the opposite of what an unset field
+should do. Split into its own rule rather than counted as stale, because the fix is different.
+It also reports **660 of 2,097 memories (31.5%) as islands** — sharing evidence with nothing else,
+so no wikilink reaches them. One island is honest; that share is a signal about consolidation
+producing disconnected claims.
+
+**A narrow collision risk, found while writing lint's tests.** `projection_file_name`
+disambiguates with the first eight hex characters of the memory id, and in a v7 UUID those are
+*timestamp bits* — so two memories with the same title minted in the same millisecond produce the
+same filename and collide on the `projection_path` unique index. It fails loudly rather than
+overwriting, which is why it has never been seen.
 
 Other findings worth carrying forward:
 
@@ -203,7 +219,7 @@ honour gives the same user-visible result without breaking it.
 | 3.4 | **Cross-encoder rerank** over the fused top-k | LongMemEval `single-session-preference` R@5 improves on 90.0%, and no category regresses | L |
 | ~~3.5~~ | ~~`PreCompact` re-injection~~ **Cut — redundant.** `SessionStart` already matches `compact`, so the orientation is already re-delivered after one | — |
 | 3.6 | File kept query answers back as cited pages | An answer filed from `brain query` appears in the vault next session and cites the events it drew on | M |
-| 3.7 | `brain lint` — contradictions, stale claims, concepts without a page | Run on the live vault it reports findings a human agrees with, and reports **nothing** on a freshly rebuilt one | L |
+| ~~3.7~~ | ~~`brain lint`~~ **Shipped `7816bc3`.** Six rules, all derived; defects exit non-zero, observations do not | Run on the live vault it reports findings a human agrees with, and reports **nothing** on a freshly rebuilt one | L |
 | ~~3.8~~ | ~~`log.md` in the vault, append-only and greppable~~ **Shipped `e78762a`.** | `grep "^## \[" log.md \| tail -5` returns the last five operations | S |
 | 3.9 | **Ship CodeGraph on the pull path** — a seventh MCP tool | Codex can ask where a symbol lives and get an answer; orientation token count is **unchanged** | M |
 
@@ -214,7 +230,7 @@ splits into a mechanical M and an LLM-assisted L.
 
 | | Work | Done when | Size |
 |---|---|---|---|
-| 4.1 | Access counting and last-used timestamps on memories | Retrieval increments a counter; the dashboard shows never-retrieved memory count | M |
+| ~~4.1~~ | ~~Access counting and last-used timestamps~~ **Shipped `11f91dc`.** | Retrieval increments a counter; the dashboard shows never-retrieved memory count | M |
 | 4.2 | Staleness surfacing — mark, do not delete | Stale memories are flagged in the projection and demoted in ranking, and the flag is reversible by retrieval | M |
 | 4.3 | Eviction policy, opt-in and reversible | A dry run over 30 days of 4.1/4.2 data shows what it *would* have evicted, and a human agrees before it is switched on | L |
 
@@ -651,10 +667,14 @@ other and can run in either order; 2 is higher risk-reduction, 3 is higher visib
 depends on 3.3 (episodic summaries) for anything to decay meaningfully. Wave 5 trails everything,
 because a console is most useful once there is more to show.
 
-Waves 0 and 2 are done bar the quota-bound backlog (0.2). Wave 3 has 3.1, 3.2a and 3.8 shipped
-and 3.5 cut. What remains there: synthesis prose on subject pages (3.2b), session summaries (3.3), the
-reranker (3.4), filing answers back (3.6), `brain lint` (3.7), and CodeGraph on the pull path
-(3.9) — then Waves 1, 4 and 5.
+Waves 0 and 2 are done bar the quota-bound backlog (0.2). Wave 3 has 3.1, 3.2a, 3.7 and 3.8
+shipped and 3.5 cut; Wave 4 has 4.1. What remains: synthesis prose on subject pages (3.2b), session summaries (3.3), the reranker
+(3.4), filing answers back (3.6), CodeGraph on the pull path (3.9), staleness surfacing and
+eviction (4.2/4.3), then Waves 1 and 5.
+
+**4.3 is deliberately gated.** The access counter started today, so a dry run over thirty days of
+real data is the precondition — evicting on a counter this young would be retiring memories for
+having been recorded before the counter existed.
 
 The next real decision is **Wave 1 against the rest of Wave 3**: prove the saving, or build the
 quality the proof would then measure. Wave 1 still needs the backlog drained first, and that is
