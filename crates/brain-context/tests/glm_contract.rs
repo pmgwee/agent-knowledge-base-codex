@@ -160,6 +160,7 @@ fn packet(event_id: uuid::Uuid) -> EvidencePacket {
     EvidencePacket {
         job_id: uuid::Uuid::now_v7(),
         project_id: ProjectId(uuid::Uuid::now_v7()),
+        trigger: None,
         events: vec![RedactedEvidence {
             event_id,
             event_type: EventType::AgentResponded,
