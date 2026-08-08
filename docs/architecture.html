@@ -257,8 +257,8 @@
       to Markdown you can open in Obsidian. Nothing leaves the machine except the consolidation call.
     </p>
     <p class="stamp">
-      Rebuilt 8 August 2026 · every figure below read from the running system, not recalled ·
-      3 projects · 140,134 events · 124 test binaries green<br />
+      Rebuilt 9 August 2026 · every figure below read from the running system, not recalled ·
+      3 projects · 142,251 events · 119 test binaries green<br />
       Per-item status and what is left live in <code>docs/status.md</code> — maintained there, not here.
     </p>
   </header>
@@ -318,7 +318,7 @@
         <text class="edge-label" x="618" y="127">solid = shipped and firing · plain = not needed, the transcript already holds it · Claude only for the mid-session push</text>
 
         <!-- ============ BAND 2 — CAPTURE ============ -->
-        <text class="band-label" x="40" y="196">2 · CAPTURE — brain-service.exe (Task Scheduler, 6 supervised loops)</text>
+        <text class="band-label" x="40" y="196">2 · CAPTURE — brain-service.exe (Task Scheduler, 6 supervised loops) · 4 scheduled tasks</text>
 
         <path class="flow" d="M 165 130 L 165 212" marker-end="url(#ar)" />
         <path class="flow" d="M 435 130 L 435 212" marker-end="url(#ar)" />
@@ -356,7 +356,7 @@
 
         <rect class="s-plain" x="58" y="442" width="196" height="44" rx="4" stroke-width="1.2" />
         <text class="box-sub" x="72" y="460">events</text>
-        <text class="box-sub" x="72" y="477">140,134 captured</text>
+        <text class="box-sub" x="72" y="477">142,251 captured</text>
 
         <rect class="s-plain" x="266" y="442" width="196" height="44" rx="4" stroke-width="1.2" />
         <text class="box-sub" x="280" y="460">FTS5 index</text>
@@ -395,7 +395,7 @@
         <text class="box-sub" x="58" y="678">≤ 200 events and ≤ 400 KB per job</text>
         <text class="box-sub" x="58" y="696">leased · retried · dead-lettered</text>
         <text class="box-sub" x="58" y="714">trigger carried into the prompt</text>
-        <text class="box-sub" x="58" y="738">2,884 done · 1,693 pending · 3 dead</text>
+        <text class="box-sub" x="58" y="738">1,909 pending · 3 dead · quota-bound</text>
 
         <rect class="s-memory" x="500" y="630" width="300" height="124" rx="5" stroke-width="1.4" />
         <text class="box-title" x="518" y="658">GLM · Z.ai</text>
@@ -423,7 +423,7 @@
         <text class="box-title" x="58" y="864">BM25 · events</text>
         <text class="box-sub" x="58" y="884">FTS5, terms OR-joined</text>
         <text class="box-sub" x="58" y="902">weight 0.4 · always on</text>
-        <text class="box-sub" x="58" y="920">136,057 embedded rows behind it</text>
+        <text class="box-sub" x="58" y="920">142,248 embedded rows behind it</text>
 
         <rect class="s-retrieval" x="344" y="836" width="284" height="92" rx="5" stroke-width="1.4" />
         <text class="box-title" x="362" y="864">BM25 · memories</text>
@@ -484,7 +484,7 @@
         <text class="box-sub" x="58" y="1292">one file per current memory</text>
         <text class="box-sub" x="58" y="1310">content-addressed generation</text>
         <text class="box-sub" x="58" y="1328">staged, verified, renamed into place</text>
-        <text class="box-sub" x="58" y="1352">13,702 notes · 23 flagged stale</text>
+        <text class="box-sub" x="58" y="1352">16,984 notes · 20 flagged stale</text>
 
         <rect class="s-vault" x="460" y="1244" width="380" height="130" rx="5" stroke-width="1.4" />
         <text class="box-title" x="478" y="1272">Wikilinks · index · subjects</text>
@@ -534,8 +534,8 @@
         <text class="box-sub t-memory" x="622" y="1546">Provenance · CLI</text>
         <rect class="s-memory" x="794" y="1522" width="176" height="38" rx="4" stroke-width="1.2" />
         <text class="box-sub t-memory" x="806" y="1546">Session replay · CLI</text>
-        <rect class="s-planned" x="978" y="1522" width="204" height="38" rx="4" stroke-width="1.2" />
-        <text class="box-sub t-planned" x="990" y="1546">Config panel — last one</text>
+        <rect class="s-memory" x="978" y="1522" width="204" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-memory" x="990" y="1546">Config — wave 5 complete</text>
 
         <!-- ============ BAND 8 — EXTERNAL + LEFT ============ -->
         <text class="band-label" x="40" y="1630">8 · ALONGSIDE, AND WHAT IS GENUINELY LEFT</text>
@@ -550,7 +550,7 @@
 
         <rect class="s-planned" x="440" y="1646" width="380" height="112" rx="5" stroke-width="1.4" />
         <text class="box-title t-planned" x="458" y="1674">Waiting on provider quota</text>
-        <text class="box-sub t-planned" x="458" y="1694">1,693 consolidation jobs queued</text>
+        <text class="box-sub t-planned" x="458" y="1694">1,909 consolidation jobs queued</text>
         <text class="box-sub t-planned" x="458" y="1712">subject-page prose: validator ships,</text>
         <text class="box-sub t-planned" x="458" y="1730">the generation call withheld until verified</text>
 
@@ -560,9 +560,10 @@
         <text class="box-sub t-planned" x="858" y="1712">2 conditions × 3 repeats</text>
         <text class="box-sub t-planned" x="858" y="1736">only the numerator has ever been counted</text>
 
-        <text class="edge-label" x="40" y="1806">Governance surface: query · timeline · checkpoint · diagnose · dashboard · backup · restore · rebuild · export · verify memory · forget · remember · lint · evict · reconcile · explain · replay.</text>
+        <text class="edge-label" x="40" y="1806">Governance surface: query · timeline · checkpoint · diagnose · dashboard · backup · restore · rebuild · export · verify memory · forget · remember · lint · evict · reconcile · explain · replay · digest.</text>
         <text class="edge-label" x="40" y="1828">Export, provenance, withdrawal and gated eviction all ship. A withdrawn memory leaves every read path while its evidence stays put, so the ledger only ever grew.</text>
         <text class="edge-label" x="40" y="1850">Decay is derived, never asserted: staleness is computed from age and access, so a memory stops being stale the moment retrieval returns it. There is no flag to clear.</text>
+        <text class="edge-label" x="40" y="1872">Reflection is scheduled but has no model in it: AgentBrain.Digest reads the same arithmetic daily, so the health report still arrives on the day the provider does not.</text>
       </svg>
     </div>
 
@@ -603,18 +604,18 @@
     <div class="grid">
       <div class="card">
         <h3>Captured</h3>
-        <div class="stat" style="color: var(--evidence);">140,134</div>
+        <div class="stat" style="color: var(--evidence);">142,251</div>
         <p>events across three projects, from both agents. Zero cross-project leakage — ownership is decided by each transcript's own recorded <code>cwd</code>, never by proximity in the directory layout.</p>
       </div>
       <div class="card">
         <h3>Distilled</h3>
         <div class="stat" style="color: var(--memory);">13,246</div>
-        <p>current memories, every one citing <code>event:&lt;uuid&gt;</code>. 1,693 jobs still queued behind provider quota, so this is still climbing.</p>
+        <p>current memories, every one citing <code>event:&lt;uuid&gt;</code>. 1,909 jobs still queued behind provider quota, so this is still climbing.</p>
       </div>
       <div class="card">
         <h3>Vector index</h3>
         <div class="stat" style="color: var(--evidence);">100%</div>
-        <p>Backfill complete on both layers — 13,246 memories and 136,057 events embedded, nothing remaining. A partly-built index behaves exactly like a finished one that happens to miss things.</p>
+        <p>Backfill complete on both layers — 13,246 memories and 142,248 events embedded, 3 in flight. A partly-built index behaves exactly like a finished one that happens to miss things.</p>
       </div>
       <div class="card">
         <h3>Delivered per session</h3>
@@ -623,8 +624,8 @@
       </div>
       <div class="card">
         <h3>Projected</h3>
-        <div class="stat" style="color: var(--vault);">13,702</div>
-        <p>vault notes, 9,930 carrying wikilinks, across 450 derived subject pages. 23 notes flagged stale, reversible the moment retrieval returns one.</p>
+        <div class="stat" style="color: var(--vault);">16,984</div>
+        <p>vault notes across 450 derived subject pages. 20 flagged stale, reversible the moment retrieval returns one — and a dated health digest appended to each project&rsquo;s <code>log.md</code> every day.</p>
       </div>
       <div class="card">
         <h3>Found by <code>brain lint</code></h3>
@@ -788,7 +789,13 @@
         and deliberately conservative. It will miss a memory that is genuinely relevant and shares no
         vocabulary, which is the same gap the cross-encoder failed to close. The fix is query
         expansion, not more providers: expand the prompt into the words the corpus actually uses, and
-        the floor stops being a handicap. That is the next retrieval item.
+        the floor stops being a handicap. <strong>Shipped as <code>6b431c0</code></strong> — take the
+        top five hits, harvest the terms appearing in at least two of them, append the best six and
+        retrieve again. Selection is by <em>document frequency</em>, never raw count: a word repeated
+        ten times in one document is about that document; a word in two is about the subject. It is
+        fused as an extra channel rather than rewriting the query, so it <strong>cannot lose</strong>
+        a result the plain query found — a rewritten query can drop the very document that seeded it.
+        Live on this corpus: 0 lost, 1 newly reached.
       </p>
     </div>
   </section>
@@ -806,12 +813,13 @@
           <tr><th>Tier</th><th>Ours</th><th>State</th></tr>
         </thead>
         <tbody>
-          <tr><td><strong>Working</strong> — raw observations</td><td><code>events</code>, 140,134 captured</td><td><span class="pill live">Have</span></td></tr>
+          <tr><td><strong>Working</strong> — raw observations</td><td><code>events</code>, 142,251 captured</td><td><span class="pill live">Have</span></td></tr>
           <tr><td><strong>Episodic</strong> — session summaries</td><td>Boundary hook + <code>session_stopped</code> consolidation</td><td><span class="pill live">Have — 8 Aug</span></td></tr>
           <tr><td><strong>Semantic</strong> — facts and patterns</td><td><code>Fact</code> · <code>Decision</code> · <code>Investigation</code> · <code>Preference</code></td><td><span class="pill live">Have</span></td></tr>
           <tr><td><strong>Procedural</strong> — workflows</td><td><code>Procedure</code> · <code>Task</code> · <code>Deployment</code> · <code>Checkpoint</code> · <code>Timeline</code></td><td><span class="pill live">Have</span></td></tr>
           <tr><td>Decay curve · access-strengthening</td><td>Ebbinghaus <code>retention_score</code>; ten retrievals decay ~3.4× slower, logarithmically</td><td><span class="pill live">Shipped</span></td></tr>
           <tr><td>Contradiction resolution</td><td><code>brain reconcile</code> proposes from authority → recency → evidence, and refuses when they are level</td><td><span class="pill live">Proposed, never applied</span></td></tr>
+          <tr><td>Scheduled reflection</td><td><code>brain digest</code> daily via <code>AgentBrain.Digest</code> — never-retrieved share, retention distribution, contradictions, queue depth, appended to each vault&rsquo;s <code>log.md</code></td><td><span class="pill live">Shipped — derived, no model</span></td></tr>
         </tbody>
       </table>
     </div>

@@ -1,7 +1,7 @@
 # Secondary brain — status
 
 Where the system actually stands. Every figure below was read from the running system on
-**8 August 2026** — the ledgers, the installed binaries, the vault on disk — not recalled from the
+**9 August 2026** — the ledgers, the installed binaries, the vault on disk — not recalled from the
 plan that proposed it.
 
 The forward-looking half of this document lives in [roadmap.md](roadmap.md): the ranked plan, the
@@ -12,23 +12,28 @@ research it rests on, and the comparisons that shaped it. This file answers one 
 
 ## Summary
 
-Waves 2 and 4 are complete. Wave 0 is complete bar a quota-bound backlog. Wave 3 is complete except
-for one generation step held back on purpose. Wave 5 has three of six panels, plus one unplanned.
-Wave 1 is half done — retrieval quality is measured, the token saving never has been.
+Waves 2, 4 and **5** are complete. Wave 0 is complete bar a quota-bound backlog. Wave 3 is complete
+except for one generation step held back on purpose. Wave 1 is half done — retrieval quality is
+measured, the token saving never has been.
 
 **Shipped since the August competitor review:** the mid-session push, a continuous decay curve with
-access-strengthening, `brain reconcile`, `brain explain`, `brain replay`, and retrieval-shaped notes.
-Six of that review's seven items; the seventh — the 500-instance benchmark — is running.
+access-strengthening, `brain reconcile`, `brain explain`, `brain replay`, retrieval-shaped notes,
+**query expansion**, and a **scheduled health digest**. Every item that review raised except the
+500-instance benchmark, which is still running.
+
+Two things remain that nothing external is holding up: the benchmark (running) and the token-saving
+A/B (never started). Two more wait on provider quota by choice — draining the consolidation backlog,
+and 3.2b's generation call.
 
 | | |
 |---|---|
-| Events captured | **140,134** across 3 projects |
+| Events captured | **142,251** across 3 projects |
 | Current memories | **13,246**, every one citing `event:<uuid>` |
-| Vector index | **complete** — 13,246 memories and 136,057 events, nothing remaining |
-| Vault | **13,702** notes · 9,930 wikilinked · 450 subject pages · 23 flagged stale |
-| Consolidation | 2,884 completed · **1,693 pending** · 3 dead-lettered |
+| Vector index | **complete** — 13,246 memories and 142,248 events; 3 remaining |
+| Vault | **16,984** notes · 450 subject pages · 20 flagged stale |
+| Consolidation | **1,909 pending** · 3 dead-lettered |
 | Orientation | mean **1,115** tokens over 35 receipts, max 1,490, against a 3,000 hard cap |
-| Gates | `fmt` clean · clippy 0 errors · **124 test binaries green** |
+| Gates | `fmt` clean · clippy 0 errors · **119 test binaries green** — plus the LongMemEval harness, which cannot relink while the 500-instance run holds its executable open |
 
 ---
 
@@ -41,14 +46,13 @@ Six of that review's seven items; the seventh — the 500-instance benchmark —
 | **2 · Trust** — done | ~~`brain export`~~ · ~~`brain verify memory`~~ · ~~`brain forget` as a tombstone~~ | Export runs clean. Verify resolves a claim to the transcript byte offset it came from. Withdrawal is a tombstone every read path honours, so the ledger stayed append-only |
 | **3 · Quality** — 7 of 8 | ~~Orientation ranked by relevance~~ · ~~subject pages~~ · ~~`brain remember`~~ · ~~`brain lint`~~ · ~~vault `log.md`~~ · ~~session summaries~~ · ~~cross-encoder rerank~~ · synthesis prose | The orientation's memories had been ordered *alphabetically*. Rerank shipped and was measured *worse*, so it ships off. Synthesis prose is the last piece, held back on purpose |
 | **4 · Lifecycle** — done | ~~Access counts~~ · ~~staleness marking~~ · ~~gated eviction~~ | Decay stays mechanical and logged — the model proposes, derivation disposes. Eviction refuses to run until thirty days of access data exist, because on day one every memory is never-retrieved |
-| **6 · Depth** — 4 of 6 | ~~Mid-session push~~ · ~~AI-first notes~~ · ~~contradiction proposals~~ · ~~decay + strengthening~~ · 500-instance benchmark *(running)* · query expansion · scheduled reflection | Added by the August competitor review. The push closed the largest architectural gap: the brain used to orient once and then stop helping |
-| **5 · Console** — 3 of 6, plus one | ~~Vector coverage~~ · ~~jobs and dead letters~~ · ~~memory lifecycle~~ · session replay · retrieval explain · config · **+ retrieval configuration** *(unplanned)* | Every shipped figure already existed inside a command; the work was putting it where someone looks. The engine-console pages stay excluded — there is no such runtime here |
+| **6 · Depth** — 6 of 7 | ~~Mid-session push~~ · ~~AI-first notes~~ · ~~contradiction proposals~~ · ~~decay + strengthening~~ · ~~query expansion~~ · ~~scheduled reflection~~ · 500-instance benchmark *(running)* | Added by the August competitor review. The push closed the largest architectural gap: the brain used to orient once and then stop helping. Expansion closed the second — the corpus's own words bridge a vocabulary gap no scoring model could invent |
+| **5 · Console** — **done**, 6 of 6 plus one | ~~Vector coverage~~ · ~~jobs and dead letters~~ · ~~memory lifecycle~~ · ~~session replay~~ · ~~retrieval explain~~ · ~~config~~ · **+ retrieval configuration** *(unplanned)* | Every shipped figure already existed inside a command; the work was putting it where someone looks. The engine-console pages stay excluded — there is no such runtime here |
 
-**One correction to an earlier count.** I previously recorded Wave 5 as "4 of 6" on the strength of the
-retrieval panel. That panel shows retrieval's *configuration* — which channels exist, their weights,
-whether each can currently fire. **5.5 asked for something different**: a per-query explain showing
-why *that* result came back. `explain_text_search` still exists in the store and is still called from
-nothing but a test. The panel was worth building and is not the item it was counted as.
+**One correction to an earlier count, now closed.** Wave 5 was once recorded as "4 of 6" on the
+strength of the retrieval panel. That panel shows retrieval's *configuration*; **5.5 asked for
+something different** — a per-query explain showing why *that* result came back. Both exist now, as
+separate things (`ec30787` and `a4ce736`), so the wave is complete rather than complete by miscount.
 
 ---
 
@@ -57,7 +61,7 @@ nothing but a test. The panel was worth building and is not the item it was coun
 | Wave | Item | State | Evidence, or why not |
 |---|---|---|---|
 | 0.1 | Deliveries counted at receipt | **Shipped** `407d345` | An outcome dropped without recording leaves zero rows |
-| **0.2** | **Consolidation drained** | **Quota-bound** | 1,693 pending; 290 of 294 deferrals were plain HTTP 429 |
+| **0.2** | **Consolidation drained** | **Quota-bound** | 1,909 pending across 3 projects; 290 of 294 deferrals were plain HTTP 429 |
 | 0.3 | Queue and dead letters visible | **Shipped** `6d8c6cd` | Pending / leased / completed / dead per project, with the reason a job died |
 | **1** | **Value proved** | **Half** | Retrieval measured; the token-saving A/B has never been run |
 | 2.1 | `brain export` | **Shipped** `5c6eebc` | 41 MB, zero unresolved citations |
@@ -81,10 +85,12 @@ nothing but a test. The panel was worth building and is not the item it was coun
 | — | Retrieval configuration panel *(unplanned)* | **Shipped** `a4ce736` | Each channel's weight beside whether it can fire. In-browser render unverified — see *Known gaps* |
 | 5.4 | Session replay | **Shipped** `3a2c5b1` | `brain replay` lists sessions and walks one in order |
 | 5.5 | Retrieval explain | **Shipped** `ec30787` | `brain explain` — per-channel rank beside the fused position |
-| **5.6** | **Config panel** | **Gap** | The last one, and the smallest |
+| **5.6** | **Config panel** | **Shipped** `10b72f8` | Caught two things on its first live run — one of them a bug in itself |
 | **6.2** | **Decay curve + access-strengthening** | **Shipped** `de9098a` | Ebbinghaus, with use buying survival |
 | **6.3** | **`brain reconcile`** | **Shipped** `eec8925` | Proposes from authority → recency → evidence; refuses when level |
 | **6.4** | **AI-first note format** | **Shipped** `6a1e34f` | A derived "For future agents" preamble, and `retention` in frontmatter |
+| **6.5** | **Query expansion** | **Shipped** `6b431c0` | Pseudo-relevance feedback, fused as a channel so it cannot lose a result. Live: 0 lost, 1 newly reached |
+| **6.6** | **Scheduled reflection** | **Shipped** `d4629d6` | `brain digest` daily via `AgentBrain.Digest`. Derived only, so a rate-limited provider cannot silence it |
 
 ---
 
@@ -94,7 +100,7 @@ All four tiers exist. The lifecycle over them is where the remaining work is.
 
 | Tier | Ours | State |
 |---|---|---|
-| **Working** — raw observations | `events`, 140,134 captured | ✅ |
+| **Working** — raw observations | `events`, 142,251 captured | ✅ |
 | **Episodic** — session summaries | Boundary hook + `session_stopped` consolidation | ✅ shipped 8 Aug |
 | **Semantic** — facts and patterns | `Fact`, `Decision`, `Investigation`, `Preference` | ✅ |
 | **Procedural** — workflows | `Procedure`, `Task`, `Deployment`, `Checkpoint`, `Timeline` | ✅ |
@@ -107,31 +113,36 @@ what kind of thing a memory is; a citation says whether it is true.
 | | State |
 |---|---|
 | Access counting | ✅ per result, not per search |
-| Derived staleness | ✅ 23 notes flagged, reversed the moment retrieval returns one |
+| Derived staleness | ✅ 20 notes flagged, reversed the moment retrieval returns one |
 | Gated eviction | ✅ refuses until thirty days of access data exist |
 | Ebbinghaus decay curve | ✅ `retention_score` — continuous, and on every note's frontmatter |
 | Access-strengthening | ✅ ten retrievals decay ~3.4× slower; logarithmic, so the tenth matters less than the first |
 | Contradiction resolution | ✅ **proposed, never applied** — `brain reconcile` derives from authority, then recency, then evidence, and refuses when level |
+| Scheduled reflection | ✅ `brain digest` daily — never-retrieved share, retention distribution, contradiction and queue counts, appended to each vault's `log.md` |
 
-The last one is a position, not a gap: resolving means a model deciding which claim is true, and that
-leaves no evidence trail. The middle we have not built is *proposing* a resolution with citations for
-approval — item 5.
+The contradiction row is a position, not a gap: *resolving* means a model deciding which claim is
+true, and that leaves no evidence trail. What we built instead is *proposing* one with citations, for
+a person to approve.
+
+The reflection row is deliberately arithmetic. A written weekly review needs a provider, and the
+provider is the thing most likely to be unavailable — so the digest reports only what can be derived,
+and therefore still reports during exactly the outage that makes it most useful.
 
 ---
 
 ## The four that are not simply "done"
 
-**0.2 is quota-bound, not code-bound.** 1,693 jobs pending against 2,884 completed. The deferral
-path works exactly as designed — no attempt consumed, nothing lost — and it finishes when quota
-allows. There is no work here to do.
+**0.2 is quota-bound, not code-bound.** 1,909 jobs pending across three projects. The deferral path
+works exactly as designed — no attempt consumed, nothing lost — and it finishes when quota allows.
+There is no work here to do.
 
 **1 is half measured.** Retrieval quality has a number and it reproduced exactly. The *token saving*
 — the headline this project is usually asked about — has never been measured, and only the
 numerator ever has. Design in [roadmap.md, Part 2](roadmap.md#part-2--proving-the-saving).
 
-**3.2b is deliberately incomplete, and it is the last piece of the Karpathy pattern.** 450 subject
-pages exist and every one of them only *lists* — **nothing in this vault has ever been revised in
-place.** Supersession replaces a claim; it does not fold a new observation into an existing page.
+**3.2b is deliberately incomplete, and it is the last piece of the Karpathy pattern — and now the
+last unshipped feature of any wave.** 450 subject pages exist and every one of them only *lists* —
+**nothing in this vault has ever been revised in place.** Supersession replaces a claim; it does not fold a new observation into an existing page.
 The validator, store and rendering ship with 16 tests. The
 generation call does not, and the reason is not effort: a subject page that only links *cannot*
 contradict the ledger and a paragraph *can*, so the citation validation should be watched rejecting
@@ -248,19 +259,43 @@ reporting confidently and wrongly.
 ## Known gaps
 
 **Open findings that need a human.** `brain lint` reports **4 contradictions**, **4 misdated**
-memories, and **660 of 2,097 unlinked islands** (31.5%). Building the instrument was the
-deliverable; deciding which side of a contradiction is true is not something derivation can do.
+memories, and **660 of 2,097 unlinked islands** (31.5%) on this project. Building the instrument was
+the deliverable; deciding which side of a contradiction is true is not something derivation can do.
 
-**The dashboard did not hydrate in the preview pane.** Fifty skeletons, unchanged across a 30-second
-refetch interval, on *every* panel — not only the new one. The API returns correct data and the SSR
-markup is right. This predates the retrieval panel and could not be distinguished from a limitation
-of that browser pane; worth checking in a real browser.
+The daily digest now surfaces the same findings without being asked, and across every project — where
+the numbers are considerably worse. `Ai-community-channel` carries **74 contradictions, 9 of which
+derivation cannot separate**, and **all 5,505** of its memories have never been retrieved. A count
+alone cannot distinguish a neglected corpus from a young access counter, which is why the digest says
+so in the note rather than colouring it red.
+
+**The dashboard did not hydrate in the preview pane — now with a cause and a partial fix.** Every
+panel renders its skeleton and never its data. Two separate things were found underneath, and neither
+is a panel defect:
+
+- **Local mode was 502ing.** `brain dashboard` takes **18 s** against the current brain — it sizes
+  `BRAIN_HOME` and the backup root by walking them, so it grew with the corpus — against a 10 s
+  `SPAWN_TIMEOUT_MS`. Every local request failed as `brain-unreachable`, which reads as a broken
+  binary and sends you to the wrong repo. Raised to 45 s (`c75507c`); the API now returns 200 with
+  the full snapshot, verified by `curl`.
+- **The pane itself never composites.** With the browser pane hidden, the tab does not paint and the
+  client-side fetch never fires — `performance.getEntriesByType('resource')` shows no request at all.
+  Confirmed *pre-existing* by stashing every change and reloading: unmodified `HEAD` renders exactly
+  the same empty panels.
+
+Also worth knowing before debugging this again: `pnpm dev` reads the **Redis** snapshot, not the local
+binary, because `.env.local` carries `KV_REST_API_*` and `chooseMode()` prefers remote when they are
+set. A field added to the Rust struct will not appear locally until `scripts/push-snapshot.mjs` runs.
+
+What *is* verified for 5.6: the API serves `config` end to end with correct live values, `tsc` is
+clean, and the panel mounts in the right section with its nav entry. What is not: the rendered
+pixels.
 
 **Two memories the mid-session push surfaced are false.** `decay/tiers has no code at all` and
 `this project uses embeddinggemma-300M and Qwen3-Reranker-0.6B` were both true when written and are
 both wrong now. They are among the four contradictions `brain lint` reports, and the push makes them
 *louder* — an unsolicited injection of a stale claim costs more attention than a stale note nobody
-opened. Resolving them needs your judgement about which side is true, which is item 5.
+opened. Resolving them needs your judgement about which side is true — item 5 in
+[what to pick up next](#what-to-pick-up-next), and the daily digest now raises it unprompted.
 
 **One number that could not be traced.** A 93.2% R@5 figure appears in an earlier roadmap and in no
 document or commit. The recorded numbers are per-category: 63.3% → 90.0% on
@@ -270,28 +305,27 @@ document or commit. The recorded numbers are per-category: 63.3% → 90.0% on
 
 ## What to pick up next
 
-**Nine items.** Four carried over from the original waves, five added by the August competitor review.
-The wave table above is the inventory of what was planned; this is the order to work in now. Full
-reasoning and done-when criteria in [roadmap.md, Part 1](roadmap.md#part-1--ranked-plan).
+**Two items nothing is holding up, and three that wait on something.** Everything else on the
+original nine-item list has shipped. Full reasoning and done-when criteria in
+[roadmap.md, Part 1](roadmap.md#part-1--ranked-plan).
 
 | # | Work | Blocked on | Size |
 |---|---|---|---|
 | 1 | **Run all 500 LongMemEval instances** | **running** — started 23:15, ~3.5 h | L |
-| ~~2~~ | ~~**Mid-session push via `UserPromptSubmit`**~~ — **shipped** `af81e4d` | — | — |
-| 3 | **Query expansion** | Nothing — the provider is already wired | M |
-| ~~4~~ | ~~**AI-first note format**~~ — **shipped** `6a1e34f` | — | — |
-| ~~5~~ | ~~**Contradiction resolution**~~ — **shipped** `eec8925` as `brain reconcile` | — | — |
-| 6 | **Scheduled reflection** — nightly, weekly | Nothing | M |
-| 7 | **3.2b** — the synthesis generation call | A live provider, to watch the citation check refuse a real bad citation | M |
-| 8 | **5.6** — the config panel. 5.4 and 5.5 shipped (`3a2c5b1`, `ec30787`) | Nothing | S |
-| 9 | **0.2** — drain the consolidation backlog | **Quota.** 1,693 pending; nothing to build | — |
-| — | **Token-saving A/B** | 0.2 first, then a day of runs | L |
+| 2 | **Token-saving A/B** — 5 tasks × 2 conditions × 3 repeats | Nothing but a day of runs; better after 0.2 drains | L |
+| 3 | **3.2b** — the synthesis generation call | **Quota**, by choice: watching the citation check refuse a *real* bad citation is the point | M |
+| 4 | **0.2** — drain the consolidation backlog | **Quota.** 1,909 pending; nothing to build | — |
+| 5 | **Resolve the 4 contradictions** | **You.** `brain reconcile` proposes; approving is a judgement | S |
+| ~~—~~ | ~~Mid-session push~~ `af81e4d` · ~~AI-first notes~~ `6a1e34f` · ~~contradiction proposals~~ `eec8925` · ~~query expansion~~ `6b431c0` · ~~scheduled reflection~~ `d4629d6` · ~~5.6 config panel~~ `10b72f8` | — | — |
 
 ### Why 1 is first
 
 We have measured **40 of 500 LongMemEval instances — 8%** — and the one we report is the *hardest*
 category. `single-session-preference` is 6.0% of the dataset; the other 92% has never been run. Every
 competitive claim about this system is speculation until that number exists, in either direction.
+
+It is also the first run that will include query expansion, so it doubles as the measurement of
+whether expansion helps the five categories the fixture could not speak for.
 
 ### Item 2 shipped — what it took, and what it revealed
 
@@ -319,11 +353,35 @@ the counter-metric the benchmark design names: a memory system that misleads wit
 that shares no vocabulary — the same gap the cross-encoder failed to close. Query expansion is what
 removes the handicap, which is why it is next.
 
-### Why query expansion is third rather than later
+### Query expansion shipped — what it does, and the property that matters
 
-It is the measured answer to the vocabulary gap the cross-encoder failed to fix — `ship` and `deploy`
-are the same claim and score ten points apart, and a second scoring model cannot invent that link.
-It is also the change most likely to lift the four categories item 1 will expose.
+`6b431c0`. Pseudo-relevance feedback: take the top five hits, harvest terms appearing in at least two
+of them, append the best six, retrieve again. Terms are selected by **document frequency**, not raw
+count — a word repeated ten times in one document is about that document; a word in two is about the
+subject.
+
+The property worth more than the gain: expansion is **fused as an extra channel**, never a rewrite.
+A rewritten query can drop the very document that seeded it. A fused one cannot, and a test pins it.
+Live on this corpus: **0 results lost, 1 newly reached.**
+
+It is the measured answer to the gap the cross-encoder failed to close — `ship to production` and
+`deploy` are the same claim and score ten points apart, and no scoring model can invent that link
+because the link is in the corpus, not in the model.
+
+### Scheduled reflection shipped — and why it has no model in it
+
+`d4629d6`. `AgentBrain.Digest` runs daily and appends a health reading to every registered project's
+vault `log.md`: never-retrieved share, retention distribution, contradictions, queue depth. Verified
+end to end — the task ran with result 0 and the entries are on disk.
+
+The competitor pattern here is four scheduled agents and a claim that the vault maintains itself.
+Ours consolidates continuously already, so the missing half was never the *schedule* — it was that
+nothing ever stepped back and asked whether what had been built was still coherent. A written review
+needs a provider, and the provider is the thing most likely to be down; the reading a maintainer
+actually acts on is arithmetic. So it is arithmetic, and it still reports during an outage.
+
+It reports and stops. An unremarkable brain gets `Nothing needs a decision.`, and a test pins that —
+a health report that manufactures concern to justify itself is one nobody reads twice.
 
 ---
 

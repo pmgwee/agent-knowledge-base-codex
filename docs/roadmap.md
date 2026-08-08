@@ -4,7 +4,7 @@ What is left to build, what is deliberately not being built, and the research ea
 on. Current state lives in [status.md](status.md); this file is the forward half and the reasoning
 behind it.
 
-Reconciled against the running system on **8 August 2026**. Where a conclusion here was overtaken by
+Reconciled against the running system on **9 August 2026**. Where a conclusion here was overtaken by
 what shipped, the original reasoning is kept and the outcome recorded beneath it — a plan that
 silently rewrites its own predictions cannot be checked against reality later.
 
@@ -42,6 +42,8 @@ that cannot apply here. Copying those would be building a lint for a language no
 | LLM Wiki | **Obsolete as code, adopted as method** | The provider is a keyword searcher over Markdown and would duplicate our own FTS5. The *methodology* became 3.2, 3.6–3.8 — see Part 5 |
 | Decay / tiers / forgetting | **Shipped** | Access counting (4.1), derived staleness (4.2), gated eviction (4.3). Was "no code at all" |
 | Cross-encoder rerank | **Shipped, and switched off** | Built, measured, and the measurement said leave it off — see 1.3 |
+| Query expansion | **Shipped** | The redirection 1.3 pointed at. Pseudo-relevance feedback, fused as a channel so it can only add — `6b431c0` |
+| Scheduled reflection | **Shipped** | `brain digest` daily. Derived arithmetic, no provider call — the schedule without the generation, deliberately — `d4629d6` |
 
 ### 0.2 The five-item clone list — all closed
 
@@ -75,7 +77,7 @@ would have to invent.
 | `memory_verify` — provenance as a tool | Gap | **Closed** — `brain verify memory` (`fa610b0`) resolves a claim to the transcript file and byte offset its evidence came from |
 | Auto-forgetting (TTL, importance eviction) | Gap | **Closed, gated** — 4.1–4.3. Eviction *refuses* to run until thirty days of access data exist |
 | Knowledge graph: entity extraction + BFS | Partly closed | **Closed enough** — 450 subject pages. BFS is still not built and still not obviously wanted; one hop over evidence already backs the graph channel |
-| **Session replay** | Gap | **Still a gap** — the dashboard shows aggregates and cannot show you a single session |
+| **Session replay** | Gap | **Closed** — `brain replay` (`3a2c5b1`) lists captured sessions and walks one in order. Verified on a three-day-old session: 1,369 events |
 | Provider fallback chain | Gap — low | **Still a gap — low.** One provider; an outage defers rather than fails, which covers most of the value |
 | Claude bridge (MEMORY.md sync) | Partial | **Still partial** — global preferences store exists; no bidirectional file sync |
 | Privacy filter | Shipped — and ahead | Unchanged. `redact_string` strips credential assignments and secret tokens before egress *and* writes a per-job redaction manifest. Theirs strips silently; ours leaves an audit trail |
@@ -117,22 +119,22 @@ Sizes: **S** ≈ a sitting, **M** ≈ a day, **L** ≈ several days.
 
 ### 1.1 What remains — the full ranked list
 
-**Nine items, six shipped.** Four carried over, five added by the August competitor review. What
-remains is one running benchmark, two items behind provider quota, one small panel, and two genuinely
-unstarted: query expansion and scheduled reflection. Ranked by
-value per effort, not by size.
+**Nine items, eight shipped.** Four carried over, five added by the August competitor review. What
+remains is one running benchmark, two items behind provider quota, one that needs your judgement, and
+one genuinely unstarted: the token-saving A/B. Ranked by value per effort, not by size.
 
 | # | Work | Why here | Blocked on | Size |
 |---|---|---|---|---|
 | **1** | **Run all 500 LongMemEval instances** — *running since 23:15* | Settles the competitive question with a number instead of an argument. We have measured 40 of 500 — 8% — and reported the *hardest* category. Everything below is speculation until this exists | Nothing; ~4 h unattended with the service stopped | L |
 | ~~**2**~~ | ~~**Mid-session push via `UserPromptSubmit`**~~ — **shipped** `af81e4d` `4aafe32` | Was the largest architectural gap: the brain pushed **once**, at session start, so a session that pivoted was never re-oriented. Now re-queries retrieval on every prompt, 400 tokens, four memories, twenty per session, metered | — | — |
-| **3** | **Query expansion** | The measured answer to the vocabulary gap the cross-encoder failed to fix (1.4). Likely also lifts the four unmeasured categories | Nothing — the provider is already wired | M |
+| ~~**3**~~ | ~~**Query expansion**~~ — **shipped** `6b431c0`. Pseudo-relevance feedback: top-five hits, terms by document frequency ≥ 2, best six appended, retrieve again. Fused as an extra channel, so it **cannot lose** a result the plain query found. Live: 0 lost, 1 newly reached | The measured answer to the vocabulary gap the cross-encoder failed to fix (1.4). The link between `ship to production` and `deploy` is in the corpus, not in any model | — | — |
 | ~~**4**~~ | ~~**AI-first note format**~~ — **shipped** `6a1e34f`. Every note opens with a derived "For future agents" block: the claim, its weight, how to check it, and what would make it wrong | Notes are written for humans and retrieved by a model. A stable preamble and compiler-read frontmatter is cheap, and plausibly worth more than reranking was | Nothing | S |
 | ~~**5**~~ | ~~**Contradiction resolution**~~ — **shipped** `eec8925` as `brain reconcile`. Authority, then recency, then evidence weight; no proposal when those are level | `brain lint` finds contradictions and stops. A cited proposal for one-click human approval closes the gap without a model silently deciding what is true | Nothing | M |
-| **6** | **Scheduled reflection** — nightly consolidation, weekly review | The "maintains itself" claim. The service loops exist; the reflection does not | Nothing | M |
+| ~~**6**~~ | ~~**Scheduled reflection**~~ — **shipped** `d4629d6` as `brain digest` + `AgentBrain.Digest`, daily. Never-retrieved share, retention distribution, contradictions, queue depth, appended to each project's vault `log.md`. **No provider call**, so it reports during exactly the outage that makes it most useful | The "maintains itself" claim. Consolidation already ran continuously; what was missing was anything that stepped back and asked whether the result was still coherent | — | — |
 | **7** | **3.2b** — the synthesis *generation* call | The last piece of the Karpathy pattern. Validator, store and rendering ship | Watching the citation check refuse a real bad citation from a live provider | M |
-| **8** | **5.6** — the config panel. 5.4 shipped `3a2c5b1`, 5.5 shipped `ec30787` | Console completeness. 5.5 is a renderer over `explain_text_search`, which exists and is called from nothing but a test | Nothing | M each |
-| **9** | **0.2** — drain the consolidation backlog | 1,693 pending against 2,884 completed | **Provider quota.** 290 of 294 deferrals were plain HTTP 429. *Nothing to build* | — |
+| ~~**8**~~ | ~~**5.6** — the config panel~~ — **shipped** `10b72f8` (Rust) and `c75507c` (dashboard). Wave 5 complete | Every delivery defect here looked identical from a settings page, so no setting renders without the fact that decides whether it does anything. Caught two things on its first run, one of them a bug in itself | — | — |
+| **9** | **0.2** — drain the consolidation backlog | 1,909 pending across three projects | **Provider quota.** 290 of 294 deferrals were plain HTTP 429. *Nothing to build* | — |
+| **10** | **Resolve the 4 contradictions** `brain reconcile` proposes | Derivation separates all four; approving a side is a judgement, and the daily digest now raises them unprompted | **You** | S |
 | **—** | **1 (token-saving A/B)** — design in Part 2 | The headline this project is asked about, and the numerator is all that has ever been counted | 0.2 first, then a day of runs | L |
 
 **Done when**, for the ones where it is not obvious:
@@ -143,8 +145,12 @@ value per effort, not by size.
   what it cost. See the caution in 1.2.
 - **4** — the compiler reads a note's frontmatter rather than re-parsing prose, and orientation
   quality is re-measured after the change rather than assumed.
+- **3** — an expanded query returns a superset of the plain one, always. That is the invariant, and
+  it is pinned by a test rather than observed once.
 - **5** — a proposed resolution cites both sides and applies only on explicit approval; refusing it
   leaves both memories current.
+- **6** — the scheduled task runs unattended and the digest is on disk in every project's vault,
+  with an unremarkable brain producing "Nothing needs a decision." rather than manufactured concern.
 - **7** — a paragraph cites only memory ids present on its own page, and a bad citation leaves the
   links-only page intact.
 - **9** — `consolidation_jobs` holds zero `pending` for an hour with the service running.
@@ -174,8 +180,9 @@ Three guards were not in the plan and came out of building it:
 **The floor is a keyword floor, and that is a known handicap.** It will miss a memory that is
 genuinely relevant and shares no vocabulary — the same gap the cross-encoder failed to close.
 Cosine is no better as a gate: `all-MiniLM-L6-v2` scored a deployment-*speed* turn at 0.478 and the
-turn that actually answered at 0.353, so no fixed cutoff separates them. Query expansion is what
-removes the handicap, and this is a second independent argument for it.
+turn that actually answered at 0.353, so no fixed cutoff separates them. Query expansion removes the
+handicap, and this was the second independent argument for it. **Shipped** `6b431c0`; the floor now
+sees the corpus's own vocabulary as well as the prompt's.
 
 **One finding worth carrying.** The first live push surfaced two memories that are now false —
 `decay/tiers has no code` and `this project uses embeddinggemma`. Both were true when written. That
@@ -205,8 +212,10 @@ answer, `ship` → `deploy`, moved its score 10.2 points, the model's whole rang
 meaning the same thing. The bi-encoder fails the same cases in the same direction.
 
 So it ships **off**, and the conclusion is a redirection rather than a retreat: **the fix for a
-vocabulary gap is query expansion, not a second scoring model.** That is the next retrieval item, and
-it is new — it was on no earlier list.
+vocabulary gap is query expansion, not a second scoring model.** That became the next retrieval item —
+new, on no earlier list — and it shipped as `6b431c0`. The corpus contains both words; asking twice,
+the second time in the corpus's own vocabulary, reaches what one pass could not, and it costs a
+retrieval rather than a model.
 
 `Qwen3-Reranker-0.6B` was evaluated and rejected on cost rather than quality. It is the better model,
 and instruction-following is the property that would actually address the gap — but at 1.1 GB on
@@ -278,7 +287,7 @@ cannot show it is a marketing document.
 
 1. ~~Wave 0.1 must land first~~ — **landed** (`407d345`). Measuring saved tokens with an instrument
    that counted compiled orientations rather than received ones would have overstated the numerator.
-2. **Wave 0.2 must land first.** A half-consolidated brain understates the warm condition, and 1,693
+2. **Wave 0.2 must land first.** A half-consolidated brain understates the warm condition, and 1,909
    jobs are still queued.
 3. Stop `AgentBrain.Service` during runs. Measured: with the backfill draining, a hybrid benchmark
    took over three hours for work that takes four minutes with the machine to itself.
@@ -333,7 +342,7 @@ never-retrieved — a policy reading that number would retire all 13,246 of them
 reason for each. The refusal is arithmetic, not caution.
 
 **One correction to the original framing, which still holds.** The brain is not *insufficiently
-intelligent*; it is *incompletely running*. 1,693 pending jobs against 2,884 completed is a throughput
+intelligent*; it is *incompletely running*. 1,909 pending jobs across three projects is a throughput
 problem. Adding autonomy on top of a queue that is not draining would make an unreliable system
 harder to diagnose.
 
@@ -460,8 +469,15 @@ hurts. Reviewed August 2026.
 | When it runs | Four scheduled agents — morning brief, nightly consolidation, weekly review, health check | On capture only |
 | Note format | **AI-first** — a `## For future Claude` preamble plus frontmatter written for retrieval | Human-readable Markdown |
 
-Three of those five are already ranked in Part 1: revision is item 7, contradiction resolution is
-item 5, scheduled reflection is item 6.
+Three of those five were ranked in Part 1: revision is item 7 and still open; contradiction
+resolution shipped as `brain reconcile` (`eec8925`); scheduled reflection shipped as `brain digest`
+and `AgentBrain.Digest` (`d4629d6`).
+
+**The scheduling row deserves a note, because we did not copy it.** Four scheduled agents is a
+schedule *and* a set of generation calls. We took the schedule and left the generation out: our
+digest is derived arithmetic, so it runs whether or not a provider answers. That is a smaller feature
+and a more reliable one — the review a maintainer acts on is "how much of this is unread, what
+contradicts what, how far behind is the queue", and none of that needs a model.
 
 **The note-format row is new, and it is the cheapest idea on this page.** Our notes are written for a
 human to read and then retrieved by a model. Nothing about that ordering was decided; it is inherited
@@ -553,7 +569,7 @@ holding.
 
 | Their tier | Ours |
 |---|---|
-| Working — raw observations | `events`, append-only, **140,134** captured |
+| Working — raw observations | `events`, append-only, **142,251** captured |
 | Episodic — session summaries | **Closed** — 3.3, triggered by the boundary hook and told in the prompt that it is looking at a finished episode |
 | Semantic — facts and patterns | `Fact`, `Decision`, `Investigation`, `Preference` |
 | Procedural — workflows | `Procedure`, `Task`, `Deployment`, `Checkpoint`, `Timeline` |
@@ -791,11 +807,12 @@ The remaining order is short and has one real decision in it:
 2. **3.2b's generation call** — the smallest remaining piece of code, and it wants a live provider to
    verify rather than a stub.
 3. **Wave 1**, which needs 0.2 first.
-4. **Query expansion**, the new item — the measured answer to the vocabulary gap that the
-   cross-encoder did not fix.
-5. **Session replay, retrieval explain and config**, which have no dependencies and are the obvious
-   things to pick up while waiting on quota.
+4. ~~**Query expansion**~~ — **shipped** `6b431c0`.
+5. ~~**Session replay, retrieval explain and config**~~ — **all shipped** (`3a2c5b1`, `ec30787`,
+   `10b72f8`). Wave 5 is complete.
 
-The decision is whether query expansion outranks Wave 1. It probably does: Wave 1 measures the value
-of a system, and query expansion is the last known defect in the part of that system the measurement
-would be measuring.
+**How that decision resolved.** The open question was whether query expansion outranked Wave 1. It
+did, and for the stated reason: Wave 1 measures the value of a system, and expansion was the last
+known defect in the part of that system the measurement would be measuring. It shipped first, so the
+500-instance run now in flight is measuring the fixed system rather than one we already knew was
+handicapped.
