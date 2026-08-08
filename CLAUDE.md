@@ -280,6 +280,9 @@ four minutes with the machine to itself, and capture resumes losslessly from its
 | `~/AgentBrain/runtime/logs/` | Service and deploy logs |
 | `D:\AgentBrainBackups` | Backups (separate drive, by design) |
 | `../agent-brain-dashboard` | Next.js monitoring UI — separate project, separate toolchain |
+| `docs/status.md` | What is running right now — every figure read from the live system |
+| `docs/roadmap.md` | What is left, why, and the research behind each decision — seven parts |
+| `docs/architecture.html` | The system end to end, as a diagram |
 | `docs/registering-a-project.md` | How to register a new project — the full procedure |
 | `docs/storage-and-backup.md` | Storage sizing, retention, and the levers if the drive fills |
 
