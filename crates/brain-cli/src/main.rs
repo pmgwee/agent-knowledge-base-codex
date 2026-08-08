@@ -108,6 +108,15 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Replay one captured session as discrete events, or list sessions when none is named.
+    Replay {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Explain why a query returned what it did — per channel, with the fused position beside it.
     Explain {
         #[arg(long)]
@@ -999,6 +1008,57 @@ fn main() -> Result<()> {
             };
             let filed = brain_cli::remember(&mut ledger, request)?;
             println!("{}", serde_json::to_string_pretty(&filed)?);
+        }
+        Command::Replay {
+            project,
+            session,
+            json,
+        } => {
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            match session {
+                None => {
+                    let sessions = ledger.captured_sessions(25)?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&sessions)?);
+                    } else {
+                        for (id, count, last) in sessions {
+                            println!("  {count:>6} events  {}  {id}", last.date());
+                        }
+                    }
+                }
+                Some(session) => {
+                    let events = ledger.session_events(project_id, &session)?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&events)?);
+                    } else {
+                        println!(
+                            "{} — {} events
+",
+                            session,
+                            events.len()
+                        );
+                        for event in events {
+                            let summary = event
+                                .payload
+                                .get("content")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("")
+                                .split_whitespace()
+                                .take(14)
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            println!(
+                                "  {}  {:<22} {summary}",
+                                event.occurred_at.time(),
+                                event.event_type.as_str()
+                            );
+                        }
+                    }
+                }
+            }
         }
         Command::Explain {
             project,

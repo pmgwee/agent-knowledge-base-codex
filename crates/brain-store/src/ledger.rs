@@ -714,3 +714,105 @@ mod tests {
         );
     }
 }
+
+impl EventLedger {
+    /// Every captured event in one session, oldest first.
+    ///
+    /// The dashboard shows aggregates and cannot show a single session — the one thing a
+    /// competitor's viewer does that ours does not. All the data was already here; nothing read it
+    /// back in order.
+    ///
+    /// Filters `recent_events` rather than issuing its own decode. One row-mapping is one place for
+    /// a column to be read wrongly; two is two, and the second one drifts.
+    pub fn session_events(
+        &self,
+        project_id: ProjectId,
+        native_session_id: &str,
+    ) -> Result<Vec<StoredEvent>> {
+        if project_id != self.project_scope {
+            bail!(
+                "project {} cannot query ledger scoped to {}",
+                project_id.0,
+                self.project_scope.0
+            );
+        }
+        // Its own query rather than a filter over `recent_events`. That shortcut was written first
+        // and it silently broke the feature: `recent_events` caps at the 500 newest events *in the
+        // project*, so any session older than the last 500 replayed as empty — which is nearly
+        // every session worth replaying. It returned a plausible answer, which is the worst kind.
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT event_id, worktree_id, task_id, harness, native_session_id, event_type,
+                   occurred_at_ns, observed_at_ns, source_locator, source_offset,
+                   git_head, git_branch, payload_json, raw_json
+            FROM events
+            WHERE project_id = ?1 AND native_session_id = ?2
+            ORDER BY occurred_at_ns ASC, observed_at_ns ASC, source_offset ASC
+            "#,
+        )?;
+        let rows = statement.query_map(
+            params![project_id.0.to_string(), native_session_id],
+            |row| {
+                Ok(RawStoredEvent {
+                    event_id: row.get(0)?,
+                    worktree_id: row.get(1)?,
+                    task_id: row.get(2)?,
+                    harness: row.get(3)?,
+                    native_session_id: row.get(4)?,
+                    event_type: row.get(5)?,
+                    occurred_at_ns: row.get(6)?,
+                    observed_at_ns: row.get(7)?,
+                    source_locator: row.get(8)?,
+                    source_offset: row.get(9)?,
+                    git_head: row.get(10)?,
+                    git_branch: row.get(11)?,
+                    payload_json: row.get(12)?,
+                    raw_json: row.get(13)?,
+                })
+            },
+        )?;
+        let mut events = Vec::new();
+        for row in rows {
+            if let Some(event) = row?.parse(project_id) {
+                events.push(event);
+            }
+        }
+        Ok(events)
+    }
+
+    /// Sessions this project has captured, most recent first, with their event counts.
+    pub fn captured_sessions(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<(String, u64, time::OffsetDateTime)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT native_session_id, COUNT(*), MAX(occurred_at_ns)
+             FROM events WHERE project_id = ?1
+             GROUP BY native_session_id
+             ORDER BY MAX(occurred_at_ns) DESC
+             LIMIT ?2",
+        )?;
+        let rows = statement.query_map(
+            params![
+                self.project_scope.0.to_string(),
+                i64::try_from(limit).unwrap_or(i64::MAX)
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )?;
+        rows.map(|row| {
+            let (id, count, at) = row?;
+            Ok((
+                id,
+                u64::try_from(count).unwrap_or(0),
+                time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(at))?,
+            ))
+        })
+        .collect()
+    }
+}
