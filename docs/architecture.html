@@ -535,7 +535,7 @@
         <rect class="s-planned" x="794" y="1522" width="176" height="38" rx="4" stroke-width="1.2" />
         <text class="box-sub t-planned" x="806" y="1546">Session replay</text>
         <rect class="s-planned" x="978" y="1522" width="204" height="38" rx="4" stroke-width="1.2" />
-        <text class="box-sub t-planned" x="990" y="1546">Config · capture stream</text>
+        <text class="box-sub t-planned" x="990" y="1546">Config panel — last one</text>
 
         <!-- ============ BAND 8 — EXTERNAL + LEFT ============ -->
         <text class="band-label" x="40" y="1630">8 · ALONGSIDE, AND WHAT IS GENUINELY LEFT</text>
@@ -560,7 +560,7 @@
         <text class="box-sub t-planned" x="858" y="1712">2 conditions × 3 repeats</text>
         <text class="box-sub t-planned" x="858" y="1736">only the numerator has ever been counted</text>
 
-        <text class="edge-label" x="40" y="1806">Governance surface: query · timeline · checkpoint · diagnose · dashboard · backup · restore · rebuild · export · verify memory · forget · remember · lint · evict.</text>
+        <text class="edge-label" x="40" y="1806">Governance surface: query · timeline · checkpoint · diagnose · dashboard · backup · restore · rebuild · export · verify memory · forget · remember · lint · evict · reconcile · explain · replay.</text>
         <text class="edge-label" x="40" y="1828">Export, provenance, withdrawal and gated eviction all ship. A withdrawn memory leaves every read path while its evidence stays put, so the ledger only ever grew.</text>
         <text class="edge-label" x="40" y="1850">Decay is derived, never asserted: staleness is computed from age and access, so a memory stops being stale the moment retrieval returns it. There is no flag to clear.</text>
       </svg>
@@ -810,8 +810,8 @@
           <tr><td><strong>Episodic</strong> — session summaries</td><td>Boundary hook + <code>session_stopped</code> consolidation</td><td><span class="pill live">Have — 8 Aug</span></td></tr>
           <tr><td><strong>Semantic</strong> — facts and patterns</td><td><code>Fact</code> · <code>Decision</code> · <code>Investigation</code> · <code>Preference</code></td><td><span class="pill live">Have</span></td></tr>
           <tr><td><strong>Procedural</strong> — workflows</td><td><code>Procedure</code> · <code>Task</code> · <code>Deployment</code> · <code>Checkpoint</code> · <code>Timeline</code></td><td><span class="pill live">Have</span></td></tr>
-          <tr><td>Decay curve · access-strengthening</td><td>Staleness is a boolean; retrievals counted but never ranked up</td><td><span class="pill off">Not built</span></td></tr>
-          <tr><td>Contradiction resolution</td><td><code>brain lint</code> finds them and stops</td><td><span class="pill part">Detect only — on purpose</span></td></tr>
+          <tr><td>Decay curve · access-strengthening</td><td>Ebbinghaus <code>retention_score</code>; ten retrievals decay ~3.4× slower, logarithmically</td><td><span class="pill live">Shipped</span></td></tr>
+          <tr><td>Contradiction resolution</td><td><code>brain reconcile</code> proposes from authority → recency → evidence, and refuses when they are level</td><td><span class="pill live">Proposed, never applied</span></td></tr>
         </tbody>
       </table>
     </div>

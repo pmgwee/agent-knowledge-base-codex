@@ -16,8 +16,9 @@ Waves 2 and 4 are complete. Wave 0 is complete bar a quota-bound backlog. Wave 3
 for one generation step held back on purpose. Wave 5 has three of six panels, plus one unplanned.
 Wave 1 is half done — retrieval quality is measured, the token saving never has been.
 
-**Shipped since the August competitor review:** the mid-session push. The brain no longer hands over
-context only at minute zero.
+**Shipped since the August competitor review:** the mid-session push, a continuous decay curve with
+access-strengthening, `brain reconcile`, `brain explain`, `brain replay`, and retrieval-shaped notes.
+Six of that review's seven items; the seventh — the 500-instance benchmark — is running.
 
 | | |
 |---|---|
@@ -40,7 +41,7 @@ context only at minute zero.
 | **2 · Trust** — done | ~~`brain export`~~ · ~~`brain verify memory`~~ · ~~`brain forget` as a tombstone~~ | Export runs clean. Verify resolves a claim to the transcript byte offset it came from. Withdrawal is a tombstone every read path honours, so the ledger stayed append-only |
 | **3 · Quality** — 7 of 8 | ~~Orientation ranked by relevance~~ · ~~subject pages~~ · ~~`brain remember`~~ · ~~`brain lint`~~ · ~~vault `log.md`~~ · ~~session summaries~~ · ~~cross-encoder rerank~~ · synthesis prose | The orientation's memories had been ordered *alphabetically*. Rerank shipped and was measured *worse*, so it ships off. Synthesis prose is the last piece, held back on purpose |
 | **4 · Lifecycle** — done | ~~Access counts~~ · ~~staleness marking~~ · ~~gated eviction~~ | Decay stays mechanical and logged — the model proposes, derivation disposes. Eviction refuses to run until thirty days of access data exist, because on day one every memory is never-retrieved |
-| **6 · Depth** — 1 of 6 | ~~Mid-session push~~ · 500-instance benchmark · query expansion · AI-first notes · contradiction proposals · scheduled reflection | Added by the August competitor review. The push closed the largest architectural gap: the brain used to orient once and then stop helping |
+| **6 · Depth** — 4 of 6 | ~~Mid-session push~~ · ~~AI-first notes~~ · ~~contradiction proposals~~ · ~~decay + strengthening~~ · 500-instance benchmark *(running)* · query expansion · scheduled reflection | Added by the August competitor review. The push closed the largest architectural gap: the brain used to orient once and then stop helping |
 | **5 · Console** — 3 of 6, plus one | ~~Vector coverage~~ · ~~jobs and dead letters~~ · ~~memory lifecycle~~ · session replay · retrieval explain · config · **+ retrieval configuration** *(unplanned)* | Every shipped figure already existed inside a command; the work was putting it where someone looks. The engine-console pages stay excluded — there is no such runtime here |
 
 **One correction to an earlier count.** I previously recorded Wave 5 as "4 of 6" on the strength of the
@@ -78,7 +79,12 @@ nothing but a test. The panel was worth building and is not the item it was coun
 | **6.1** | **Mid-session push** (`UserPromptSubmit`) | **Shipped** `af81e4d` `4aafe32` | 400 tokens, four memories, twenty per session, metered. Claude only — Codex documents no such hook |
 | 5.1–5.3 | Vector coverage · jobs · lifecycle panels | **Shipped** `89bd75a` `6d8c6cd` `7d12c15` | Per-project, live |
 | — | Retrieval configuration panel *(unplanned)* | **Shipped** `a4ce736` | Each channel's weight beside whether it can fire. In-browser render unverified — see *Known gaps* |
-| **5.4 / 5.5 / 5.6** | **Session replay · retrieval explain · config** | **Gap** | No dependency on anything. 5.5 is a renderer over `explain_text_search`, which exists in the store and is called from nothing but a test |
+| 5.4 | Session replay | **Shipped** `3a2c5b1` | `brain replay` lists sessions and walks one in order |
+| 5.5 | Retrieval explain | **Shipped** `ec30787` | `brain explain` — per-channel rank beside the fused position |
+| **5.6** | **Config panel** | **Gap** | The last one, and the smallest |
+| **6.2** | **Decay curve + access-strengthening** | **Shipped** `de9098a` | Ebbinghaus, with use buying survival |
+| **6.3** | **`brain reconcile`** | **Shipped** `eec8925` | Proposes from authority → recency → evidence; refuses when level |
+| **6.4** | **AI-first note format** | **Shipped** `6a1e34f` | A derived "For future agents" preamble, and `retention` in frontmatter |
 
 ---
 
@@ -103,9 +109,9 @@ what kind of thing a memory is; a citation says whether it is true.
 | Access counting | ✅ per result, not per search |
 | Derived staleness | ✅ 23 notes flagged, reversed the moment retrieval returns one |
 | Gated eviction | ✅ refuses until thirty days of access data exist |
-| Ebbinghaus decay curve | ❌ not built — staleness is a boolean, not a continuous score |
-| Access-strengthening | ❌ half — retrievals are counted; nothing ranks up for being used |
-| Contradiction resolution | ❌ detect only — `brain lint` finds them and stops |
+| Ebbinghaus decay curve | ✅ `retention_score` — continuous, and on every note's frontmatter |
+| Access-strengthening | ✅ ten retrievals decay ~3.4× slower; logarithmic, so the tenth matters less than the first |
+| Contradiction resolution | ✅ **proposed, never applied** — `brain reconcile` derives from authority, then recency, then evidence, and refuses when level |
 
 The last one is a position, not a gap: resolving means a model deciding which claim is true, and that
 leaves no evidence trail. The middle we have not built is *proposing* a resolution with citations for
@@ -270,14 +276,14 @@ reasoning and done-when criteria in [roadmap.md, Part 1](roadmap.md#part-1--rank
 
 | # | Work | Blocked on | Size |
 |---|---|---|---|
-| 1 | **Run all 500 LongMemEval instances** | Nothing — ~4 h unattended, service stopped | L |
+| 1 | **Run all 500 LongMemEval instances** | **running** — started 23:15, ~3.5 h | L |
 | ~~2~~ | ~~**Mid-session push via `UserPromptSubmit`**~~ — **shipped** `af81e4d` | — | — |
 | 3 | **Query expansion** | Nothing — the provider is already wired | M |
-| 4 | **AI-first note format** | Nothing | S |
-| 5 | **Contradiction resolution — proposed, never applied** | Nothing | M |
+| ~~4~~ | ~~**AI-first note format**~~ — **shipped** `6a1e34f` | — | — |
+| ~~5~~ | ~~**Contradiction resolution**~~ — **shipped** `eec8925` as `brain reconcile` | — | — |
 | 6 | **Scheduled reflection** — nightly, weekly | Nothing | M |
 | 7 | **3.2b** — the synthesis generation call | A live provider, to watch the citation check refuse a real bad citation | M |
-| 8 | **5.4 / 5.5 / 5.6** — session replay, retrieval explain, config | Nothing | M each |
+| 8 | **5.6** — the config panel. 5.4 and 5.5 shipped (`3a2c5b1`, `ec30787`) | Nothing | S |
 | 9 | **0.2** — drain the consolidation backlog | **Quota.** 1,693 pending; nothing to build | — |
 | — | **Token-saving A/B** | 0.2 first, then a day of runs | L |
 

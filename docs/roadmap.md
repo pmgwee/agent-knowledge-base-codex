@@ -117,19 +117,21 @@ Sizes: **S** ≈ a sitting, **M** ≈ a day, **L** ≈ several days.
 
 ### 1.1 What remains — the full ranked list
 
-**Nine items, one shipped.** Four carried over, five added by the August competitor review. Ranked by
+**Nine items, six shipped.** Four carried over, five added by the August competitor review. What
+remains is one running benchmark, two items behind provider quota, one small panel, and two genuinely
+unstarted: query expansion and scheduled reflection. Ranked by
 value per effort, not by size.
 
 | # | Work | Why here | Blocked on | Size |
 |---|---|---|---|---|
-| **1** | **Run all 500 LongMemEval instances** | Settles the competitive question with a number instead of an argument. We have measured 40 of 500 — 8% — and reported the *hardest* category. Everything below is speculation until this exists | Nothing; ~4 h unattended with the service stopped | L |
+| **1** | **Run all 500 LongMemEval instances** — *running since 23:15* | Settles the competitive question with a number instead of an argument. We have measured 40 of 500 — 8% — and reported the *hardest* category. Everything below is speculation until this exists | Nothing; ~4 h unattended with the service stopped | L |
 | ~~**2**~~ | ~~**Mid-session push via `UserPromptSubmit`**~~ — **shipped** `af81e4d` `4aafe32` | Was the largest architectural gap: the brain pushed **once**, at session start, so a session that pivoted was never re-oriented. Now re-queries retrieval on every prompt, 400 tokens, four memories, twenty per session, metered | — | — |
 | **3** | **Query expansion** | The measured answer to the vocabulary gap the cross-encoder failed to fix (1.4). Likely also lifts the four unmeasured categories | Nothing — the provider is already wired | M |
-| **4** | **AI-first note format** | Notes are written for humans and retrieved by a model. A stable preamble and compiler-read frontmatter is cheap, and plausibly worth more than reranking was | Nothing | S |
-| **5** | **Contradiction resolution — proposed, never applied** | `brain lint` finds contradictions and stops. A cited proposal for one-click human approval closes the gap without a model silently deciding what is true | Nothing | M |
+| ~~**4**~~ | ~~**AI-first note format**~~ — **shipped** `6a1e34f`. Every note opens with a derived "For future agents" block: the claim, its weight, how to check it, and what would make it wrong | Notes are written for humans and retrieved by a model. A stable preamble and compiler-read frontmatter is cheap, and plausibly worth more than reranking was | Nothing | S |
+| ~~**5**~~ | ~~**Contradiction resolution**~~ — **shipped** `eec8925` as `brain reconcile`. Authority, then recency, then evidence weight; no proposal when those are level | `brain lint` finds contradictions and stops. A cited proposal for one-click human approval closes the gap without a model silently deciding what is true | Nothing | M |
 | **6** | **Scheduled reflection** — nightly consolidation, weekly review | The "maintains itself" claim. The service loops exist; the reflection does not | Nothing | M |
 | **7** | **3.2b** — the synthesis *generation* call | The last piece of the Karpathy pattern. Validator, store and rendering ship | Watching the citation check refuse a real bad citation from a live provider | M |
-| **8** | **5.4 / 5.5 / 5.6** — session replay · retrieval explain · config | Console completeness. 5.5 is a renderer over `explain_text_search`, which exists and is called from nothing but a test | Nothing | M each |
+| **8** | **5.6** — the config panel. 5.4 shipped `3a2c5b1`, 5.5 shipped `ec30787` | Console completeness. 5.5 is a renderer over `explain_text_search`, which exists and is called from nothing but a test | Nothing | M each |
 | **9** | **0.2** — drain the consolidation backlog | 1,693 pending against 2,884 completed | **Provider quota.** 290 of 294 deferrals were plain HTTP 429. *Nothing to build* | — |
 | **—** | **1 (token-saving A/B)** — design in Part 2 | The headline this project is asked about, and the numerator is all that has ever been counted | 0.2 first, then a day of runs | L |
 
