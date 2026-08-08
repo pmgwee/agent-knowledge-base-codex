@@ -73,6 +73,15 @@ pub struct LongMemEvalOptions {
     /// Held separate from fusion so a delta can be attributed to one or the other. Turning both
     /// on at once and reporting the difference measures their sum and explains neither.
     pub diversify_sessions: bool,
+    /// Re-rank the head of each result list with the cross-encoder. Requires `brain_home`.
+    ///
+    /// Off by default and reported when on, because it is the switch most likely to be left set
+    /// from a previous run: it costs ~90 ms per candidate and its effect is expected to be
+    /// **category-dependent** rather than uniformly positive. The measured prediction it exists to
+    /// test is that it helps the factual categories and does nothing for
+    /// `single-session-preference`, whose questions turn on a vocabulary gap the model does not
+    /// bridge — see `crates/brain-store/tests/reranker_model.rs`.
+    pub rerank: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -149,6 +158,19 @@ pub fn run_longmemeval(
                  reported as a hybrid one",
                 brain_home.display()
             );
+            if options.rerank {
+                ensure!(
+                    ledger.enable_reranking(brain_home),
+                    "no reranker under {}; a run reported as re-ranked that silently was not is \
+                     the one result worse than no result",
+                    brain_home.display()
+                );
+            }
+        } else {
+            ensure!(
+                !options.rerank,
+                "re-ranking needs a brain home to load its checkpoint from"
+            );
         }
 
         let mut query = SearchQuery::text(project, instance.question.clone());
@@ -214,6 +236,9 @@ fn describe(options: &LongMemEvalOptions) -> String {
     } else {
         "BM25 only".to_owned()
     }];
+    if options.rerank {
+        parts.push("cross-encoder rerank on".to_owned());
+    }
     if options.diversify_sessions {
         parts.push("session diversification on".to_owned());
     }

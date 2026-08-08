@@ -43,6 +43,14 @@ pub struct BrainSearchRequest {
     pub source: SourceSelector,
     #[serde(default)]
     pub limit: Option<usize>,
+    /// Re-rank the head of the result list with the cross-encoder.
+    ///
+    /// Off by default, and deliberately not a service-wide setting: it costs ~90 ms per candidate
+    /// against a search that otherwise answers in single-digit milliseconds, so the caller who is
+    /// willing to wait asks for it. What it buys is sharper ordering among candidates that share
+    /// the question's vocabulary; it does not bridge a vocabulary gap.
+    #[serde(default)]
+    pub rerank: bool,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -344,7 +352,7 @@ impl BrainQueryService {
     pub fn search(&self, request: BrainSearchRequest) -> Result<BrainItemsResponse> {
         ensure!(!request.text.trim().is_empty(), "search text is required");
         let project = self.project(&request.project)?;
-        let ledger = self.ledger(project)?;
+        let ledger = self.ledger_with(project, request.rerank)?;
         let now = time::OffsetDateTime::now_utc();
         let mut query = RetrievalQuery::text(project.project_id, request.text, now)
             .with_paths(request.paths)
@@ -1204,8 +1212,20 @@ impl BrainQueryService {
     /// timeout that has already failed silently once, and adding an unmeasured cost to it would
     /// trade a better answer for no answer at all.
     fn ledger(&self, project: &ServiceProjectConfig) -> Result<EventLedger> {
+        self.ledger_with(project, false)
+    }
+
+    /// As `ledger`, with re-ranking optionally on.
+    ///
+    /// Kept as a separate entry point rather than a field on the service: re-ranking is a
+    /// per-request trade, and a service that decided it once at startup would charge every caller
+    /// for the one that wanted it.
+    fn ledger_with(&self, project: &ServiceProjectConfig, rerank: bool) -> Result<EventLedger> {
         let mut ledger = EventLedger::open(&project.ledger_path, project.project_id)?;
         ledger.enable_vector_search(&self.brain_home);
+        if rerank {
+            ledger.enable_reranking(&self.brain_home);
+        }
         Ok(ledger)
     }
 }

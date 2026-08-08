@@ -20,6 +20,11 @@ pub struct EventLedger {
     /// The vector channel, off until a caller points this ledger at a brain home holding a model.
     /// Borrowed from a process-wide `OnceLock`, so opening a hundred ledgers loads one model.
     pub(crate) embedder: Option<&'static crate::embedding::Embedder>,
+    /// The re-ranking stage, off unless a caller explicitly enables it. Unlike the embedder this
+    /// stays off even when its checkpoint is installed: re-ranking costs ~90 ms per candidate on
+    /// CPU, so it is a deliberate trade a caller makes rather than a capability that switches
+    /// itself on because a file appeared on disk.
+    pub(crate) reranker: Option<&'static crate::rerank::Reranker>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -72,6 +77,7 @@ impl EventLedger {
             project_scope,
             search_cache: RefCell::new(SearchCache::default()),
             embedder: None,
+            reranker: None,
         })
     }
 

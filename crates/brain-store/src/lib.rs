@@ -15,6 +15,7 @@ mod memory;
 mod migrations;
 mod notes;
 mod provider_cache;
+mod rerank;
 mod search;
 mod segment;
 mod subjects;
@@ -49,6 +50,7 @@ pub use markdown::{
 };
 pub use memory::GlobalPreferenceStore;
 pub use provider_cache::{ProviderCacheEntry, ProviderCacheStore};
+pub use rerank::{MAX_PAIR_TOKENS, Reranker, default_reranker_dir, shared_reranker};
 pub use search::{SearchHit, SearchQuery, SearchSource, SearchSourceFilter, TimeRange};
 pub use segment::{
     SEGMENT_FORMAT_VERSION, SegmentManifest, SegmentSealReport, SegmentStore, should_seal,

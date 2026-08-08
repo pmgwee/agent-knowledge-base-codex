@@ -21,6 +21,7 @@ use brain_cli::{LongMemEvalOptions, LongMemEvalReport, run_longmemeval};
 /// | `LONGMEMEVAL_TYPES` | Comma-separated question types to score |
 /// | `LONGMEMEVAL_BRAIN_HOME` | Embed events and fuse the vector channel in |
 /// | `LONGMEMEVAL_DIVERSIFY` | `1` to cap results per session |
+/// | `LONGMEMEVAL_RERANK` | `1` to re-rank the head with the cross-encoder (needs the brain home) |
 ///
 /// There is no pass/fail threshold here on purpose. The number is the deliverable, and a gate
 /// asserting it stays above whatever it happened to measure first would be a gate that only ever
@@ -54,6 +55,7 @@ fn longmemeval_s_retrieval_quality() {
             .ok()
             .map(PathBuf::from),
         diversify_sessions: std::env::var("LONGMEMEVAL_DIVERSIFY").is_ok_and(|value| value == "1"),
+        rerank: std::env::var("LONGMEMEVAL_RERANK").is_ok_and(|value| value == "1"),
     };
 
     let report = run_longmemeval(&dataset, temp.path(), limit, &options).expect("run benchmark");

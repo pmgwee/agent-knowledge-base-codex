@@ -8,6 +8,7 @@ use rusqlite::{Row, params};
 use crate::EventLedger;
 use crate::cursor::timestamp_ns;
 use crate::embedding::shared_embedder;
+use crate::rerank::shared_reranker;
 
 const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 200;
@@ -50,6 +51,16 @@ const FUSION_DEPTH: usize = 100;
 /// demoted rather than dropped: a capped hit still appears, just after the others, so this can
 /// reorder recall but never lose it.
 const MAX_HITS_PER_SESSION: usize = 3;
+
+/// How many of the fused head the cross-encoder re-scores, when re-ranking is on.
+///
+/// **Chosen from measurement, not from taste.** On this machine's CPU the cross-encoder costs
+/// 81–98 ms per candidate — 1 document in 98 ms, 32 in 2.61 s — and that cost is close to linear
+/// because candle's CPU backend has no optimised BLAS, so batching recovers very little. Sixteen
+/// puts a re-ranked query at roughly 1.5 s, which is a deliberate trade a caller opts into rather
+/// than a default anyone pays. `HOOK_HARD_TIMEOUT` was a reasonable number that went silently
+/// wrong; picking this one by feel would have repeated exactly that.
+const RERANK_DEPTH: usize = 16;
 
 /// Most documents a graph expansion may append.
 const MAX_EXPANDED_HITS: usize = 20;
@@ -200,6 +211,14 @@ pub struct SearchHit {
     /// BM25 score when only keyword search ran. Re-ranking callers must use this — reading
     /// `bm25_score` instead scores every vector-only hit as zero and quietly undoes fusion.
     pub rank_score: f64,
+    /// The cross-encoder's score, when re-ranking ran and reached this hit.
+    ///
+    /// Deliberately **not** folded into `rank_score`. This is an unbounded logit, frequently
+    /// negative, on no shared scale with an RRF score of ~0.016 — and only the head of the list is
+    /// ever scored, so writing it into `rank_score` would leave one list holding two incomparable
+    /// number systems. That is the precise defect that made mixed search return no memories at all.
+    /// Re-ranking changes the *order*; it does not rewrite the score the order came from.
+    pub rerank_score: Option<f64>,
 }
 
 #[derive(Default)]
@@ -291,6 +310,31 @@ impl EventLedger {
         self.embedder.is_some()
     }
 
+    /// Turn on cross-encoder re-ranking, loading the checkpoint from `brain_home` if installed.
+    ///
+    /// Returns whether re-ranking is now active. Unlike the vector channel this does **not** switch
+    /// itself on when the model is present, because it is the one stage here that is expensive
+    /// enough to be a decision: ~90 ms per candidate against a keyword search that answers in
+    /// single-digit milliseconds.
+    ///
+    /// What it buys is narrower than it sounds, and the measurement is on the record in
+    /// `crates/brain-store/tests/reranker_model.rs`: it separates a factual question's answer from
+    /// a merely on-topic neighbour cleanly (6.23 against 2.37), and it does **not** bridge a
+    /// vocabulary gap. Rewriting one word of an answer — `ship` to `deploy` — moved its score by
+    /// 10.2 points, the model's whole range, for a sentence meaning the same thing. So this
+    /// sharpens ordering among candidates that already share the question's words; it cannot
+    /// rescue the `single-session-preference` case that the vector channel exists for.
+    pub fn enable_reranking(&mut self, brain_home: &Path) -> bool {
+        self.reranker = shared_reranker(brain_home);
+        // Anything cached was ordered before this stage existed.
+        self.search_cache.borrow_mut().clear();
+        self.reranker.is_some()
+    }
+
+    pub fn reranking_enabled(&self) -> bool {
+        self.reranker.is_some()
+    }
+
     /// Retrieve from every available channel, fuse, diversify, truncate.
     ///
     /// The channels are deliberately unequal in kind. Keyword and vector are *retrieval*: each
@@ -343,6 +387,11 @@ impl EventLedger {
             fuse(&channels)
         };
 
+        // Re-rank before diversifying, not after. Diversification demotes a session's overflow, so
+        // running it first would hand the cross-encoder a list already reordered for a different
+        // purpose — and the hit it would have promoted might sit below the window by then.
+        self.rerank_head(query, &mut ranked)?;
+
         // A caller who named a session asked about that session; capping it would answer a
         // different question.
         if query.diversify_sessions && query.native_session_id.is_none() {
@@ -350,6 +399,77 @@ impl EventLedger {
         }
         ranked.truncate(limit);
         Ok(ranked)
+    }
+
+    /// Re-score the head of the fused list with the cross-encoder and reorder it in place.
+    ///
+    /// **Only the head moves, and it never mixes with the tail.** The window is re-sorted among
+    /// itself and written back over the same slots, so a re-ranked hit can never be compared
+    /// against an RRF score from further down. Sorting the whole list on a mixture of the two would
+    /// be the identical defect to the one that made mixed search return no memories at all: an
+    /// unbounded logit near −11 and a fused score near 0.016 are not numbers on one scale, and
+    /// nothing about the resulting order would look wrong.
+    ///
+    /// Failure here is not failure of the search. A model that cannot score leaves the fused order
+    /// exactly as it was, because an optional stage may only ever add.
+    fn rerank_head(&self, query: &SearchQuery, ranked: &mut [SearchHit]) -> Result<()> {
+        let Some(reranker) = self.reranker else {
+            return Ok(());
+        };
+        let Some(text) = query
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        else {
+            return Ok(());
+        };
+        let window = ranked.len().min(RERANK_DEPTH);
+        if window < 2 {
+            return Ok(());
+        }
+
+        let documents: Vec<String> = ranked[..window]
+            .iter()
+            .map(|hit| {
+                if hit.title.is_empty() {
+                    hit.text.clone()
+                } else {
+                    format!("{}. {}", hit.title, hit.text)
+                }
+            })
+            .collect();
+        let borrowed: Vec<&str> = documents.iter().map(String::as_str).collect();
+        let scores = match reranker.scores(text, &borrowed) {
+            Ok(scores) => scores,
+            Err(error) => {
+                tracing::warn!(%error, "reranking failed; keeping the fused order");
+                return Ok(());
+            }
+        };
+        if scores.len() != window {
+            tracing::warn!(
+                returned = scores.len(),
+                expected = window,
+                "reranker returned the wrong number of scores; keeping the fused order"
+            );
+            return Ok(());
+        }
+
+        let mut head: Vec<SearchHit> = ranked[..window].to_vec();
+        for (hit, score) in head.iter_mut().zip(scores.iter()) {
+            hit.rerank_score = Some(f64::from(*score));
+        }
+        // Descending by the cross-encoder's score. `total_cmp` rather than `partial_cmp`: a NaN
+        // from a degenerate forward pass would make `partial_cmp` return `None`, and an ordering
+        // that is not total is a panic in `sort_by` waiting for the one input that produces it.
+        head.sort_by(|a, b| {
+            b.rerank_score
+                .unwrap_or(f64::NEG_INFINITY)
+                .total_cmp(&a.rerank_score.unwrap_or(f64::NEG_INFINITY))
+        });
+        ranked[..window].clone_from_slice(&head);
+        Ok(())
     }
 
     /// The vector channel: one query embedding, scanned against both indexes.
@@ -953,6 +1073,7 @@ impl RawEventHit {
             evidence_count: 1,
             bm25_score: self.bm25_score,
             rank_score: self.bm25_score,
+            rerank_score: None,
         })
     }
 }
@@ -1024,6 +1145,7 @@ impl RawMemoryHit {
             evidence_count: usize::try_from(self.evidence_count)?,
             bm25_score: self.bm25_score,
             rank_score: self.bm25_score,
+            rerank_score: None,
         })
     }
 }
@@ -1336,6 +1458,7 @@ mod tests {
             evidence_count: 0,
             bm25_score,
             rank_score: bm25_score,
+            rerank_score: None,
         }
     }
 

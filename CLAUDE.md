@@ -175,7 +175,34 @@ our fusion is the one everyone else measured.
   one *answers* the other. Measured: against a haystack sharing no vocabulary it lifts the
   answering turn from rank 3 to rank 1; against a merely on-topic haystack a turn about
   deployment *speed* scores 0.478 where the turn that actually answers scores 0.353. Reranking
-  with a cross-encoder is the honest next step, not a weight to be tuned.
+  with a cross-encoder was the obvious next step — and measuring it produced the entry below.
+- **The cross-encoder is off by default, and it does not fix what it was adopted to fix.**
+  `ms-marco-MiniLM-L6-v2` is installed and wired as an opt-in stage (`--rerank`, `rerank: true`,
+  `LONGMEMEVAL_RERANK=1`). On a factual question it separates cleanly — answer 6.230, on-topic
+  neighbour 2.365, unrelated −11.348. On a **vocabulary gap it fails**, and the isolation is
+  unambiguous: holding the distractor constant and changing one word of the answer, `ship` →
+  `deploy`, moved its score from −11.131 to −0.913. Ten points, the model's whole range, for a
+  sentence that means the same thing. Ungapped, the answer scores below a sentence about dogs.
+
+  **The bi-encoder fails the same four cases in the same direction** (0.353 / 0.498 / 0.493 /
+  0.618), which is what makes this structural rather than a checkpoint being weak: re-ranking
+  sharpens ordering among candidates that already share the question's words, and cannot invent a
+  link between "ship to production" and "deploying". `single-session-preference` — the category
+  hybrid retrieval exists for — is made of exactly that shape. **The fix for a vocabulary gap is
+  query expansion, not a second scoring model.** Pinned in
+  `crates/brain-store/tests/reranker_model.rs`, including the failing direction.
+- **`Qwen3-Reranker-0.6B` was evaluated and rejected on cost, not on quality.** It is the better
+  model — 28 layers of 1024 against 6 of 384, a 151k vocab against 30k, and instruction-following,
+  which is the property that would actually address the gap above. It is also 1.1 GB on disk and
+  ~2.3 GB resident at our `F32` loader inside a permanently-running service, and re-ranking already
+  costs **81–98 ms per candidate** on this CPU (32 candidates = 2.61 s) at 26× fewer parameters.
+  There is no CPU-only configuration where it fits an interactive query. Revisit if this ever moves
+  to a GPU; the next rung short of that is `bge-reranker-base`.
+- **A re-ranked list must never be sorted against an unranked one.** Only `RERANK_DEPTH` head
+  entries get a score, `rerank_score` is a separate field from `rank_score`, and the window is
+  re-sorted in place. An unbounded logit near −11 and a fused score near 0.016 are not on one
+  scale — sorting them together is the same defect as the events-versus-memories merge above, and
+  it would look exactly like working code.
 
 ### Measured on LongMemEval-S
 

@@ -79,6 +79,10 @@ enum Command {
         as_of: Option<String>,
         #[arg(long)]
         limit: Option<usize>,
+        /// Re-rank the head of the results with the cross-encoder. Needs the checkpoint under
+        /// `models/ms-marco-MiniLM-L6-v2`, and costs roughly 1.5 s.
+        #[arg(long)]
+        rerank: bool,
     },
     /// File a conclusion back into the brain, citing the events it rests on.
     Remember {
@@ -665,6 +669,7 @@ fn main() -> Result<()> {
             text,
             as_of,
             limit,
+            rerank,
         } => {
             let response = BrainQueryService::open(&brain_home)?.search(BrainSearchRequest {
                 project,
@@ -676,6 +681,7 @@ fn main() -> Result<()> {
                 paths: Vec::new(),
                 source: SourceSelector::All,
                 limit,
+                rerank,
             })?;
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
