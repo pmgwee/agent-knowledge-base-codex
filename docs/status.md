@@ -14,7 +14,13 @@ research it rests on, and the comparisons that shaped it. This file answers one 
 
 Waves 2, 4 and **5** are complete. Wave 0 is complete bar a quota-bound backlog. Wave 3 is complete
 except for one generation step held back on purpose. Wave 1 is half done — retrieval quality is
-measured, the token saving never has been.
+measured, the token saving never has been, and the harness for measuring it now exists.
+
+**The vault has revised a claim in place for the first time.** `brain reconcile --apply` folded four
+contradictions into four claims, superseding seven memories without deleting anything. Before it ran
+there were 2,097 memories, 2,097 distinct ids, and **zero supersession edges** — the whole lifecycle
+was schema and reader filters production had never once exercised. `brain lint` now reports no
+contradictions on this project.
 
 **Shipped since the August competitor review:** the mid-session push, a continuous decay curve with
 access-strengthening, `brain reconcile`, `brain explain`, `brain replay`, retrieval-shaped notes,
@@ -27,13 +33,13 @@ and 3.2b's generation call.
 
 | | |
 |---|---|
-| Events captured | **142,251** across 3 projects |
+| Events captured | **142,830** across 3 projects |
 | Current memories | **13,246**, every one citing `event:<uuid>` |
 | Vector index | **complete** — 13,246 memories and 142,248 events; 3 remaining |
-| Vault | **16,984** notes · 450 subject pages · 20 flagged stale |
-| Consolidation | **1,909 pending** · 3 dead-lettered |
+| Vault | **15,808** notes · 450 subject pages · 20 flagged stale — 4 subject pages now carry a revision trail |
+| Consolidation | **1,933 pending** · 3 dead-lettered |
 | Orientation | mean **1,115** tokens over 35 receipts, max 1,490, against a 3,000 hard cap |
-| Gates | `fmt` clean · clippy 0 errors · **119 test binaries green** — plus the LongMemEval harness, which cannot relink while the 500-instance run holds its executable open |
+| Gates | `fmt` clean · clippy 0 errors · **120 test binaries green** — plus the LongMemEval harness, which cannot relink while the 500-instance run holds its executable open |
 
 ---
 
@@ -47,6 +53,7 @@ and 3.2b's generation call.
 | **3 · Quality** — 7 of 8 | ~~Orientation ranked by relevance~~ · ~~subject pages~~ · ~~`brain remember`~~ · ~~`brain lint`~~ · ~~vault `log.md`~~ · ~~session summaries~~ · ~~cross-encoder rerank~~ · synthesis prose | The orientation's memories had been ordered *alphabetically*. Rerank shipped and was measured *worse*, so it ships off. Synthesis prose is the last piece, held back on purpose |
 | **4 · Lifecycle** — done | ~~Access counts~~ · ~~staleness marking~~ · ~~gated eviction~~ | Decay stays mechanical and logged — the model proposes, derivation disposes. Eviction refuses to run until thirty days of access data exist, because on day one every memory is never-retrieved |
 | **6 · Depth** — 6 of 7 | ~~Mid-session push~~ · ~~AI-first notes~~ · ~~contradiction proposals~~ · ~~decay + strengthening~~ · ~~query expansion~~ · ~~scheduled reflection~~ · 500-instance benchmark *(running)* | Added by the August competitor review. The push closed the largest architectural gap: the brain used to orient once and then stop helping. Expansion closed the second — the corpus's own words bridge a vocabulary gap no scoring model could invent |
+| **7 · Integration** — done | ~~Fold a contradiction by supersession~~ · ~~revision trail on subject pages~~ · ~~one definition of "current"~~ | The Karpathy operation nothing here had ever performed. Closing it immediately exposed a defect eleven queries deep: `status = 'current'` had been indistinguishable from "the memory's latest version" for as long as no memory had two |
 | **5 · Console** — **done**, 6 of 6 plus one | ~~Vector coverage~~ · ~~jobs and dead letters~~ · ~~memory lifecycle~~ · ~~session replay~~ · ~~retrieval explain~~ · ~~config~~ · **+ retrieval configuration** *(unplanned)* | Every shipped figure already existed inside a command; the work was putting it where someone looks. The engine-console pages stay excluded — there is no such runtime here |
 
 **One correction to an earlier count, now closed.** Wave 5 was once recorded as "4 of 6" on the
@@ -61,7 +68,7 @@ separate things (`ec30787` and `a4ce736`), so the wave is complete rather than c
 | Wave | Item | State | Evidence, or why not |
 |---|---|---|---|
 | 0.1 | Deliveries counted at receipt | **Shipped** `407d345` | An outcome dropped without recording leaves zero rows |
-| **0.2** | **Consolidation drained** | **Quota-bound** | 1,909 pending across 3 projects; 290 of 294 deferrals were plain HTTP 429 |
+| **0.2** | **Consolidation drained** | **Quota-bound** | 1,933 pending across 3 projects; 290 of 294 deferrals were plain HTTP 429 |
 | 0.3 | Queue and dead letters visible | **Shipped** `6d8c6cd` | Pending / leased / completed / dead per project, with the reason a job died |
 | **1** | **Value proved** | **Half** | Retrieval measured; the token-saving A/B has never been run |
 | 2.1 | `brain export` | **Shipped** `5c6eebc` | 41 MB, zero unresolved citations |
@@ -91,6 +98,10 @@ separate things (`ec30787` and `a4ce736`), so the wave is complete rather than c
 | **6.4** | **AI-first note format** | **Shipped** `6a1e34f` | A derived "For future agents" preamble, and `retention` in frontmatter |
 | **6.5** | **Query expansion** | **Shipped** `6b431c0` | Pseudo-relevance feedback, fused as a channel so it cannot lose a result. Live: 0 lost, 1 newly reached |
 | **6.6** | **Scheduled reflection** | **Shipped** `d4629d6` | `brain digest` daily via `AgentBrain.Digest`. Derived only, so a rate-limited provider cannot silence it |
+| **7.1** | **Fold a contradiction** | **Shipped** `fbc6fe5` | `brain reconcile --apply`. Live: 4 folded, 7 superseded, 0 deleted. The first supersession this system has ever performed |
+| **7.2** | **Revision trail on subject pages** | **Shipped** `fbc6fe5` | `subjects/backup.md` now opens with *"1 of these 35 claims has been revised in place, absorbing 4 earlier claims"* |
+| **7.3** | **One definition of "current"** | **Shipped** `74423db` | Eleven queries disagreed with one. `digest` said 2,101 memories, `lint` said 2,090; both now say 2,090 |
+| **1.2** | **Token-saving A/B harness** | **Built, not run** `6b07b18` | `scripts/token-ab.ps1`. Three conditions, not two — see *Known gaps* |
 
 ---
 
@@ -100,7 +111,7 @@ All four tiers exist. The lifecycle over them is where the remaining work is.
 
 | Tier | Ours | State |
 |---|---|---|
-| **Working** — raw observations | `events`, 142,251 captured | ✅ |
+| **Working** — raw observations | `events`, 142,830 captured | ✅ |
 | **Episodic** — session summaries | Boundary hook + `session_stopped` consolidation | ✅ shipped 8 Aug |
 | **Semantic** — facts and patterns | `Fact`, `Decision`, `Investigation`, `Preference` | ✅ |
 | **Procedural** — workflows | `Procedure`, `Task`, `Deployment`, `Checkpoint`, `Timeline` | ✅ |
@@ -117,12 +128,20 @@ what kind of thing a memory is; a citation says whether it is true.
 | Gated eviction | ✅ refuses until thirty days of access data exist |
 | Ebbinghaus decay curve | ✅ `retention_score` — continuous, and on every note's frontmatter |
 | Access-strengthening | ✅ ten retrievals decay ~3.4× slower; logarithmic, so the tenth matters less than the first |
-| Contradiction resolution | ✅ **proposed, never applied** — `brain reconcile` derives from authority, then recency, then evidence, and refuses when level |
+| Contradiction resolution | ✅ **proposed, then applied on request** — `brain reconcile` derives from authority, then recency, then evidence, refuses when level, and `--apply` folds what it decided |
+| Revision in place | ✅ supersession, live for the first time — 7 memories retired into 4 claims, nothing deleted |
 | Scheduled reflection | ✅ `brain digest` daily — never-retrieved share, retention distribution, contradiction and queue counts, appended to each vault's `log.md` |
 
-The contradiction row is a position, not a gap: *resolving* means a model deciding which claim is
-true, and that leaves no evidence trail. What we built instead is *proposing* one with citations, for
-a person to approve.
+The contradiction row is still a position, not a licence: *resolving* means deciding which claim is
+true, and a model doing that leaves no evidence trail. What derivation does is narrower and
+checkable — authority, then recency, then evidence weight, with the rule printed beside the
+proposal — and `--apply` is the approval, not a schedule. Anything the rules cannot separate is
+left alone.
+
+What the four live contradictions turned out to be is worth recording: **not disagreements**.
+Consolidation had re-derived the same conclusion from overlapping event windows and filed each one
+as a new memory, so eleven memories carried four claims between them, phrased slightly differently.
+That is a duplicate, and folding it is arithmetic.
 
 The reflection row is deliberately arithmetic. A written weekly review needs a provider, and the
 provider is the thing most likely to be unavailable — so the digest reports only what can be derived,
@@ -132,7 +151,7 @@ and therefore still reports during exactly the outage that makes it most useful.
 
 ## The four that are not simply "done"
 
-**0.2 is quota-bound, not code-bound.** 1,909 jobs pending across three projects. The deferral path
+**0.2 is quota-bound, not code-bound.** 1,933 jobs pending across three projects. The deferral path
 works exactly as designed — no attempt consumed, nothing lost — and it finishes when quota allows.
 There is no work here to do.
 
@@ -140,19 +159,37 @@ There is no work here to do.
 — the headline this project is usually asked about — has never been measured, and only the
 numerator ever has. Design in [roadmap.md, Part 2](roadmap.md#part-2--proving-the-saving).
 
-**3.2b is deliberately incomplete, and it is the last piece of the Karpathy pattern — and now the
-last unshipped feature of any wave.** 450 subject pages exist and every one of them only *lists* —
-**nothing in this vault has ever been revised in place.** Supersession replaces a claim; it does not fold a new observation into an existing page.
+**3.2b is deliberately incomplete, and it is now the last unshipped feature of any wave.** 450
+subject pages exist and every one of them only *lists*. What changed today is that the listing is no
+longer the whole story: four pages carry a revision trail, because seven claims were folded into
+four. **The vault has revised in place.** What it still cannot do is write a *paragraph* that
+integrates them — that is 3.2b, and it needs a live provider. Supersession replaces a claim; it does not fold a new observation into an existing page.
 The validator, store and rendering ship with 16 tests. The
 generation call does not, and the reason is not effort: a subject page that only links *cannot*
 contradict the ledger and a paragraph *can*, so the citation validation should be watched rejecting
 a real bad citation from a real provider before prose reaches the vault. Building it against a stub
 and shipping it unverified would invert the entire argument for having a validator.
 
-**3.9 was dissolved, not skipped.** CodeGraph runs its **own** MCP server, registered in
-`~/.claude.json` and `~/.codex/config.toml`, with all three projects indexed. The brain's internal
-`codegraph` provider remains `enabled: false`, and that is the correct end state — proxying it would
-build a second path to data both agents already reach directly.
+**3.9 was dissolved, not skipped — and here is exactly what runs.** Two things carry the CodeGraph
+name in this system and only one of them is live.
+
+| | State | What it is |
+|---|---|---|
+| **CodeGraph, the MCP server** | **Running**, v1.5.0 | Registered in `~/.claude.json` *and* `~/.codex/config.toml` as `codegraph serve --mcp`. This repo indexed: **219 files, 3,466 nodes, 10,921 edges, 15.24 MB** SQLite in WAL, file watcher live. It also sits on `UserPromptSubmit` as `codegraph prompt-hook` |
+| The brain's internal `codegraph` provider | **Built, disabled, correctly so** | `enabled: false · usable: false` on all three projects. It was designed to proxy the above as a seventh brain MCP tool |
+
+So yes: pre-indexed code knowledge graph, over MCP, answering structural questions without grepping.
+The routing works exactly as the pattern describes — *"where is `auth_check` defined"* goes to
+CodeGraph, *"what did we decide about retries"* goes to the brain — and **that separation is the
+integration**. Neither queries the other. Code structure is a live derivative of the working tree
+and belongs to a file watcher; a decision is an append-only claim about the past and belongs to a
+ledger. A proxy would build a second path to data both agents already reach directly, and it would
+have to invalidate on every keystroke.
+
+**On the token claim: unmeasured here.** CodeGraph publishes ~35% less cost and ~70% fewer tool calls
+across seven repositories. Nothing in this system has measured that on this machine, and the number
+should not be repeated as though it had been. It is also the reason the brain's own A/B needed
+redesigning — see *Known gaps*.
 
 ---
 
@@ -258,15 +295,32 @@ reporting confidently and wrongly.
 
 ## Known gaps
 
-**Open findings that need a human.** `brain lint` reports **4 contradictions**, **4 misdated**
-memories, and **660 of 2,097 unlinked islands** (31.5%) on this project. Building the instrument was
-the deliverable; deciding which side of a contradiction is true is not something derivation can do.
+**Open findings that need a human.** `brain lint` now reports **0 contradictions** on this project —
+all four were folded — plus **4 misdated** memories and **661 of 2,090 unlinked islands** (31.6%).
 
-The daily digest now surfaces the same findings without being asked, and across every project — where
-the numbers are considerably worse. `Ai-community-channel` carries **74 contradictions, 9 of which
-derivation cannot separate**, and **all 5,505** of its memories have never been retrieved. A count
-alone cannot distinguish a neglected corpus from a young access counter, which is why the digest says
-so in the note rather than colouring it red.
+The daily digest surfaces the same findings across every project, where the numbers are considerably
+worse. `Ai-community-channel` carries **74 contradictions, 9 of which derivation cannot separate**,
+and **all 5,505** of its memories have never been retrieved. `brain reconcile --apply` would fold the
+65 decidable ones there too; it has not been run, because that vault is not this one and the fold is
+the operator's call per project.
+
+A count alone cannot distinguish a neglected corpus from a young access counter, which is why the
+digest says so in the note rather than colouring it red.
+
+**The A/B design had a confound, and it would have credited the brain with someone else's saving.**
+Part 2 specified two conditions: cold and warm. But **CodeGraph also sits on `UserPromptSubmit`**,
+in the same settings file, firing on every prompt beside the brain hook. A cold/warm split therefore
+measures *brain + CodeGraph* against *CodeGraph* and attributes the difference entirely to the brain.
+CodeGraph's own published claim is ~35% less cost — the same order as anything the brain could show —
+so the two are not separable after the fact. `scripts/token-ab.ps1` now runs **three** conditions,
+and the brain's contribution is `(code − warm)`, never `(bare − warm)`.
+
+**The A/B has not been run.** Two blockers, both stated rather than worked around: headless
+`claude -p` returns **401 Invalid bearer token** from this environment, so it needs an authenticated
+terminal; and the design's own precondition says a half-consolidated brain understates the warm
+condition, with 1,933 jobs still queued. The harness itself is verified — a 15-session dry
+execution switched all three conditions, spawned every session, parsed every result, and restored
+`~/.claude/settings.json` to a byte-identical hash.
 
 **The dashboard did not hydrate in the preview pane — now with a cause and a partial fix.** Every
 panel renders its skeleton and never its data. Two separate things were found underneath, and neither
@@ -292,7 +346,9 @@ pixels.
 
 **Two memories the mid-session push surfaced are false.** `decay/tiers has no code at all` and
 `this project uses embeddinggemma-300M and Qwen3-Reranker-0.6B` were both true when written and are
-both wrong now. They are among the four contradictions `brain lint` reports, and the push makes them
+both wrong now. Note these are *not* what the fold resolved — folding merges re-derivations of one
+claim, and these are single claims overtaken by events. Correcting one means filing a replacement
+with `brain remember --supersedes`, which is a judgement about what is true now. They are among the four contradictions `brain lint` reports, and the push makes them
 *louder* — an unsolicited injection of a stale claim costs more attention than a stale note nobody
 opened. Resolving them needs your judgement about which side is true — item 5 in
 [what to pick up next](#what-to-pick-up-next), and the daily digest now raises it unprompted.
@@ -311,12 +367,12 @@ original nine-item list has shipped. Full reasoning and done-when criteria in
 
 | # | Work | Blocked on | Size |
 |---|---|---|---|
-| 1 | **Run all 500 LongMemEval instances** | **running** — started 23:15, ~3.5 h | L |
-| 2 | **Token-saving A/B** — 5 tasks × 2 conditions × 3 repeats | Nothing but a day of runs; better after 0.2 drains | L |
+| 1 | **Run all 500 LongMemEval instances** | **running** — restarted 02:38 from a pinned binary after the first attempt died at 2h07m | L |
+| 2 | **Run the token-saving A/B** — 5 tasks × **3** conditions × 3 repeats | **An authenticated terminal** (`claude -p` returns 401 here), then 0.2. The harness is built and verified | L |
 | 3 | **3.2b** — the synthesis generation call | **Quota**, by choice: watching the citation check refuse a *real* bad citation is the point | M |
-| 4 | **0.2** — drain the consolidation backlog | **Quota.** 1,909 pending; nothing to build | — |
-| 5 | **Resolve the 4 contradictions** | **You.** `brain reconcile` proposes; approving is a judgement | S |
-| ~~—~~ | ~~Mid-session push~~ `af81e4d` · ~~AI-first notes~~ `6a1e34f` · ~~contradiction proposals~~ `eec8925` · ~~query expansion~~ `6b431c0` · ~~scheduled reflection~~ `d4629d6` · ~~5.6 config panel~~ `10b72f8` | — | — |
+| 4 | **0.2** — drain the consolidation backlog | **Quota.** 1,933 pending; nothing to build | — |
+| ~~5~~ | ~~**Resolve the 4 contradictions**~~ — **done** `fbc6fe5`. Folded, not decided: all four were re-derivations of one claim, which is arithmetic | — | — |
+| ~~—~~ | ~~Mid-session push~~ `af81e4d` · ~~AI-first notes~~ `6a1e34f` · ~~contradiction proposals~~ `eec8925` · ~~query expansion~~ `6b431c0` · ~~scheduled reflection~~ `d4629d6` · ~~5.6 config panel~~ `10b72f8` · ~~the fold~~ `fbc6fe5` | — | — |
 
 ### Why 1 is first
 
@@ -367,6 +423,30 @@ Live on this corpus: **0 results lost, 1 newly reached.**
 It is the measured answer to the gap the cross-encoder failed to close — `ship to production` and
 `deploy` are the same claim and score ten points apart, and no scoring model can invent that link
 because the link is in the corpus, not in the model.
+
+### The fold shipped — and what it broke on the way through
+
+`fbc6fe5`. The Karpathy operation nothing here had ever performed: *"doesn't just index it for later
+retrieval — it integrates it into the existing wiki."*
+
+The gap was never really *"pages are not revised"*. It was that **claims** were not revised.
+Consolidation re-derives the same conclusion from overlapping event windows and files each as a new
+memory, so the vault accumulated duplicates and `brain lint` called them contradictions. Two appends
+per fold, nothing deleted: a new version of the keeper carrying the supersession edges, and a
+retirement version per loser. 2,097 records before and after; 2,097 versions became 2,108.
+
+**Then it exposed a defect eleven queries deep.** `brain digest` reported 2,101 memories where
+`brain lint` reported 2,090. Eleven queries selected versions by `status = 'current'`, which had been
+indistinguishable from *"the memory's latest version"* for as long as no memory had two. A fold
+breaks the equivalence in both directions at once — the keeper gains a second current version and is
+counted twice, the loser keeps its original and never leaves. The vector backfill had been counting
+retired claims as work to do, eviction had been scoring them as candidates, and the retention curve
+had been averaging them into the health number the daily digest reports. Fixed in `74423db`; the
+predicate now lives once, as `CURRENT_CLAIM`, and both commands say 2,090.
+
+This is the third time in this project that a defect survived because production had never exercised
+the other branch — after the half-life that was a time constant, and the session replay that reused
+a project-wide query. It is worth expecting a fourth.
 
 ### Scheduled reflection shipped — and why it has no model in it
 

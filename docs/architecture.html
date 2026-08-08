@@ -258,7 +258,7 @@
     </p>
     <p class="stamp">
       Rebuilt 9 August 2026 · every figure below read from the running system, not recalled ·
-      3 projects · 142,251 events · 119 test binaries green<br />
+      3 projects · 142,830 events · 120 test binaries green<br />
       Per-item status and what is left live in <code>docs/status.md</code> — maintained there, not here.
     </p>
   </header>
@@ -356,7 +356,7 @@
 
         <rect class="s-plain" x="58" y="442" width="196" height="44" rx="4" stroke-width="1.2" />
         <text class="box-sub" x="72" y="460">events</text>
-        <text class="box-sub" x="72" y="477">142,251 captured</text>
+        <text class="box-sub" x="72" y="477">142,830 captured</text>
 
         <rect class="s-plain" x="266" y="442" width="196" height="44" rx="4" stroke-width="1.2" />
         <text class="box-sub" x="280" y="460">FTS5 index</text>
@@ -395,7 +395,7 @@
         <text class="box-sub" x="58" y="678">≤ 200 events and ≤ 400 KB per job</text>
         <text class="box-sub" x="58" y="696">leased · retried · dead-lettered</text>
         <text class="box-sub" x="58" y="714">trigger carried into the prompt</text>
-        <text class="box-sub" x="58" y="738">1,909 pending · 3 dead · quota-bound</text>
+        <text class="box-sub" x="58" y="738">1,933 pending · 3 dead · quota-bound</text>
 
         <rect class="s-memory" x="500" y="630" width="300" height="124" rx="5" stroke-width="1.4" />
         <text class="box-title" x="518" y="658">GLM · Z.ai</text>
@@ -483,8 +483,8 @@
         <text class="box-title" x="58" y="1272">MarkdownProjector</text>
         <text class="box-sub" x="58" y="1292">one file per current memory</text>
         <text class="box-sub" x="58" y="1310">content-addressed generation</text>
-        <text class="box-sub" x="58" y="1328">staged, verified, renamed into place</text>
-        <text class="box-sub" x="58" y="1352">16,984 notes · 20 flagged stale</text>
+        <text class="box-sub" x="58" y="1328">revision trail where a claim was folded</text>
+        <text class="box-sub" x="58" y="1352">15,808 notes · 20 stale · 4 revised</text>
 
         <rect class="s-vault" x="460" y="1244" width="380" height="130" rx="5" stroke-width="1.4" />
         <text class="box-title" x="478" y="1272">Wikilinks · index · subjects</text>
@@ -544,13 +544,13 @@
 
         <rect class="s-memory" x="40" y="1646" width="380" height="112" rx="5" stroke-width="1.4" />
         <text class="box-title t-memory" x="58" y="1674">CodeGraph · its own MCP</text>
-        <text class="box-sub" x="58" y="1694">v1.5.0 · 3 projects indexed</text>
-        <text class="box-sub" x="58" y="1712">registered with both harnesses directly</text>
+        <text class="box-sub" x="58" y="1694">v1.5.0 · 219 files · 3,466 nodes · 10,921 edges</text>
+        <text class="box-sub" x="58" y="1712">both harnesses, MCP + its own prompt hook</text>
         <text class="box-sub" x="58" y="1736">the brain does not proxy it — on purpose</text>
 
         <rect class="s-planned" x="440" y="1646" width="380" height="112" rx="5" stroke-width="1.4" />
         <text class="box-title t-planned" x="458" y="1674">Waiting on provider quota</text>
-        <text class="box-sub t-planned" x="458" y="1694">1,909 consolidation jobs queued</text>
+        <text class="box-sub t-planned" x="458" y="1694">1,933 consolidation jobs queued</text>
         <text class="box-sub t-planned" x="458" y="1712">subject-page prose: validator ships,</text>
         <text class="box-sub t-planned" x="458" y="1730">the generation call withheld until verified</text>
 
@@ -604,13 +604,13 @@
     <div class="grid">
       <div class="card">
         <h3>Captured</h3>
-        <div class="stat" style="color: var(--evidence);">142,251</div>
+        <div class="stat" style="color: var(--evidence);">142,830</div>
         <p>events across three projects, from both agents. Zero cross-project leakage — ownership is decided by each transcript's own recorded <code>cwd</code>, never by proximity in the directory layout.</p>
       </div>
       <div class="card">
         <h3>Distilled</h3>
         <div class="stat" style="color: var(--memory);">13,246</div>
-        <p>current memories, every one citing <code>event:&lt;uuid&gt;</code>. 1,909 jobs still queued behind provider quota, so this is still climbing.</p>
+        <p>current memories, every one citing <code>event:&lt;uuid&gt;</code>. 1,933 jobs still queued behind provider quota, so this is still climbing.</p>
       </div>
       <div class="card">
         <h3>Vector index</h3>
@@ -624,7 +624,7 @@
       </div>
       <div class="card">
         <h3>Projected</h3>
-        <div class="stat" style="color: var(--vault);">16,984</div>
+        <div class="stat" style="color: var(--vault);">15,808</div>
         <p>vault notes across 450 derived subject pages. 20 flagged stale, reversible the moment retrieval returns one — and a dated health digest appended to each project&rsquo;s <code>log.md</code> every day.</p>
       </div>
       <div class="card">
@@ -813,15 +813,54 @@
           <tr><th>Tier</th><th>Ours</th><th>State</th></tr>
         </thead>
         <tbody>
-          <tr><td><strong>Working</strong> — raw observations</td><td><code>events</code>, 142,251 captured</td><td><span class="pill live">Have</span></td></tr>
+          <tr><td><strong>Working</strong> — raw observations</td><td><code>events</code>, 142,830 captured</td><td><span class="pill live">Have</span></td></tr>
           <tr><td><strong>Episodic</strong> — session summaries</td><td>Boundary hook + <code>session_stopped</code> consolidation</td><td><span class="pill live">Have — 8 Aug</span></td></tr>
           <tr><td><strong>Semantic</strong> — facts and patterns</td><td><code>Fact</code> · <code>Decision</code> · <code>Investigation</code> · <code>Preference</code></td><td><span class="pill live">Have</span></td></tr>
           <tr><td><strong>Procedural</strong> — workflows</td><td><code>Procedure</code> · <code>Task</code> · <code>Deployment</code> · <code>Checkpoint</code> · <code>Timeline</code></td><td><span class="pill live">Have</span></td></tr>
           <tr><td>Decay curve · access-strengthening</td><td>Ebbinghaus <code>retention_score</code>; ten retrievals decay ~3.4× slower, logarithmically</td><td><span class="pill live">Shipped</span></td></tr>
           <tr><td>Contradiction resolution</td><td><code>brain reconcile</code> proposes from authority → recency → evidence, and refuses when they are level</td><td><span class="pill live">Proposed, never applied</span></td></tr>
+          <tr><td>Revision in place</td><td>Supersession, live for the first time — <code>brain reconcile --apply</code> retired 7 memories into 4 claims, deleting nothing</td><td><span class="pill live">Shipped</span></td></tr>
           <tr><td>Scheduled reflection</td><td><code>brain digest</code> daily via <code>AgentBrain.Digest</code> — never-retrieved share, retention distribution, contradictions, queue depth, appended to each vault&rsquo;s <code>log.md</code></td><td><span class="pill live">Shipped — derived, no model</span></td></tr>
         </tbody>
       </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Two indexes, and why neither queries the other</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      CodeGraph runs its own MCP server against both harnesses — v1.5.0, this repository at 219
+      files, 3,466 nodes and 10,921 edges in a SQLite graph a file watcher keeps fresh — and it also
+      sits on <code>UserPromptSubmit</code> beside the brain's hook. The brain's internal
+      <code>codegraph</code> provider, which was designed to proxy it, stays
+      <code>enabled: false</code> on all three projects.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Question</th><th>Answers it</th><th>Because</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Where is <code>auth_check</code> defined? What calls it?</td><td>CodeGraph</td><td>Structure is a live derivative of the working tree; it belongs to a file watcher and is invalid the moment you type</td></tr>
+          <tr><td>What did we decide about retries, and why?</td><td>The brain</td><td>A decision is an append-only claim about the past, cited to the turn that produced it</td></tr>
+          <tr><td>Fix the bug from last week's post-mortem</td><td>Both, in order</td><td>The brain finds the session; CodeGraph finds today's code. Neither can do the other's half</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout" style="margin-top: 16px;">
+      <h3>The separation <em>is</em> the integration.</h3>
+      <p>
+        A proxy was planned and dissolved. It would have built a second path to data both agents
+        already reach directly, and it would have had to invalidate on every keystroke — a cache over
+        a file watcher. What the two share is the agent, not a database.
+      </p>
+      <p>
+        <strong>The token claim is unmeasured here.</strong> CodeGraph publishes ~35% less cost and
+        ~70% fewer tool calls across seven repositories; nothing on this machine has checked that, and
+        it should not be repeated as though it had been. It is also why the brain's own A/B needed a
+        third condition: both hooks fire on every prompt, so a two-condition split would credit the
+        brain with whatever CodeGraph saved.
+      </p>
     </div>
   </section>
 
@@ -843,21 +882,38 @@
           <tr><td>The schema — <code>CLAUDE.md</code> / <code>AGENTS.md</code></td><td>Both exist and are mirrored</td><td><span class="pill live">Have</span></td></tr>
           <tr><td><code>index.md</code> — content catalog</td><td><code>render_index</code>, regenerated each pass</td><td><span class="pill live">Have</span></td></tr>
           <tr><td><code>log.md</code> — chronological, greppable</td><td>One per project in the vault, append-only</td><td><span class="pill live">Closed</span></td></tr>
-          <tr><td><strong>Ingest</strong> — integrate into existing pages</td><td>Appends a memory per episode; 450 subject pages compound in <em>coverage</em>, but no page is ever revised</td><td><span class="pill part">The whole gap</span></td></tr>
+          <tr><td><strong>Ingest</strong> — integrate into existing pages</td><td>A re-derived claim folds into the one it repeats, by supersession; the subject page carries the trail. Prose that <em>rewrites</em> a page is 3.2b and still open</td><td><span class="pill live">Closed structurally</span></td></tr>
           <tr><td>Query — good answers filed back</td><td><code>brain remember</code>, refusing uncited claims</td><td><span class="pill live">Closed</span></td></tr>
           <tr><td>Lint — contradictions, stale, orphans</td><td><code>brain lint</code>, six derived rules</td><td><span class="pill live">Closed</span></td></tr>
         </tbody>
       </table>
     </div>
     <div class="callout" style="margin-top: 16px;">
-      <h3>Three of the four operations have closed. The fourth is the pattern.</h3>
+      <h3>All four operations have closed. The last one was not where it was thought to be.</h3>
       <p>
         The sentence that indicted the original design: the LLM <em>"doesn't just index it for later
-        retrieval — it integrates it into the existing wiki."</em> Ours now indexes, appends, links,
-        supersedes, tombstones and retires. It still does not <em>integrate</em> — <strong>13,246
-        memories and not one has been revised in place.</strong> Supersession replaces a claim; it does
-        not fold a new observation into an existing page. That is what the subject-page synthesis step
-        is for, and it is the last piece of the pattern still open.
+        retrieval — it integrates it into the existing wiki."</em> That was recorded here as a
+        <em>page</em> problem — pages compound in coverage and are never revised. Measuring it found
+        something sharper: <strong>2,097 memories, 2,097 distinct ids, and zero supersession
+        edges.</strong> The entire supersession lifecycle — schema, reader filters,
+        <code>MemoryStatus::Superseded</code>, the tests — was code production had never once
+        exercised. <code>MemoryStatus::Superseded</code> appeared in four places and every one was a
+        read. Nothing wrote it.
+      </p>
+      <p>
+        So the gap was never that pages were unrevised. It was that <em>claims</em> were.
+        Consolidation re-derives the same conclusion from overlapping event windows and files each as
+        a new memory, so the vault accumulated duplicates and <code>brain lint</code> called them
+        contradictions. <code>brain reconcile --apply</code> folds them: two appends per fold, nothing
+        deleted — a new version of the keeper carrying the supersession edges, and a retirement
+        version per loser. Live: <strong>4 contradictions folded, 7 memories superseded, 0
+        deleted</strong>, and <code>subjects/backup.md</code> now opens with <em>"1 of these 35 claims
+        has been revised in place, absorbing 4 earlier claims."</em>
+      </p>
+      <p>
+        What remains open is genuinely narrower than the row above claimed: a paragraph that
+        <em>rewrites</em> the page rather than listing what it holds. That is 3.2b, it needs a live
+        provider, and it is now the only unwritten feature in any wave.
       </p>
       <p>
         This is a different thing from the <code>llm_wiki</code> provider in the codebase, which is a

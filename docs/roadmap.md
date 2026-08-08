@@ -42,6 +42,7 @@ that cannot apply here. Copying those would be building a lint for a language no
 | LLM Wiki | **Obsolete as code, adopted as method** | The provider is a keyword searcher over Markdown and would duplicate our own FTS5. The *methodology* became 3.2, 3.6–3.8 — see Part 5 |
 | Decay / tiers / forgetting | **Shipped** | Access counting (4.1), derived staleness (4.2), gated eviction (4.3). Was "no code at all" |
 | Cross-encoder rerank | **Shipped, and switched off** | Built, measured, and the measurement said leave it off — see 1.3 |
+| **Ingest — integrate rather than append** | **Shipped** | The last Karpathy operation. Measured before it ran: 2,097 memories, 2,097 distinct ids, **zero supersession edges**. `brain reconcile --apply` folded 4 contradictions into 4 claims, retiring 7 without deleting anything — `fbc6fe5` |
 | Query expansion | **Shipped** | The redirection 1.3 pointed at. Pseudo-relevance feedback, fused as a channel so it can only add — `6b431c0` |
 | Scheduled reflection | **Shipped** | `brain digest` daily. Derived arithmetic, no provider call — the schedule without the generation, deliberately — `d4629d6` |
 
@@ -119,9 +120,9 @@ Sizes: **S** ≈ a sitting, **M** ≈ a day, **L** ≈ several days.
 
 ### 1.1 What remains — the full ranked list
 
-**Nine items, eight shipped.** Four carried over, five added by the August competitor review. What
-remains is one running benchmark, two items behind provider quota, one that needs your judgement, and
-one genuinely unstarted: the token-saving A/B. Ranked by value per effort, not by size.
+**Nine items, nine shipped or built.** Four carried over, five added by the August competitor
+review. What remains is two measurements and two provider-quota items — no unwritten feature except
+3.2b's generation call. Ranked by value per effort, not by size.
 
 | # | Work | Why here | Blocked on | Size |
 |---|---|---|---|---|
@@ -133,9 +134,10 @@ one genuinely unstarted: the token-saving A/B. Ranked by value per effort, not b
 | ~~**6**~~ | ~~**Scheduled reflection**~~ — **shipped** `d4629d6` as `brain digest` + `AgentBrain.Digest`, daily. Never-retrieved share, retention distribution, contradictions, queue depth, appended to each project's vault `log.md`. **No provider call**, so it reports during exactly the outage that makes it most useful | The "maintains itself" claim. Consolidation already ran continuously; what was missing was anything that stepped back and asked whether the result was still coherent | — | — |
 | **7** | **3.2b** — the synthesis *generation* call | The last piece of the Karpathy pattern. Validator, store and rendering ship | Watching the citation check refuse a real bad citation from a live provider | M |
 | ~~**8**~~ | ~~**5.6** — the config panel~~ — **shipped** `10b72f8` (Rust) and `c75507c` (dashboard). Wave 5 complete | Every delivery defect here looked identical from a settings page, so no setting renders without the fact that decides whether it does anything. Caught two things on its first run, one of them a bug in itself | — | — |
-| **9** | **0.2** — drain the consolidation backlog | 1,909 pending across three projects | **Provider quota.** 290 of 294 deferrals were plain HTTP 429. *Nothing to build* | — |
-| **10** | **Resolve the 4 contradictions** `brain reconcile` proposes | Derivation separates all four; approving a side is a judgement, and the daily digest now raises them unprompted | **You** | S |
-| **—** | **1 (token-saving A/B)** — design in Part 2 | The headline this project is asked about, and the numerator is all that has ever been counted | 0.2 first, then a day of runs | L |
+| **9** | **0.2** — drain the consolidation backlog | 1,933 pending across three projects | **Provider quota.** 290 of 294 deferrals were plain HTTP 429. *Nothing to build* | — |
+| ~~**10**~~ | ~~**Resolve the 4 contradictions**~~ — **done** `fbc6fe5`. Folded rather than decided: all four were re-derivations of one claim from overlapping event windows, which is arithmetic, not a judgement about truth | 7 memories superseded, 0 deleted. The first supersession this system has ever performed | — | — |
+| **11** | **Fold the other projects** | `Ai-community-channel` carries 74 contradictions, 65 of them decidable. The command exists; running it on a vault is that vault's owner's call | **You** | S |
+| **—** | **1 (token-saving A/B)** — harness **built** `6b07b18`, design in Part 2 | The headline this project is asked about, and the numerator is all that has ever been counted | An authenticated terminal (`claude -p` returns 401 here), then 0.2 | L |
 
 **Done when**, for the ones where it is not obvious:
 
@@ -287,10 +289,30 @@ cannot show it is a marketing document.
 
 1. ~~Wave 0.1 must land first~~ — **landed** (`407d345`). Measuring saved tokens with an instrument
    that counted compiled orientations rather than received ones would have overstated the numerator.
-2. **Wave 0.2 must land first.** A half-consolidated brain understates the warm condition, and 1,909
+2. **Wave 0.2 must land first.** A half-consolidated brain understates the warm condition, and 1,933
    jobs are still queued.
 3. Stop `AgentBrain.Service` during runs. Measured: with the backfill draining, a hybrid benchmark
-   took over three hours for work that takes four minutes with the machine to itself.
+   took over three hours for work that takes four minutes with the machine to itself. **And keep it
+   stopped** — committing deploys, and deploying restarts the service, so a long run interrupted by
+   any commit is back to contending with the backfill. The first 500-instance attempt died at 2h07m
+   for a related reason: `cargo` relinking the harness out from under a run started through
+   `cargo test`. Run a copy pinned outside `target/`.
+4. An **authenticated terminal**. `claude -p` returns `401 Invalid bearer token` when spawned from
+   inside an agent session, so the harness cannot drive itself.
+
+### 2.4 The harness, and what is already verified
+
+`scripts/token-ab.ps1` (`6b07b18`). Dry run by default — it spends real money on 45 sessions, and
+that is the operator's call, so nothing about it runs on a schedule.
+
+Conditions are applied by rewriting the hook file and restoring it in a `finally`, including on
+Ctrl-C: a benchmark that leaves the machine's hooks disabled is worse than one that never ran.
+Verified on a 15-session execution — all three conditions switched, every session spawned, every
+result parsed, and `~/.claude/settings.json` hashed identical before and after. The sessions
+themselves returned 401, which is the blocker above and not a harness fault.
+
+The five tasks and their rubrics are fixed in the file, in git, before any run — so nobody can say
+the set was chosen after seeing the numbers.
 
 ### 2.3 Honest bounds
 
@@ -342,7 +364,7 @@ never-retrieved — a policy reading that number would retire all 13,246 of them
 reason for each. The refusal is arithmetic, not caution.
 
 **One correction to the original framing, which still holds.** The brain is not *insufficiently
-intelligent*; it is *incompletely running*. 1,909 pending jobs across three projects is a throughput
+intelligent*; it is *incompletely running*. 1,933 pending jobs across three projects is a throughput
 problem. Adding autonomy on top of a queue that is not draining would make an unreliable system
 harder to diagnose.
 
@@ -413,7 +435,7 @@ and adopting the pattern does not require the provider.
 
 | Karpathy's operation | Ours | Status |
 |---|---|---|
-| **Ingest** — read source, then *update entity and concept pages across the wiki*; "a single source might touch 10–15 wiki pages" | Consolidation writes one new memory per episode and revises nothing | **Still the gap.** 450 subject pages compound in *coverage* — a new memory appears at the next projection — but no page is ever *revised*. 3.2b is the revision half, and it is deliberately unfinished |
+| **Ingest** — read source, then *update entity and concept pages across the wiki*; "a single source might touch 10–15 wiki pages" | Consolidation still writes one memory per episode, but a re-derived claim now **folds into the one it repeats** by supersession, and the subject page says so | **Closed structurally** `fbc6fe5`. The diagnosis in this row was subtly wrong: the problem was never that *pages* were unrevised, it was that *claims* were. 2,097 memories carried 2,097 distinct ids and zero supersession edges, so duplicates accumulated and `lint` called them contradictions. What is still open is *prose* — 3.2b, deliberately unfinished |
 | **Query** — "good answers can be filed back into the wiki as new pages… your explorations compound" | **Shipped** `22f9e97` as `brain remember` | **Closed** |
 | **Lint** — contradictions, stale claims, orphans, concepts lacking a page, missing cross-references | **Shipped** `7816bc3`, six derived rules | **Closed** |
 
@@ -569,7 +591,7 @@ holding.
 
 | Their tier | Ours |
 |---|---|
-| Working — raw observations | `events`, append-only, **142,251** captured |
+| Working — raw observations | `events`, append-only, **142,830** captured |
 | Episodic — session summaries | **Closed** — 3.3, triggered by the boundary hook and told in the prompt that it is looking at a finished episode |
 | Semantic — facts and patterns | `Fact`, `Decision`, `Investigation`, `Preference` |
 | Procedural — workflows | `Procedure`, `Task`, `Deployment`, `Checkpoint`, `Timeline` |
@@ -805,8 +827,9 @@ The remaining order is short and has one real decision in it:
 
 1. **0.2 drains itself** when quota returns. Nothing to do.
 2. **3.2b's generation call** — the smallest remaining piece of code, and it wants a live provider to
-   verify rather than a stub.
-3. **Wave 1**, which needs 0.2 first.
+   verify rather than a stub. It is now the *only* unwritten feature in any wave.
+3. **Wave 1**, which needs 0.2 first — and an authenticated terminal, which was not on this list
+   because nobody had tried to run the harness from inside an agent session before.
 4. ~~**Query expansion**~~ — **shipped** `6b431c0`.
 5. ~~**Session replay, retrieval explain and config**~~ — **all shipped** (`3a2c5b1`, `ec30787`,
    `10b72f8`). Wave 5 is complete.
