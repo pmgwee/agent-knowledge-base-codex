@@ -22,6 +22,7 @@ through in the tables below and listed in *What has shipped*, immediately after 
 | **2.2** `brain forget` as a tombstone | `b05e67f` | A withdrawn memory leaves listing, lookup, both keyword statements, the vector channel and the embedding queue — one test walks all six |
 | **3.1** Orientation ranked by relevance | `bc75702` | A ranked memory outranks one that only sorts earlier; unranked ones are demoted, not dropped |
 | **3.8** Greppable vault `log.md` | `e78762a` | `grep "^## \[" log.md \| tail -5` returns the last projections |
+| **3.2a** Subject pages, derived | `56cfb8a` | 150 pages live in the vault — `rrf`, `longmemeval`, `sessionstart`, `vcruntime140`, `mcp` — each asserting nothing of its own |
 | — Abandoned staging directories collected | `b4ffb34` | 5,834 orphaned vault files, and both directions pinned by test |
 | — Job failures record why, not just what | `6d8c6cd` | Parse errors now name the field; three dead letters had said nothing |
 
@@ -100,7 +101,7 @@ pull path. Do not ship the LLM Wiki provider — adopt the methodology instead.*
 | 1 | Auto-maintained `[[wikilinks]]` | **Shipped**, and stronger — links derive from evidence, not from a model's suggestion, and two tests pin that a link to a superseded memory is dropped rather than left dangling |
 | 2 | PostToolUse vault validation | **Obsolete** — see below |
 | 3 | Injection-size meter | **Shipped** — the feature existed; the bug was that it measured the wrong side of the pipe (`407d345`) |
-| 4 | Entity pages | **Gap — the highest-value item remaining** |
+| 4 | Entity pages | **Shipped** as subject pages (`56cfb8a`) — derived from embedding tightness, not proposed. Synthesis prose (3.2b) is the remaining half |
 | 5 | Cross-linker for orphans / broken links | **Obsolete** |
 
 **Why #2 is obsolete.** That validator exists because their agent hand-writes Markdown into the
@@ -124,7 +125,7 @@ derived. This tool would find almost nothing.
 | **`memory_verify` — provenance as a tool** | **Shipped** | `brain verify memory` (`fa610b0`) resolves a claim to the transcript file and byte offset its evidence came from |
 | **Session replay** | **Gap** | Dashboard shows aggregates and cannot show you a single session |
 | Auto-forgetting (TTL, importance eviction) | **Gap** | Same item as decay/tiers. *Manual* withdrawal now ships; the automatic half is what is missing |
-| Knowledge graph: entity extraction + BFS | **Gap** | Subsumed by entity pages (0.2 #4) |
+| Knowledge graph: entity extraction + BFS | **Partly closed** | Subject pages ship (`56cfb8a`). BFS traversal is not built and is not obviously wanted — one hop over evidence already backs the graph channel |
 | Team memory (namespaced shared/private) | **Not building** | Single-operator system. Cost is real, value is zero here |
 | Git snapshots of memory state | **Not building** | Append-only ledger plus GFS backups already give version, rollback and diff |
 | Privacy filter | **Shipped — and ahead** | `redact_string` strips credential assignments and secret tokens before egress, and writes a **per-job redaction manifest**. Theirs strips silently; ours leaves an audit trail |
@@ -196,7 +197,7 @@ honour gives the same user-visible result without breaking it.
 | | Work | Done when | Size |
 |---|---|---|---|
 | ~~3.1~~ | ~~**Orientation ranked by relevance**~~ **Shipped `bc75702`.** | A session opened after a week on another project receives that project's relevant memories, not the last 500 events; orientation stays inside the 1,500-token contract | M |
-| 3.2a | **Subject pages**, derived — one page per recurring subject, asserting nothing of its own | `vault` and `consolidation` each have a page listing their memories; `fix`, `only` and `via` have none. Design in Part 7 | M |
+| ~~3.2a~~ | ~~**Subject pages**, derived~~ **Shipped `56cfb8a`.** 328 candidates derived, top 150 published | M |
 | 3.2b | **Synthesis section** on each subject page, LLM-written and memory-cited | The paragraph cites only memory ids that exist on the page, validated the same way consolidation output is; it changes when a new memory joins the subject | L |
 | 3.3 | **Episodic session summaries** at `SessionEnd` | Every completed session has exactly one summary memory citing events from that session only | M |
 | 3.4 | **Cross-encoder rerank** over the fused top-k | LongMemEval `single-session-preference` R@5 improves on 90.0%, and no category regresses | L |
@@ -650,9 +651,9 @@ other and can run in either order; 2 is higher risk-reduction, 3 is higher visib
 depends on 3.3 (episodic summaries) for anything to decay meaningfully. Wave 5 trails everything,
 because a console is most useful once there is more to show.
 
-Waves 0 and 2 are done bar the quota-bound backlog (0.2). Wave 3 has 3.1 and 3.8 shipped and 3.5
-cut. What remains there is the substantial half: subject pages (3.2a/b), session summaries (3.3),
-the reranker (3.4), filing answers back (3.6), `brain lint` (3.7), and CodeGraph on the pull path
+Waves 0 and 2 are done bar the quota-bound backlog (0.2). Wave 3 has 3.1, 3.2a and 3.8 shipped
+and 3.5 cut. What remains there: synthesis prose on subject pages (3.2b), session summaries (3.3), the
+reranker (3.4), filing answers back (3.6), `brain lint` (3.7), and CodeGraph on the pull path
 (3.9) — then Waves 1, 4 and 5.
 
 The next real decision is **Wave 1 against the rest of Wave 3**: prove the saving, or build the
