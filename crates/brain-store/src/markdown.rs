@@ -23,6 +23,14 @@ const PROJECTION_SCHEMA_VERSION: u32 = 2;
 /// implies the vault holds less than it does.
 const MAX_INDEX_LINKS_PER_KIND: usize = 40;
 
+/// How long a memory must be both old and unretrieved before the projection says so.
+///
+/// Both conditions together, and neither on its own means anything: a decision from March can be
+/// perfectly current, and a memory recorded yesterday has had no chance to be wanted. Ninety days
+/// is deliberately generous — this marks a note, and a mark that fires often is one readers learn
+/// to skip.
+const STALE_AFTER: time::Duration = time::Duration::days(90);
+
 pub struct MarkdownProjector {
     vault_root: PathBuf,
 }
@@ -59,9 +67,18 @@ impl MarkdownProjector {
         // Subject pages are what turn a pile of episodic notes into a wiki: one page per recurring
         // subject, gaining entries as work continues. Derived, never asserted — see `subjects`.
         let subject_pages = render_subject_pages(ledger, project_id, &memories, &links)?;
+        // Derived, not stored: staleness is computed from age and access, both of which move on
+        // their own, so a memory stops being stale the moment retrieval returns it. There is no
+        // flag to clear and nothing to go out of date.
+        let stale_ids = ledger
+            .stale_memory_ids(time::OffsetDateTime::now_utc(), STALE_AFTER)
+            .unwrap_or_default();
         let mut rendered = memories
             .into_iter()
-            .map(|memory| render_memory(project_id, memory, &links))
+            .map(|memory| {
+                let stale = stale_ids.contains(&memory.id);
+                render_memory(project_id, memory, &links, stale)
+            })
             .collect::<Result<Vec<_>>>()?;
         rendered.extend(index);
         rendered.extend(subject_pages);
@@ -510,6 +527,7 @@ fn render_memory(
     project_id: ProjectId,
     memory: MemoryRecord,
     links: &LinkIndex,
+    stale: bool,
 ) -> Result<RenderedMemory> {
     ensure!(
         memory.scope == MemoryScope::Project(project_id),

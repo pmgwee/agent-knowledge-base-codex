@@ -76,6 +76,44 @@ impl EventLedger {
             .transpose()
     }
 
+    /// Memories nothing has retrieved and whose evidence has gone quiet.
+    ///
+    /// Both conditions, not either. Age alone is not staleness — a decision from March can be
+    /// perfectly current — and disuse alone is not either, since a memory recorded yesterday has
+    /// had no chance to be used. A claim is stale when it is *old* and *nothing ever wanted it*,
+    /// which is the weakest statement that carries any information.
+    ///
+    /// Reversible by construction: the moment retrieval returns one, it has an access row and
+    /// stops being stale. Nothing needs to clear a flag, because there is no flag — staleness is
+    /// computed from two facts that both move on their own.
+    pub fn stale_memory_ids(
+        &self,
+        now: time::OffsetDateTime,
+        quiet_for: time::Duration,
+    ) -> Result<std::collections::HashSet<uuid::Uuid>> {
+        let cutoff = timestamp_ns(now - quiet_for)?;
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT v.memory_id
+            FROM memory_versions v
+            JOIN memory_records r ON r.memory_id = v.memory_id
+            WHERE r.project_id = ?1 AND v.status = 'current'
+              AND v.valid_from_ns < ?2
+              AND NOT EXISTS (
+                  SELECT 1 FROM memory_tombstones t WHERE t.memory_id = v.memory_id
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM memory_access a WHERE a.memory_id = v.memory_id
+              )
+            "#,
+        )?;
+        let rows = statement
+            .query_map(params![self.project_scope.0.to_string(), cutoff], |row| {
+                row.get::<_, String>(0)
+            })?;
+        rows.map(|row| Ok(uuid::Uuid::parse_str(&row?)?)).collect()
+    }
+
     /// How many current memories retrieval has never reached.
     ///
     /// The number that makes decay discussable. A brain where most memories are never retrieved is

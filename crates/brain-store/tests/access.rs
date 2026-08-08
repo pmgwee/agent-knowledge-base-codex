@@ -102,6 +102,43 @@ fn a_memory_nothing_asked_for_stays_uncounted() {
     assert_eq!(ledger.never_retrieved_memory_count().expect("never"), 1);
 }
 
+#[test]
+fn staleness_needs_both_age_and_disuse_and_reverses_on_retrieval() {
+    // Neither condition means anything alone: a decision from March can be perfectly current, and
+    // a memory recorded yesterday has had no chance to be wanted. And there is no flag to clear —
+    // staleness is computed from two facts that both move on their own, so retrieval undoes it.
+    let (mut ledger, project, worktree) = fixture();
+    let evidence = append_event(&mut ledger, project, worktree);
+    let now = time::OffsetDateTime::UNIX_EPOCH + time::Duration::days(500);
+    let quiet_for = time::Duration::days(90);
+
+    let mut old = memory(project, worktree, "Old and unwanted", vec![evidence]);
+    old.valid_from = now - time::Duration::days(200);
+    let mut recent = memory(project, worktree, "Recent and unwanted", vec![evidence]);
+    recent.valid_from = now - time::Duration::days(10);
+    ledger.append_memory(&old).expect("append old");
+    ledger.append_memory(&recent).expect("append recent");
+
+    let stale = ledger.stale_memory_ids(now, quiet_for).expect("stale");
+    assert!(stale.contains(&old.id), "old and unretrieved is stale");
+    assert!(
+        !stale.contains(&recent.id),
+        "recent is not stale however unused — it has had no chance to be wanted"
+    );
+
+    // Retrieval reverses it, with nothing to clear.
+    ledger
+        .record_memory_access(&[old.id], now)
+        .expect("record access");
+    assert!(
+        !ledger
+            .stale_memory_ids(now, quiet_for)
+            .expect("stale")
+            .contains(&old.id),
+        "a memory that was just asked for is not stale"
+    );
+}
+
 // --- fixtures ---
 
 fn fixture() -> (EventLedger, ProjectId, WorktreeId) {

@@ -46,6 +46,8 @@ pub struct ContextCompiler {
     global_preferences: Vec<MemoryRecord>,
     live_state: Option<LiveState>,
     provider_results: Vec<ProviderResult>,
+    /// Memories nothing has retrieved in a long while. Sorted behind the rest, never removed.
+    stale_memories: std::collections::HashSet<uuid::Uuid>,
     /// Memory ids in relevance order, most relevant first.
     ///
     /// Empty means no ranking was computed and the alphabetical fallback stands. That is the
@@ -63,6 +65,7 @@ impl ContextCompiler {
             live_state: None,
             provider_results: Vec::new(),
             memory_ranking: Vec::new(),
+            stale_memories: std::collections::HashSet::new(),
         }
     }
 
@@ -103,6 +106,16 @@ impl ContextCompiler {
             })
             .collect::<Vec<_>>();
         let ranking = rank_memories_against_recent_work(ledger, project_id, &events);
+        // Demoted, never dropped. A stale memory is one nothing has asked for in ninety days, which
+        // is a weak signal on its own — plenty of correct claims are simply never queried. It is
+        // strong enough to break a tie for the last slot in an orientation and not strong enough
+        // to justify hiding anything.
+        let stale = ledger
+            .stale_memory_ids(
+                time::OffsetDateTime::now_utc(),
+                time::Duration::days(STALE_AFTER_DAYS),
+            )
+            .unwrap_or_default();
         Ok(Self {
             events,
             memories: ledger.current_project_memories()?,
@@ -110,6 +123,7 @@ impl ContextCompiler {
             live_state: None,
             provider_results: Vec::new(),
             memory_ranking: ranking,
+            stale_memories: stale,
         })
     }
 
@@ -175,7 +189,11 @@ impl ContextCompiler {
         //
         // Reordering here rather than inside `resolve_candidates` keeps supersession and conflict
         // detection exactly as they were; this only decides who gets the scarce space.
-        apply_memory_ranking(&mut resolved.current, &self.memory_ranking);
+        apply_memory_ranking(
+            &mut resolved.current,
+            &self.memory_ranking,
+            &self.stale_memories,
+        );
         let mut blocks = Vec::new();
         if let Some(live) = self
             .live_state
@@ -331,6 +349,13 @@ const RECENT_TURNS_AS_QUERY: usize = 12;
 /// query is a vaguer one.
 const MAX_QUERY_CHARACTERS: usize = 1_200;
 
+/// How long a memory must be both old and unretrieved before it is demoted in an orientation.
+///
+/// Matches the projection's threshold, so a note marked stale in the vault is the same note
+/// demoted here. Two different numbers would mean the vault and the orientation disagreed about
+/// what stale means.
+const STALE_AFTER_DAYS: i64 = 90;
+
 /// Rank memories by relevance to what was recently happening.
 ///
 /// Fail-quiet by design: a ranking that cannot be computed returns empty, and empty leaves the
@@ -369,8 +394,12 @@ fn rank_memories_against_recent_work(
 ///
 /// Unranked memories keep their existing relative order rather than being dropped: a ranking is a
 /// preference, not a filter, and a memory the ranker never saw is not thereby irrelevant.
-fn apply_memory_ranking(memories: &mut [MemoryRecord], ranking: &[uuid::Uuid]) {
-    if ranking.is_empty() {
+fn apply_memory_ranking(
+    memories: &mut [MemoryRecord],
+    ranking: &[uuid::Uuid],
+    stale: &std::collections::HashSet<uuid::Uuid>,
+) {
+    if ranking.is_empty() && stale.is_empty() {
         return;
     }
     let position: std::collections::HashMap<uuid::Uuid, usize> = ranking
@@ -378,7 +407,15 @@ fn apply_memory_ranking(memories: &mut [MemoryRecord], ranking: &[uuid::Uuid]) {
         .enumerate()
         .map(|(index, id)| (*id, index))
         .collect();
-    memories.sort_by_key(|memory| position.get(&memory.id).copied().unwrap_or(usize::MAX));
+    // Staleness sorts first, so it separates the ranked set into fresh and stale halves without
+    // reordering within either. A stale memory the ranker put first still beats a stale memory it
+    // put fortieth — the flag decides which half, relevance decides the position inside it.
+    memories.sort_by_key(|memory| {
+        (
+            stale.contains(&memory.id),
+            position.get(&memory.id).copied().unwrap_or(usize::MAX),
+        )
+    });
 }
 
 fn compile_blocks(query: ContextQuery, blocks: Vec<ContextBlock>) -> Result<CompiledContext> {
