@@ -46,6 +46,12 @@ pub struct ContextCompiler {
     global_preferences: Vec<MemoryRecord>,
     live_state: Option<LiveState>,
     provider_results: Vec<ProviderResult>,
+    /// Memory ids in relevance order, most relevant first.
+    ///
+    /// Empty means no ranking was computed and the alphabetical fallback stands. That is the
+    /// honest default for a brain with no retrieval available, and it is what this used to do
+    /// unconditionally — see `compile`.
+    memory_ranking: Vec<uuid::Uuid>,
 }
 
 impl ContextCompiler {
@@ -56,9 +62,21 @@ impl ContextCompiler {
             global_preferences: Vec::new(),
             live_state: None,
             provider_results: Vec::new(),
+            memory_ranking: Vec::new(),
         }
     }
 
+    /// Load a session's orientation material from the ledger.
+    ///
+    /// Events are read chronologically, which is right: "what was I doing" is a recency question
+    /// and always was. Memories are not, and used to be ordered alphabetically by subject once
+    /// supersession had run — so with thousands of them and room for two or three, the same few
+    /// always won on the strength of their first letter.
+    ///
+    /// There is no query text at session start; the agent has not said anything yet. What there is
+    /// is the work you were last doing, so that becomes the query. Ranking memories against the
+    /// recent turns is the closest thing to "what is relevant right now" available before the user
+    /// speaks, and it is the same signal a person uses when they pick up where they left off.
     pub fn from_ledger(
         ledger: &brain_store::EventLedger,
         project_id: ProjectId,
@@ -83,18 +101,26 @@ impl ContextCompiler {
                 payload: event.payload,
                 raw: event.raw,
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let ranking = rank_memories_against_recent_work(ledger, project_id, &events);
         Ok(Self {
             events,
             memories: ledger.current_project_memories()?,
             global_preferences: Vec::new(),
             live_state: None,
             provider_results: Vec::new(),
+            memory_ranking: ranking,
         })
     }
 
     pub fn with_memories(mut self, memories: Vec<MemoryRecord>) -> Self {
         self.memories = memories;
+        self
+    }
+
+    /// Order the memory section by relevance instead of alphabetically.
+    pub fn with_memory_ranking(mut self, ranking: Vec<uuid::Uuid>) -> Self {
+        self.memory_ranking = ranking;
         self
     }
 
@@ -139,7 +165,17 @@ impl ContextCompiler {
         {
             memory_candidates.push(live_test_memory(query.project_id, event, content));
         }
-        let resolved = resolve_candidates(query.project_id, as_of, memory_candidates);
+        let mut resolved = resolve_candidates(query.project_id, as_of, memory_candidates);
+        // `resolve_candidates` finishes with `current.sort_by_key(subject_key)`, which is stable
+        // and alphabetical — and alphabetical is not a relevance order. With 2,097 memories and
+        // room for two or three, that meant the orientation always opened with whatever sorted
+        // first: on the live brain, a note about a 150 ms status message flashing, and one about
+        // malformed stdin. A memory titled "Zero of 1,265 vault files contain wikilinks" could
+        // never appear at all.
+        //
+        // Reordering here rather than inside `resolve_candidates` keeps supersession and conflict
+        // detection exactly as they were; this only decides who gets the scarce space.
+        apply_memory_ranking(&mut resolved.current, &self.memory_ranking);
         let mut blocks = Vec::new();
         if let Some(live) = self
             .live_state
@@ -283,6 +319,66 @@ impl ContextCompiler {
         }
         compile_blocks(query, blocks)
     }
+}
+
+/// How many recent turns contribute to the implicit query.
+///
+/// Enough to describe what the session was about, few enough that a long-running project does not
+/// dilute the query into a description of the whole repository.
+const RECENT_TURNS_AS_QUERY: usize = 12;
+
+/// Longest implicit query, in characters. Embedding truncates at 512 tokens anyway, and a longer
+/// query is a vaguer one.
+const MAX_QUERY_CHARACTERS: usize = 1_200;
+
+/// Rank memories by relevance to what was recently happening.
+///
+/// Fail-quiet by design: a ranking that cannot be computed returns empty, and empty leaves the
+/// previous alphabetical order in place. An orientation merely ordered badly is enormously better
+/// than a session that starts with none, so nothing here may turn a retrieval problem into a hook
+/// failure.
+fn rank_memories_against_recent_work(
+    ledger: &brain_store::EventLedger,
+    project_id: ProjectId,
+    events: &[ContextEvidence],
+) -> Vec<uuid::Uuid> {
+    let mut query = String::new();
+    for event in events.iter().take(RECENT_TURNS_AS_QUERY) {
+        let Some(text) = extract_text(event) else {
+            continue;
+        };
+        if query.len() + text.len() > MAX_QUERY_CHARACTERS {
+            break;
+        }
+        query.push_str(&text);
+        query.push(' ');
+    }
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
+    let search = brain_store::SearchQuery::text(project_id, query)
+        .memories_only()
+        .with_limit(64);
+    match ledger.search(&search) {
+        Ok(hits) => hits.into_iter().filter_map(|hit| hit.memory_id).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Reorder memories by a relevance ranking, leaving unranked ones behind it.
+///
+/// Unranked memories keep their existing relative order rather than being dropped: a ranking is a
+/// preference, not a filter, and a memory the ranker never saw is not thereby irrelevant.
+fn apply_memory_ranking(memories: &mut [MemoryRecord], ranking: &[uuid::Uuid]) {
+    if ranking.is_empty() {
+        return;
+    }
+    let position: std::collections::HashMap<uuid::Uuid, usize> = ranking
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (*id, index))
+        .collect();
+    memories.sort_by_key(|memory| position.get(&memory.id).copied().unwrap_or(usize::MAX));
 }
 
 fn compile_blocks(query: ContextQuery, blocks: Vec<ContextBlock>) -> Result<CompiledContext> {
