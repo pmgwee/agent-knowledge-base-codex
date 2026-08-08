@@ -1,0 +1,756 @@
+<title>Secondary Brain — Architecture</title>
+
+<style>
+  :root {
+    --ground: #F2F5F7;
+    --surface: #FFFFFF;
+    --surface-2: #E9EEF1;
+    --border: #CBD6DD;
+    --border-firm: #9FB1BC;
+    --ink: #101A21;
+    --muted: #566B77;
+
+    --evidence: #2E6390;
+    --memory: #367A57;
+    --retrieval: #A96D08;
+    --vault: #9E4F35;
+    --planned: #78868F;
+
+    --evidence-wash: #E4EDF5;
+    --memory-wash: #E2F0E8;
+    --retrieval-wash: #FAEEDA;
+    --vault-wash: #F7E7E1;
+
+    --shadow: 0 1px 2px rgba(16, 26, 33, .06), 0 8px 24px -12px rgba(16, 26, 33, .18);
+
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0B1015;
+      --surface: #131C23;
+      --surface-2: #18242C;
+      --border: #26333C;
+      --border-firm: #3D5261;
+      --ink: #DCE7EE;
+      --muted: #8298A6;
+      --evidence: #63A0D0;
+      --memory: #63B189;
+      --retrieval: #E4A83F;
+      --vault: #D08265;
+      --planned: #7B8B96;
+      --evidence-wash: #14232F;
+      --memory-wash: #12261D;
+      --retrieval-wash: #2A2114;
+      --vault-wash: #2A1A15;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -14px rgba(0, 0, 0, .7);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0B1015; --surface: #131C23; --surface-2: #18242C;
+    --border: #26333C; --border-firm: #3D5261;
+    --ink: #DCE7EE; --muted: #8298A6;
+    --evidence: #63A0D0; --memory: #63B189; --retrieval: #E4A83F;
+    --vault: #D08265; --planned: #7B8B96;
+    --evidence-wash: #14232F; --memory-wash: #12261D;
+    --retrieval-wash: #2A2114; --vault-wash: #2A1A15;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -14px rgba(0, 0, 0, .7);
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F2F5F7; --surface: #FFFFFF; --surface-2: #E9EEF1;
+    --border: #CBD6DD; --border-firm: #9FB1BC;
+    --ink: #101A21; --muted: #566B77;
+    --evidence: #2E6390; --memory: #367A57; --retrieval: #A96D08;
+    --vault: #9E4F35; --planned: #78868F;
+    --evidence-wash: #E4EDF5; --memory-wash: #E2F0E8;
+    --retrieval-wash: #FAEEDA; --vault-wash: #F7E7E1;
+    --shadow: 0 1px 2px rgba(16, 26, 33, .06), 0 8px 24px -12px rgba(16, 26, 33, .18);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+  }
+
+  header { display: flex; flex-direction: column; gap: 14px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(26px, 4.2vw, 40px);
+    font-weight: 600;
+    letter-spacing: -.02em;
+    line-height: 1.12;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .standfirst { max-width: 68ch; font-size: 16px; color: var(--muted); margin: 0; }
+
+  .stamp {
+    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+    border-top: 1px solid var(--border); padding-top: 12px; margin: 2px 0 0;
+  }
+
+  .rule { height: 1px; background: var(--border); border: 0; margin: 0; }
+
+  h2 {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 18px;
+  }
+
+  figure { margin: 0; display: flex; flex-direction: column; gap: 16px; }
+
+  .canvas {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    box-shadow: var(--shadow);
+  }
+
+  .canvas svg { display: block; min-width: 900px; width: 100%; height: auto; }
+
+  figcaption { font-size: 14px; color: var(--muted); max-width: 76ch; }
+
+  .band-label { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; fill: var(--muted); }
+  .box-title  { font-family: var(--mono); font-size: 14px; font-weight: 600; fill: var(--ink); }
+  .box-sub    { font-family: var(--mono); font-size: 11.5px; fill: var(--muted); }
+  .edge-label { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+  .tag        { font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; }
+
+  .s-evidence  { fill: var(--evidence-wash);  stroke: var(--evidence); }
+  .s-memory    { fill: var(--memory-wash);    stroke: var(--memory); }
+  .s-retrieval { fill: var(--retrieval-wash); stroke: var(--retrieval); }
+  .s-vault     { fill: var(--vault-wash);     stroke: var(--vault); }
+  .s-plain     { fill: var(--surface-2);      stroke: var(--border-firm); }
+  .s-planned   { fill: none; stroke: var(--planned); stroke-dasharray: 5 4; }
+
+  .t-evidence  { fill: var(--evidence); }
+  .t-memory    { fill: var(--memory); }
+  .t-retrieval { fill: var(--retrieval); }
+  .t-vault     { fill: var(--vault); }
+  .t-planned   { fill: var(--planned); }
+
+  .flow      { stroke: var(--border-firm); stroke-width: 1.6; fill: none; }
+  .flow-warm { stroke: var(--retrieval);   stroke-width: 2;   fill: none; }
+  .flow-soft { stroke: var(--planned); stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 22px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .chip { width: 22px; height: 10px; border-radius: 2px; border: 1.4px solid; display: inline-block; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: var(--shadow);
+  }
+
+  .card h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .stat {
+    font-family: var(--mono);
+    font-size: 27px;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+
+  .card p { margin: 0; font-size: 13.5px; color: var(--muted); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); box-shadow: var(--shadow); }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  thead th { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td:first-child { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+  .num { font-variant-numeric: tabular-nums; font-family: var(--mono); }
+  .win { color: var(--memory); font-weight: 600; }
+  .lose { color: var(--retrieval); font-weight: 600; }
+
+  .pill {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    padding: 2.5px 8px;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .pill.live { color: var(--memory); }
+  .pill.part { color: var(--retrieval); }
+  .pill.off  { color: var(--planned); }
+
+  code { font-family: var(--mono); font-size: .92em; background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+
+  .callout {
+    border-left: 2px solid var(--retrieval);
+    background: var(--surface);
+    border-radius: 0 6px 6px 0;
+    padding: 16px 18px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .callout h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .callout p { margin: 0; font-size: 13.5px; color: var(--muted); }
+  .callout-stack { display: flex; flex-direction: column; gap: 12px; }
+
+  @media (max-width: 640px) { .wrap { padding: 36px 16px 64px; gap: 36px; } }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Cross-agent persistent memory · Rust · Windows · local-only</div>
+    <h1>The secondary brain, end to end</h1>
+    <p class="standfirst">
+      Every Claude Code and Codex session on this machine is captured to an append-only SQLite ledger on
+      <code>C:</code>, distilled by an LLM into cited memories, searched by four fused channels, and projected
+      to Markdown you can open in Obsidian. Nothing leaves the machine except the consolidation call.
+    </p>
+    <p class="stamp">
+      Rebuilt 8 August 2026 · every figure below read from the running system, not recalled ·
+      3 projects · 140,134 events · 124 test binaries green
+    </p>
+  </header>
+
+  <hr class="rule" />
+
+  <figure>
+    <h2>Full pipeline</h2>
+    <div class="canvas">
+      <svg viewBox="0 0 1280 1900" role="img"
+           aria-label="Data flow of the secondary brain: agent sessions write transcripts, a watcher captures them into SQLite ledgers, an LLM consolidates events into cited memories, four retrieval channels fuse into an orientation returned to the agent, and a projector writes a Markdown vault for Obsidian.">
+
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--border-firm)" />
+          </marker>
+          <marker id="ar-warm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--retrieval)" />
+          </marker>
+          <marker id="ar-soft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--planned)" />
+          </marker>
+        </defs>
+
+        <!-- ============ BAND 1 — AGENT SESSION ============ -->
+        <text class="band-label" x="40" y="30">1 · AGENT SESSION</text>
+
+        <rect class="s-plain" x="40" y="44" width="250" height="86" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="58" y="72">Claude Code</text>
+        <text class="box-sub" x="58" y="92">writes JSONL transcript</text>
+        <text class="box-sub" x="58" y="110">~/.claude/projects</text>
+
+        <rect class="s-plain" x="310" y="44" width="250" height="86" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="328" y="72">Codex CLI</text>
+        <text class="box-sub" x="328" y="92">writes JSONL transcript</text>
+        <text class="box-sub" x="328" y="110">~/.codex/sessions</text>
+
+        <rect class="s-retrieval" x="600" y="44" width="640" height="86" rx="5" stroke-width="1.4" />
+        <text class="tag t-retrieval" x="618" y="66">HOOK LIFECYCLE — both harnesses</text>
+
+        <rect class="s-retrieval" x="618" y="78" width="132" height="34" rx="4" stroke-width="1.4" />
+        <text class="box-sub t-retrieval" x="632" y="99">SessionStart</text>
+
+        <rect class="s-retrieval" x="766" y="78" width="132" height="34" rx="4" stroke-width="1.4" />
+        <text class="box-sub t-retrieval" x="780" y="99">SessionEnd</text>
+
+        <rect class="s-planned" x="914" y="78" width="140" height="34" rx="4" stroke-width="1.4" />
+        <text class="box-sub t-planned" x="928" y="99">PreToolUse</text>
+
+        <rect class="s-planned" x="1070" y="78" width="152" height="34" rx="4" stroke-width="1.4" />
+        <text class="box-sub t-planned" x="1084" y="99">PostToolUse</text>
+
+        <text class="edge-label" x="618" y="127">solid = registered and firing · dashed = handler exists, not registered</text>
+
+        <!-- ============ BAND 2 — CAPTURE ============ -->
+        <text class="band-label" x="40" y="196">2 · CAPTURE — brain-service.exe (Task Scheduler, 6 supervised loops)</text>
+
+        <path class="flow" d="M 165 130 L 165 212" marker-end="url(#ar)" />
+        <path class="flow" d="M 435 130 L 435 212" marker-end="url(#ar)" />
+        <text class="edge-label" x="180" y="176">appends turns</text>
+
+        <rect class="s-evidence" x="40" y="212" width="520" height="104" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="58" y="240">Transcript watcher</text>
+        <text class="box-sub" x="58" y="260">tails JSONL · byte-offset cursor per source</text>
+        <text class="box-sub" x="58" y="278">rescans roots every 120 s for new sessions</text>
+        <text class="box-sub" x="58" y="296">ownership decided by each transcript's own cwd</text>
+
+        <rect class="s-retrieval" x="600" y="212" width="300" height="104" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="618" y="240">brain-hook.exe</text>
+        <text class="box-sub" x="618" y="260">named pipe → service</text>
+        <text class="box-sub" x="618" y="278">3 s ceiling, fails open</text>
+        <text class="box-sub" x="618" y="296">start: pushes · end: marks boundary</text>
+
+        <rect class="s-retrieval" x="940" y="212" width="300" height="104" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="958" y="240">brain-mcp.exe</text>
+        <text class="box-sub" x="958" y="260">stdio MCP for Codex</text>
+        <text class="box-sub" x="958" y="278">6 tools · pull, on demand</text>
+        <text class="box-sub" x="958" y="296">checkpoint · search · timeline</text>
+
+        <path class="flow-warm" d="M 683 130 L 683 212" marker-end="url(#ar-warm)" />
+        <path class="flow-warm" d="M 435 130 L 435 160 L 1090 160 L 1090 212" marker-end="url(#ar-warm)" />
+
+        <!-- ============ BAND 3 — STORE ============ -->
+        <text class="band-label" x="40" y="382">3 · STORE — C:\Users\…\AgentBrain — one ledger per project, append-only</text>
+
+        <path class="flow" d="M 300 316 L 300 398" marker-end="url(#ar)" />
+        <text class="edge-label" x="315" y="362">normalized events</text>
+
+        <rect class="s-evidence" x="40" y="398" width="860" height="150" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="58" y="426">SQLite ledger · WAL · one file per project</text>
+
+        <rect class="s-plain" x="58" y="442" width="196" height="44" rx="4" stroke-width="1.2" />
+        <text class="box-sub" x="72" y="460">events</text>
+        <text class="box-sub" x="72" y="477">140,134 captured</text>
+
+        <rect class="s-plain" x="266" y="442" width="196" height="44" rx="4" stroke-width="1.2" />
+        <text class="box-sub" x="280" y="460">FTS5 index</text>
+        <text class="box-sub" x="280" y="477">events + memories, separate</text>
+
+        <rect class="s-plain" x="474" y="442" width="196" height="44" rx="4" stroke-width="1.2" />
+        <text class="box-sub" x="488" y="460">embeddings</text>
+        <text class="box-sub" x="488" y="477">384-dim · backfill complete</text>
+
+        <rect class="s-plain" x="682" y="442" width="200" height="44" rx="4" stroke-width="1.2" />
+        <text class="box-sub" x="696" y="460">blobs + segments</text>
+        <text class="box-sub" x="696" y="477">content-addressed</text>
+
+        <text class="box-sub" x="58" y="512">Evidence is append-only: a claim is superseded or tombstoned, never deleted or rewritten.</text>
+        <text class="box-sub" x="58" y="532">Cursors are keyed by source, so re-registering a project never re-ingests what was captured.</text>
+
+        <rect class="s-plain" x="940" y="398" width="300" height="150" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="958" y="426">D:\AgentBrainBackups</text>
+        <text class="box-sub" x="958" y="448">separate physical drive</text>
+        <text class="box-sub" x="958" y="468">GFS retention 24 h / 30 d / 12 m</text>
+        <text class="box-sub" x="958" y="488">SHA-256 verified per file</text>
+        <text class="box-sub" x="958" y="508">scheduled restore drill</text>
+        <text class="box-sub" x="958" y="528">binaries excluded — rebuildable</text>
+
+        <path class="flow" d="M 900 470 L 934 470" marker-end="url(#ar)" />
+        <text class="edge-label" x="880" y="392">snapshot</text>
+
+        <!-- ============ BAND 4 — CONSOLIDATE ============ -->
+        <text class="band-label" x="40" y="614">4 · CONSOLIDATE — the only step that leaves the machine</text>
+
+        <path class="flow" d="M 300 548 L 300 630" marker-end="url(#ar)" />
+        <text class="edge-label" x="315" y="594">queued in bounded jobs</text>
+
+        <rect class="s-memory" x="40" y="630" width="420" height="124" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="58" y="658">Consolidation jobs</text>
+        <text class="box-sub" x="58" y="678">≤ 200 events and ≤ 400 KB per job</text>
+        <text class="box-sub" x="58" y="696">leased · retried · dead-lettered</text>
+        <text class="box-sub" x="58" y="714">trigger carried into the prompt</text>
+        <text class="box-sub" x="58" y="738">2,884 done · 1,693 pending · 3 dead</text>
+
+        <rect class="s-memory" x="500" y="630" width="300" height="124" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="518" y="658">GLM · Z.ai</text>
+        <text class="box-sub" x="518" y="678">redacted payloads only</text>
+        <text class="box-sub" x="518" y="696">key read from env, never stored</text>
+        <text class="box-sub" x="518" y="714">response cached by content hash</text>
+        <text class="box-sub" x="518" y="738">the sole network egress</text>
+
+        <rect class="s-memory" x="840" y="630" width="400" height="124" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="858" y="658">Memories</text>
+        <text class="box-sub" x="858" y="678">decision · constraint · procedure · failure</text>
+        <text class="box-sub" x="858" y="696">every claim cites event:&lt;uuid&gt;</text>
+        <text class="box-sub" x="858" y="714">versioned, superseded, never deleted</text>
+        <text class="box-sub" x="858" y="738">13,246 current across 3 projects</text>
+
+        <path class="flow" d="M 460 692 L 494 692" marker-end="url(#ar)" />
+        <path class="flow" d="M 800 692 L 834 692" marker-end="url(#ar)" />
+
+        <!-- ============ BAND 5 — RETRIEVE ============ -->
+        <text class="band-label" x="40" y="820">5 · RETRIEVE — four channels fused by rank, then an optional rerank that is switched off</text>
+
+        <path class="flow" d="M 300 754 L 300 836" marker-end="url(#ar)" />
+
+        <rect class="s-retrieval" x="40" y="836" width="284" height="92" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="58" y="864">BM25 · events</text>
+        <text class="box-sub" x="58" y="884">FTS5, terms OR-joined</text>
+        <text class="box-sub" x="58" y="902">weight 0.4 · always on</text>
+        <text class="box-sub" x="58" y="920">136,057 embedded rows behind it</text>
+
+        <rect class="s-retrieval" x="344" y="836" width="284" height="92" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="362" y="864">BM25 · memories</text>
+        <text class="box-sub" x="362" y="884">a separate channel, not merged</text>
+        <text class="box-sub" x="362" y="902">weight 0.4</text>
+        <text class="box-sub" x="362" y="920">incomparable scores to events</text>
+
+        <rect class="s-retrieval" x="648" y="836" width="284" height="92" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="666" y="864">Vector</text>
+        <text class="box-sub" x="666" y="884">all-MiniLM-L6-v2, in-process</text>
+        <text class="box-sub" x="666" y="902">weight 0.6 · 384-dim cosine</text>
+        <text class="box-sub" x="666" y="920">events + memories, both layers</text>
+
+        <rect class="s-retrieval" x="952" y="836" width="288" height="92" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="970" y="864">Graph expand</text>
+        <text class="box-sub" x="970" y="884">one hop over memory_evidence</text>
+        <text class="box-sub" x="970" y="902">weight 0.2 · both directions</text>
+        <text class="box-sub" x="970" y="920">association, not retrieval</text>
+
+        <path class="flow" d="M 182 928 C 182 950, 420 950, 440 962" marker-end="url(#ar)" />
+        <path class="flow" d="M 486 928 C 486 948, 500 952, 500 962" marker-end="url(#ar)" />
+        <path class="flow" d="M 790 928 C 790 950, 580 950, 560 962" marker-end="url(#ar)" />
+        <path class="flow" d="M 1096 928 C 1096 952, 620 954, 566 968" marker-end="url(#ar)" />
+
+        <rect class="s-retrieval" x="360" y="968" width="280" height="86" rx="5" stroke-width="1.6" />
+        <text class="box-title" x="378" y="996">RRF fusion · k = 60</text>
+        <text class="box-sub" x="378" y="1016">fuses by rank, never by score</text>
+        <text class="box-sub" x="378" y="1034">session-diversified, max 3 each</text>
+
+        <path class="flow" d="M 640 1011 L 692 1011" marker-end="url(#ar)" />
+
+        <rect class="s-planned" x="698" y="968" width="300" height="86" rx="5" stroke-width="1.6" />
+        <text class="box-title t-planned" x="716" y="996">Cross-encoder rerank</text>
+        <text class="box-sub t-planned" x="716" y="1016">ms-marco-MiniLM · top 16 · ~90 ms each</text>
+        <text class="box-sub t-planned" x="716" y="1034">SHIPPED BUT OFF — measured worse</text>
+
+        <path class="flow-soft" d="M 712 1054 C 712 1080, 900 1080, 900 1060" marker-end="url(#ar-soft)" />
+        <text class="edge-label t-planned" x="1012" y="1014">bypassed by default</text>
+        <text class="edge-label t-planned" x="1012" y="1032">— the fused order stands</text>
+
+        <rect class="s-retrieval" x="40" y="1090" width="1200" height="72" rx="5" stroke-width="1.8" />
+        <text class="box-title t-retrieval" x="58" y="1118">Orientation — the product</text>
+        <text class="box-sub" x="58" y="1140">1,000–1,500 tokens contracted, 3,000 hard max · mean 1,115, max 1,490 over 35 receipts · counted after the pipe flushes, never at compile</text>
+
+        <path class="flow-warm" d="M 500 1054 L 500 1084" marker-end="url(#ar-warm)" />
+
+        <path class="flow-warm" d="M 1240 1126 L 1264 1126 L 1264 87 L 1246 87" marker-end="url(#ar-warm)" />
+        <text class="edge-label t-retrieval" x="1000" y="1182">returned at session start — the loop that makes it a brain</text>
+
+        <!-- ============ BAND 6 — PROJECT ============ -->
+        <text class="band-label" x="40" y="1228">6 · PROJECT — human-readable, human-owned</text>
+
+        <path class="flow" d="M 300 1162 L 300 1244" marker-end="url(#ar)" />
+        <text class="edge-label" x="315" y="1208">every 5 s, if anything changed</text>
+
+        <rect class="s-vault" x="40" y="1244" width="380" height="130" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="58" y="1272">MarkdownProjector</text>
+        <text class="box-sub" x="58" y="1292">one file per current memory</text>
+        <text class="box-sub" x="58" y="1310">content-addressed generation</text>
+        <text class="box-sub" x="58" y="1328">staged, verified, renamed into place</text>
+        <text class="box-sub" x="58" y="1352">13,702 notes · 23 flagged stale</text>
+
+        <rect class="s-vault" x="460" y="1244" width="380" height="130" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="478" y="1272">Wikilinks · index · subjects</text>
+        <text class="box-sub" x="478" y="1292">links derived from shared evidence</text>
+        <text class="box-sub" x="478" y="1310">and from supersession chains</text>
+        <text class="box-sub" x="478" y="1328">never from an LLM's suggestion</text>
+        <text class="box-sub" x="478" y="1352">450 subject pages · 9,930 linked</text>
+
+        <rect class="s-vault" x="880" y="1244" width="360" height="130" rx="5" stroke-width="1.4" />
+        <text class="box-title" x="898" y="1272">Obsidian vault</text>
+        <text class="box-sub" x="898" y="1292">~/AgentBrain/vault</text>
+        <text class="box-sub" x="898" y="1310">generated/ is rebuildable</text>
+        <text class="box-sub" x="898" y="1328">notes/ is yours and preserved</text>
+        <text class="box-sub" x="898" y="1352">graph view over cited claims</text>
+
+        <path class="flow" d="M 420 1310 L 454 1310" marker-end="url(#ar)" />
+        <path class="flow" d="M 840 1310 L 874 1310" marker-end="url(#ar)" />
+
+        <!-- ============ BAND 7 — OBSERVE ============ -->
+        <text class="band-label" x="40" y="1440">7 · OBSERVE — agent-brain-dashboard (Next.js, separate repo, shells out to brain.exe, 30 s cache)</text>
+
+        <path class="flow" d="M 640 548 L 1258 548 L 1258 1426 L 1200 1426" marker-end="url(#ar)" />
+        <text class="edge-label" x="1050" y="1410">reads the same ledgers, read-only</text>
+
+        <rect class="s-plain" x="40" y="1456" width="1160" height="118" rx="5" stroke-width="1.4" />
+
+        <rect class="s-memory" x="58" y="1474" width="176" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-memory" x="70" y="1498">Service health</text>
+        <rect class="s-memory" x="242" y="1474" width="176" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-memory" x="254" y="1498">Deployment drift</text>
+        <rect class="s-memory" x="426" y="1474" width="176" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-memory" x="438" y="1498">Storage + backup</text>
+        <rect class="s-memory" x="610" y="1474" width="176" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-memory" x="622" y="1498">Token baseline</text>
+        <rect class="s-memory" x="794" y="1474" width="176" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-memory" x="806" y="1498">Coordination</text>
+        <rect class="s-memory" x="978" y="1474" width="204" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-memory" x="990" y="1498">Vector coverage</text>
+
+        <rect class="s-memory" x="58" y="1522" width="176" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-memory" x="70" y="1546">Retrieval · new</text>
+        <rect class="s-memory" x="242" y="1522" width="176" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-memory" x="254" y="1546">Jobs + dead letters</text>
+        <rect class="s-memory" x="426" y="1522" width="176" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-memory" x="438" y="1546">Memory lifecycle</text>
+        <rect class="s-memory" x="610" y="1522" width="176" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-memory" x="622" y="1546">Provenance · CLI</text>
+        <rect class="s-planned" x="794" y="1522" width="176" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-planned" x="806" y="1546">Session replay</text>
+        <rect class="s-planned" x="978" y="1522" width="204" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-planned" x="990" y="1546">Config · capture stream</text>
+
+        <!-- ============ BAND 8 — EXTERNAL + LEFT ============ -->
+        <text class="band-label" x="40" y="1630">8 · ALONGSIDE, AND WHAT IS GENUINELY LEFT</text>
+
+        <path class="flow-soft" d="M 300 1574 L 300 1646" marker-end="url(#ar-soft)" />
+
+        <rect class="s-memory" x="40" y="1646" width="380" height="112" rx="5" stroke-width="1.4" />
+        <text class="box-title t-memory" x="58" y="1674">CodeGraph · its own MCP</text>
+        <text class="box-sub" x="58" y="1694">v1.5.0 · 3 projects indexed</text>
+        <text class="box-sub" x="58" y="1712">registered with both harnesses directly</text>
+        <text class="box-sub" x="58" y="1736">the brain does not proxy it — on purpose</text>
+
+        <rect class="s-planned" x="440" y="1646" width="380" height="112" rx="5" stroke-width="1.4" />
+        <text class="box-title t-planned" x="458" y="1674">Waiting on provider quota</text>
+        <text class="box-sub t-planned" x="458" y="1694">1,693 consolidation jobs queued</text>
+        <text class="box-sub t-planned" x="458" y="1712">subject-page prose: validator ships,</text>
+        <text class="box-sub t-planned" x="458" y="1730">the generation call withheld until verified</text>
+
+        <rect class="s-planned" x="840" y="1646" width="400" height="112" rx="5" stroke-width="1.4" />
+        <text class="box-title t-planned" x="858" y="1674">Never measured</text>
+        <text class="box-sub t-planned" x="858" y="1694">the token-saving A/B — 5 tasks ×</text>
+        <text class="box-sub t-planned" x="858" y="1712">2 conditions × 3 repeats</text>
+        <text class="box-sub t-planned" x="858" y="1736">only the numerator has ever been counted</text>
+
+        <text class="edge-label" x="40" y="1806">Governance surface: query · timeline · checkpoint · diagnose · dashboard · backup · restore · rebuild · export · verify memory · forget · remember · lint · evict.</text>
+        <text class="edge-label" x="40" y="1828">Export, provenance, withdrawal and gated eviction all ship. A withdrawn memory leaves every read path while its evidence stays put, so the ledger only ever grew.</text>
+        <text class="edge-label" x="40" y="1850">Decay is derived, never asserted: staleness is computed from age and access, so a memory stops being stale the moment retrieval returns it. There is no flag to clear.</text>
+      </svg>
+    </div>
+
+    <div class="legend">
+      <span><i class="chip" style="background: var(--evidence-wash); border-color: var(--evidence);"></i> Raw evidence — mechanical, authoritative</span>
+      <span><i class="chip" style="background: var(--memory-wash); border-color: var(--memory);"></i> Derived memory — LLM interpretation, cited</span>
+      <span><i class="chip" style="background: var(--retrieval-wash); border-color: var(--retrieval);"></i> Retrieval and delivery</span>
+      <span><i class="chip" style="background: var(--vault-wash); border-color: var(--vault);"></i> Markdown projection</span>
+      <span><i class="chip" style="border-color: var(--planned); border-style: dashed;"></i> Not running, or off by decision</span>
+    </div>
+
+    <figcaption>
+      <strong>Capture does not depend on hooks.</strong> The watcher tails the transcript files each agent
+      already writes, so a session is captured whether or not a hook fires. The hooks do two other jobs:
+      <code>SessionStart</code> hands the orientation back at the top of a session, and
+      <code>SessionEnd</code> marks a boundary nothing else can see.
+      <br /><br />
+      <strong>That boundary had never once been observed.</strong> Transcripts are append-only JSONL — a
+      session ending writes no line, the file simply stops growing — so <code>session.ended</code> was
+      emitted zero times across 139,192 captured events, and the consolidation reason keyed to it was
+      unreachable code that read as fully wired. Sessions consolidated only on crossing 200 events, so a
+      short session's work waited for the <em>next</em> session to push it over. The hook now fires and the
+      trigger is carried into the prompt, so an episode is summarised as finished and an arbitrary cut is not.
+      <br /><br />
+      <strong>The delivery figures are receipts, not compilations.</strong> The metric used to record the
+      moment an orientation was compiled — one step before the reply was written — so a reply that never
+      reached the agent counted the same as one that did. A single day's log held ten
+      <code>write hook reply</code> failures with nine requests still spooled, every one counted. The handler
+      now stages the metric and the pipe records it only after <code>flush()</code> returns. Rows written
+      before that change still overstate.
+    </figcaption>
+  </figure>
+
+  <hr class="rule" />
+
+  <section>
+    <h2>Measured, not estimated</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Captured</h3>
+        <div class="stat" style="color: var(--evidence);">140,134</div>
+        <p>events across three projects, from both agents. Zero cross-project leakage — ownership is decided by each transcript's own recorded <code>cwd</code>, never by proximity in the directory layout.</p>
+      </div>
+      <div class="card">
+        <h3>Distilled</h3>
+        <div class="stat" style="color: var(--memory);">13,246</div>
+        <p>current memories, every one citing <code>event:&lt;uuid&gt;</code>. 1,693 jobs still queued behind provider quota, so this is still climbing.</p>
+      </div>
+      <div class="card">
+        <h3>Vector index</h3>
+        <div class="stat" style="color: var(--evidence);">100%</div>
+        <p>Backfill complete on both layers — 13,246 memories and 136,057 events embedded, nothing remaining. A partly-built index behaves exactly like a finished one that happens to miss things.</p>
+      </div>
+      <div class="card">
+        <h3>Delivered per session</h3>
+        <div class="stat" style="color: var(--retrieval);">1,115</div>
+        <p>mean tokens over 35 recorded orientations; 1,490 at the widest against a 3,000 hard cap. These are receipts — counted after the pipe flushed.</p>
+      </div>
+      <div class="card">
+        <h3>Projected</h3>
+        <div class="stat" style="color: var(--vault);">13,702</div>
+        <p>vault notes, 9,930 carrying wikilinks, across 450 derived subject pages. 23 notes flagged stale, reversible the moment retrieval returns one.</p>
+      </div>
+      <div class="card">
+        <h3>Found by <code>brain lint</code></h3>
+        <div class="stat" style="color: var(--vault);">4 + 660</div>
+        <p>Contradictions needing a decision, and memories sharing evidence with nothing else — 31.5% of the vault. Plus four dated 1970-01-01: undated, not old.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Retrieval quality — and what the benchmark decided</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      Thirty <code>single-session-preference</code> instances, 1,427 sessions, 14,551 vectors, the service
+      stopped so the run had the machine. One switch changed between the last two rows.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Configuration</th><th>R@5</th><th>R@10</th><th>MRR</th><th>Elapsed</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>BM25 only <span class="pill off">baseline</span></td><td class="num">63.3%</td><td class="num">73.3%</td><td class="num">0.509</td><td class="num">—</td></tr>
+          <tr><td>BM25 + vector, RRF-fused</td><td class="num win">90.0%</td><td class="num">96.7%</td><td class="num win">0.779</td><td class="num">870 s</td></tr>
+          <tr><td>…plus cross-encoder rerank</td><td class="num lose">86.7%</td><td class="num">96.7%</td><td class="num lose">0.715</td><td class="num">1,084 s</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout" style="margin-top: 16px;">
+      <h3>R@10 is identical, and that is the whole finding</h3>
+      <p>
+        The answering session is still <em>retrieved</em> — re-ranking moves it <em>down</em>, out of the top
+        five, and spends 25% more wall-clock to do it. MRR falls further than R@5 does, so the cost is spread
+        through the ordering rather than concentrated in one lost instance. Isolated beforehand on a fixture:
+        holding the distractor constant and changing one word of the answer, <code>ship</code> →
+        <code>deploy</code>, moved its score 10.2 points — the model's entire range — for a sentence meaning
+        the same thing. The bi-encoder fails the same cases in the same direction, which makes this structural
+        rather than a weak checkpoint. The fix for a vocabulary gap is query expansion, not a second scoring
+        model.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lifecycle coverage — honest reading</h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Stage</th><th>Status</th><th>What is actually true</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Collect</td>
+            <td><span class="pill live">Complete</span></td>
+            <td>Both agents, automatically, with no per-session action. Transcript-based rather than hook-based, so nothing is lost when a hook fails to fire — and the session <em>boundary</em> is now observed too, which no amount of transcript reading could have supplied.</td>
+          </tr>
+          <tr>
+            <td>Organize</td>
+            <td><span class="pill live">Complete</span></td>
+            <td>Events become typed memories with <code>event:&lt;uuid&gt;</code> citations, wikilinks derived from shared evidence, index and subject pages — a real structure, not a pile of embeddings.</td>
+          </tr>
+          <tr>
+            <td>Evolve</td>
+            <td><span class="pill live">Complete</span></td>
+            <td>Supersession, surfaced conflicts, manual withdrawal, access counting, derived staleness, <code>brain lint</code>, and eviction that <em>refuses</em> to run until thirty days of access data exist. Gated by arithmetic, not missing.</td>
+          </tr>
+          <tr>
+            <td>Use</td>
+            <td><span class="pill live">Complete</span></td>
+            <td>Push at session start for both harnesses; pull on demand via CLI and six MCP tools. Hybrid retrieval reaches the pull path; the orientation is recency-shaped by design and is ranked by relevance within that.</td>
+          </tr>
+          <tr>
+            <td>Govern</td>
+            <td><span class="pill live">Complete</span></td>
+            <td>Inspect, trust, export and withdraw all exist — dashboard, <code>verify memory</code>, verified backups, restore drills, <code>export</code>, <code>forget</code> as a tombstone, <code>evict</code> with its gate. Scoping export to a subset of a project is the one thing still absent.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Every item, and where it stands</h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Item</th><th>State</th><th>Evidence, or why not</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>0.1</td><td><span class="pill live">Shipped</span></td><td>Deliveries counted at receipt, not at compile — a dropped outcome now records nothing</td></tr>
+          <tr><td>0.2</td><td><span class="pill part">Quota</span></td><td>1,693 pending against 2,884 completed. 290 of 294 deferrals were plain HTTP 429; nothing lost, and no work exists to do</td></tr>
+          <tr><td>0.3</td><td><span class="pill live">Shipped</span></td><td>Queue and dead letters visible per project, with the reason a job died rather than only that it did</td></tr>
+          <tr><td>1</td><td><span class="pill part">Half</span></td><td>Retrieval quality measured — baseline reproduced exactly at 90.0 / 96.7 / 0.779. The <em>token-saving</em> A/B has still never been run</td></tr>
+          <tr><td>2.1–2.3</td><td><span class="pill live">Shipped</span></td><td>Export, forget as a tombstone, and verify a claim back to a transcript byte offset</td></tr>
+          <tr><td>3.1</td><td><span class="pill live">Shipped</span></td><td>Orientation ranked by relevance — memories had been ordered <em>alphabetically by subject</em>, so with 2,097 of them the alphabet was the selection</td></tr>
+          <tr><td>3.2a</td><td><span class="pill live">Shipped</span></td><td>450 subject pages, derived from embedding tightness, each asserting nothing of its own</td></tr>
+          <tr><td>3.2b</td><td><span class="pill part">Partial</span></td><td>Validator, store and rendering shipped with 16 tests. The generation call is withheld until the citation check can be watched refusing a real bad citation from a live provider</td></tr>
+          <tr><td>3.3</td><td><span class="pill live">Shipped</span></td><td>Session boundary observed for the first time — 3 <code>session.ended</code> events and 3 <code>session_stopped</code> jobs, against zero in the system's entire prior history</td></tr>
+          <tr><td>3.4</td><td><span class="pill live">Shipped, off</span></td><td>Opt-in per query. Off because it was measured, not out of caution</td></tr>
+          <tr><td>3.5</td><td><span class="pill off">Cut</span></td><td>Redundant — <code>SessionStart</code> already re-fires after a compaction, so the orientation is already re-delivered at the moment context was discarded</td></tr>
+          <tr><td>3.6–3.8</td><td><span class="pill live">Shipped</span></td><td><code>brain remember</code>, <code>brain lint</code>, greppable vault <code>log.md</code></td></tr>
+          <tr><td>3.9</td><td><span class="pill off">Dissolved</span></td><td>CodeGraph runs its <em>own</em> MCP against both harnesses and indexes all three projects. The brain's internal provider stays off — proxying it would build a second path to data both agents already reach</td></tr>
+          <tr><td>4.1–4.2</td><td><span class="pill live">Shipped</span></td><td>Access counted per result rather than per search; 23 notes carry <code>stale: true</code></td></tr>
+          <tr><td>4.3</td><td><span class="pill part">Gated</span></td><td>Refuses to run for ~29 more days by design — on day one every memory is never-retrieved, and a policy reading that would retire the whole corpus</td></tr>
+          <tr><td>5</td><td><span class="pill live">Shipped</span></td><td>Lifecycle and retrieval panels. In-browser render unverified — the dashboard did not hydrate in the preview pane, on every panel, which predates these changes</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Open, and needing a human</h2>
+    <div class="callout-stack">
+      <div class="callout">
+        <h3>Four contradictions and 660 islands</h3>
+        <p>
+          <code>brain lint</code> reports memories that disagree with each other, four dated to the Unix epoch
+          (undated rather than old), and 660 of 2,097 sharing evidence with nothing else so no wikilink reaches
+          them. Building the instrument was the deliverable; deciding which side of a contradiction is true is
+          not something derivation can do.
+        </p>
+      </div>
+      <div class="callout">
+        <h3>One number that could not be traced</h3>
+        <p>
+          A 93.2% R@5 figure appears in an earlier roadmap and in no document or commit. The recorded numbers
+          are per-category: 63.3% → 90.0% on <code>single-session-preference</code>. Those are not the same
+          measurement and should not be quoted as one.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</div>
