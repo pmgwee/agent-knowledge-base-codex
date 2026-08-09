@@ -346,53 +346,49 @@ nothing enforces the correspondence, and a mismatch renders as plausible-looking
 Note that `time::OffsetDateTime` serializes as a 9-element array, except in the deployment
 section, where timestamps originate as RFC 3339 strings in the deploy manifest.
 
-## How each harness receives context — they are not symmetric
+## How each harness receives context
 
-**Claude Code is pushed to. Codex Desktop must ask.** This is not a configuration difference to be
-fixed; it is a property of the two harnesses, and every plan that assumed parity has been wrong.
+**Both harnesses are pushed to.** Claude Code has always been; Codex Desktop joined on 9 August 2026
+once its hooks were trusted.
 
 | | Claude Code | Codex Desktop |
 |---|---|---|
-| `SessionStart` | Fires. 75 real deliveries | **Never fires.** 0 deliveries, 0 of 144 spool entries |
-| `SessionEnd` | Fires | Never fires |
-| `UserPromptSubmit` | Fires — mid-session push, 400 tokens | **Not registered.** Codex has no mid-session re-orientation at all |
-| MCP | Not wired | 16 tools; `brain_checkpoint` has all the real deliveries |
+| `SessionStart` | Fires. 75+ deliveries | **Fires.** 4 real deliveries, 1,030–1,041 tokens, 46 coordination tokens |
+| `SessionEnd` | Fires | Registered and trusted; not yet observed |
+| `UserPromptSubmit` | Fires — mid-session push, 400 tokens | **Not registered.** See below |
+| MCP | Not wired | 16 tools; `brain_checkpoint` remains available as depth |
 
-**Codex Desktop does not implement hooks.** The official hook documentation
-(`SessionStart`, `~/.codex/hooks.json`, `hookSpecificOutput.additionalContext`) describes the
-**Codex CLI**. Tested 9 August 2026 against a real Desktop session: zero deliveries, and — the
-discriminator that settles it — **zero spool entries**, since a hook that fired and failed to
-deliver would still spool. It is never invoked.
+### The trust gate — check this before concluding anything about Codex hooks
 
-**This is a known upstream regression, not a configuration problem.**
-`openai/codex#21639` — lifecycle hooks stopped dispatching in the Desktop app, the VSCode extension
-and the app-server path at **CLI 0.129.0-alpha.15 (May 2026)** and were still broken through 0.146.x.
-This machine runs Desktop **26.727.51351** with embedded **codex-cli 0.146.0-alpha.9.2**, which is
-exactly the build reported in that issue. Only the CLI TUI dispatches.
+Codex records a **SHA-256 of each hook** in `~/.codex/config.toml` under `[hooks.state]`, and
+**refuses to invoke an untrusted hook**. Approve them at the Codex CLI TUI's hook-review prompt.
 
-Two things that look like fixes and are not: trusting the hook through the CLI TUI's `/hooks`
-command addresses a *different* gate (may this hook run) and leaves dispatch broken; and
-`openai/codex#33229` means Desktop's own internal background tasks can fire hooks with no
-discriminator, so a stray delivery is not evidence the feature works.
+```toml
+[hooks.state.'C:\Users\you\.codex\hooks.json:session_start:0:0']
+trusted_hash = "sha256:…"
+```
 
-**So the action is to wait for an upstream fix**, keep the registration, and re-test after a Desktop
-update. Any agent about to re-run this experiment: it has been run twice. Search the brain for
-`codex desktop hooks` before spending the time.
+**This cost two wrong conclusions five days apart, and the mistake is worth understanding.** Both
+times the evidence was: zero `codex/SessionStart` deliveries *and* zero entries in
+`~/AgentBrain/runtime/spool/`. That was read as "Codex never invokes the hook", on the reasoning that
+a hook which fired and failed to deliver would still spool.
 
-**Our side is proven working.** A manual invocation produces a full 974-token Codex orientation
-through the same binary, pipe and reply shape, and there is a test pinning the Codex reply shape.
-The registration is correct and unexercised.
+The reasoning is sound and the conclusion did not follow. **An untrusted hook is never invoked, so it
+never spools either** — "not dispatched" and "not trusted" are indistinguishable from our side of the
+pipe. The second attempt went further and blamed an upstream regression (`openai/codex#21639`),
+recording a matching build number. A 5 August memory said *"Phase B Desktop hook test was confounded
+by an untrusted hook"*; it was right, and louder wrong memories outranked it.
 
-**So: keep `~/.codex/hooks.json` registered and wait.** Removing it would break the Codex CLI path
-and would have to be redone the day Desktop adds support. What must not happen is *reporting* it as
-delivering — one "SHIPPED" badge covering two harnesses, one of them at zero, is how this went
-unnoticed for four days.
+So: **`[hooks.state]` is the first thing to check** — before the spool, before the deliveries table,
+and before reading any issue tracker.
 
-**What this costs, concretely:** Codex orients once per session, voluntarily, because `AGENTS.md`
-tells it to call `brain_checkpoint`. It then goes quiet unless the model chooses to call
-`brain_search`. Claude re-orients on every prompt whether it wants to or not. **The parity gap is
-continuous re-orientation, not the handover** — and on Desktop it cannot be closed with hooks, only
-with an instruction the model may ignore.
+### What is still asymmetric
+
+`UserPromptSubmit` is registered for Claude and not for Codex. `CODEX_EVENTS` omits it on the
+reasoning that registering an event Codex does not fire would look like a shipped feature that
+silently never runs. **That premise has now changed**: Codex demonstrably fires hooks. Whether it
+fires this one is untested, and testing it is the one open question left on parity. Until then Codex
+orients once per session while Claude re-orients on every prompt.
 
 ## Registering a project
 

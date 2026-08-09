@@ -56,28 +56,40 @@ happened** — and everything worked out in conversation evaporated when the ses
 
 ---
 
-## The Codex question, settled
+## The Codex question — reversed, twice, and now settled by finding the actual gate
 
-Tested 9 August against a real Codex Desktop session.
+**Codex Desktop fires `SessionStart`.** Four real deliveries on 9 August at 10:02–10:11 UTC, genuine
+v7 session ids, 1,030–1,041 tokens each with 46 coordination tokens and 4–7 citations, and zero spool
+entries.
 
-- **Zero `codex/SessionStart` deliveries, ever.** The only row is `diag-codex-1`, a diagnostic.
-- **Zero of 144 spooled hook requests come from Codex** — the discriminator, since a hook that fired
-  and failed to deliver would still spool. It is never invoked.
-- The session obtained context by calling `brain_checkpoint` over MCP, exactly as `AGENTS.md`
-  instructs.
+**What changed was trust, not dispatch.** `~/.codex/config.toml` gained a `[hooks.state]` section
+carrying a `trusted_hash` per hook. Codex records a SHA-256 of each hook and refuses to invoke an
+untrusted one.
 
-**Cause:** there is no Codex CLI on this machine. The official hook documentation describes the
-**CLI's** surface; **Codex Desktop does not implement hooks.**
+**Two wrong conclusions, five days apart, from the same unsound discriminator.** Both times the
+evidence was zero deliveries *and* zero spool entries, read as "never invoked" on the reasoning that
+a hook which fired and failed would still spool. The reasoning is sound; the conclusion does not
+follow. **An untrusted hook is never invoked, so it never spools either** — from our side of the pipe
+"not dispatched" and "not trusted" are the same observation. The second attempt compounded it by
+attributing the behaviour to `openai/codex#21639` and recording a matching build number, which made
+a guess look like a diagnosis.
 
-**Decision: keep `~/.codex/hooks.json` registered and wait for Desktop support.** Removing it would
-break the CLI path and would have to be redone. What changes is the *reporting*. Recorded in both
-`CLAUDE.md` and `AGENTS.md` so neither agent re-derives it.
+A 5 August memory said *"Phase B Desktop hook test was confounded by an untrusted hook."* It was
+right. Louder, more confident, wrong memories outranked it — which is an argument for `brain lint`
+and `reconcile` doing their jobs, and for weighting a claim's *specificity* rather than its volume.
 
-**The residual gap is continuous re-orientation, not the handover.** Claude re-orients on every
-prompt whether it wants to or not. On Desktop that cannot be closed with hooks — only with an
-instruction Codex may ignore.
+**So `[hooks.state]` is the first thing to check** — before the spool, before the deliveries table,
+before any issue tracker. Recorded in `CLAUDE.md` and `AGENTS.md`.
 
----
+### What this opens
+
+`UserPromptSubmit` is still not registered for Codex. `CODEX_EVENTS` omits it because registering an
+event Codex does not fire would look like a shipped feature that never runs — sound reasoning whose
+**premise has now changed**. Codex demonstrably fires hooks.
+
+**A10 · Test `UserPromptSubmit` on Codex, and register it if it fires.** If it does, Codex gains
+mid-session re-orientation and the harnesses reach real parity — the gap that has been described as
+structural throughout this document turns out to be one untested registration.
 
 ## How this round is verified — and the one thing that cannot be
 
