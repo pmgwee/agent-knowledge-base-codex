@@ -198,6 +198,48 @@ impl EventLedger {
         )?)
     }
 
+    /// Deliveries since a cut-off, **split by harness and hook**.
+    ///
+    /// The pooled summary above averages two agents into one number, and that is how a real gap
+    /// stayed invisible for days: the dashboard showed "75 delivered" beside a green badge while
+    /// one of the two harnesses sat at zero for all three hooks. A count that spans harnesses
+    /// cannot show a harness that has stopped, which is the failure most worth seeing.
+    ///
+    /// Returned as rows rather than a map so the caller decides the shape, and ordered so the
+    /// output is stable between runs.
+    pub fn context_deliveries_by_harness(
+        &self,
+        since: time::OffsetDateTime,
+    ) -> anyhow::Result<Vec<crate::HarnessDeliveries>> {
+        let since_ns = i64::try_from(since.unix_timestamp_nanos())?;
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT harness, event_name, COUNT(*), COALESCE(SUM(total_tokens), 0),
+                   COALESCE(MAX(total_tokens), 0), MAX(delivered_at_ns)
+            FROM context_deliveries
+            WHERE project_id = ?1 AND delivered_at_ns >= ?2
+            GROUP BY harness, event_name
+            ORDER BY harness, event_name
+            "#,
+        )?;
+        let rows = statement.query_map(
+            rusqlite::params![self.project_scope.0.to_string(), since_ns],
+            |row| {
+                Ok(crate::HarnessDeliveries {
+                    harness: row.get(0)?,
+                    event_name: row.get(1)?,
+                    deliveries: row.get::<_, i64>(2)?.max(0) as u64,
+                    total_tokens: row.get::<_, i64>(3)?.max(0) as u64,
+                    max_tokens: row.get::<_, i64>(4)?.max(0) as u64,
+                    last_delivered_at: row.get::<_, Option<i64>>(5)?.and_then(|ns| {
+                        time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(ns)).ok()
+                    }),
+                })
+            },
+        )?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
     pub fn quarantine_count(&self, source_id: &str) -> Result<u64> {
         Ok(self.connection.query_row(
             "SELECT COUNT(*) FROM quarantine WHERE source_id = ?1",

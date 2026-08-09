@@ -60,7 +60,7 @@ pub use basic_memory::{
 };
 pub use blob::{BlobRecord, BlobStore};
 pub use catalog::{CatalogEvent, SegmentCatalog};
-pub use context_metrics::{ContextDelivery, ContextDeliverySummary};
+pub use context_metrics::{ContextDelivery, ContextDeliverySummary, HarnessDeliveries};
 pub use embedding::{
     EMBEDDING_DIMENSIONS, Embedder, MAX_INPUT_TOKENS, cosine_similarity, decode_vector,
     default_model_dir, encode_vector, shared_embedder,

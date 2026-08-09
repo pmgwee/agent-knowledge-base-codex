@@ -46,6 +46,43 @@ impl HookOutcome {
     }
 }
 
+/// Stage a delivery for a hook that pushed text without compiling an orientation.
+///
+/// `UserPromptSubmit` and `SessionEnd` return lease warnings and mid-session pushes, and for a long
+/// while they recorded nothing at all — so a per-hook panel read zero for them whether they were
+/// working or dead, which is the one thing such a panel exists to tell apart. They have no
+/// citations and no memory/coordination split to report, so those are zero and honestly so: the
+/// count and the token total are the whole truth about this kind of push.
+fn staged_push(
+    binding: &HookProjectBinding,
+    envelope: &HookEnvelope,
+    text: &str,
+) -> Option<PendingDelivery> {
+    let total_tokens = token_count(text) as u64;
+    if total_tokens == 0 {
+        return None;
+    }
+    Some(PendingDelivery {
+        ledger_path: binding.ledger_path.clone(),
+        project_id: binding.project_id,
+        delivery: brain_store::ContextDelivery {
+            project_id: binding.project_id,
+            harness: envelope.harness.clone(),
+            native_session_id: envelope
+                .payload
+                .get("session_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            event_name: envelope.event_name.to_string(),
+            delivered_at: envelope.received_at,
+            total_tokens,
+            memory_tokens: 0,
+            coordination_tokens: total_tokens,
+            citation_count: 0,
+        },
+    })
+}
+
 /// A delivery metric awaiting proof that the reply arrived.
 ///
 /// It carries its own ledger path rather than borrowing a handle, so the recording can happen on
@@ -146,16 +183,23 @@ impl ProjectHookHandler {
                 .into_iter()
                 .flatten()
                 .collect::<Vec<_>>();
-            return Ok(HookOutcome::bare(HookReply {
-                additional_context: (!additional_context.is_empty()).then(|| {
-                    additional_context.join(
-                        "
+            let additional_context = (!additional_context.is_empty()).then(|| {
+                additional_context.join(
+                    "
 
 ",
-                    )
-                }),
-                diagnostics_id: Some(envelope.nonce.to_string()),
-            }));
+                )
+            });
+            let delivery = additional_context
+                .as_deref()
+                .and_then(|text| staged_push(&binding, envelope, text));
+            return Ok(HookOutcome {
+                reply: HookReply {
+                    additional_context,
+                    diagnostics_id: Some(envelope.nonce.to_string()),
+                },
+                delivery,
+            });
         }
         if envelope.event_name == "SessionEnd" {
             // Fail-open. A session ending is not a moment to return an error to the harness, and
@@ -164,10 +208,16 @@ impl ProjectHookHandler {
             if let Err(error) = record_session_end(&binding, envelope) {
                 tracing::warn!(%error, "could not record session end");
             }
-            return Ok(HookOutcome::bare(HookReply {
-                additional_context: lease_warning,
-                diagnostics_id: Some(envelope.nonce.to_string()),
-            }));
+            let delivery = lease_warning
+                .as_deref()
+                .and_then(|text| staged_push(&binding, envelope, text));
+            return Ok(HookOutcome {
+                reply: HookReply {
+                    additional_context: lease_warning,
+                    diagnostics_id: Some(envelope.nonce.to_string()),
+                },
+                delivery,
+            });
         }
         if envelope.event_name != "SessionStart" {
             return Ok(HookOutcome::bare(HookReply {

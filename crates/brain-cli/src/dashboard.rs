@@ -125,6 +125,13 @@ pub struct ProjectDashboard {
     pub deliveries_today: DeliverySummary,
     pub deliveries_7d: DeliverySummary,
     pub deliveries_30d: DeliverySummary,
+    /// The last 7 days split by harness and hook — every expected channel, including the ones that
+    /// delivered nothing.
+    ///
+    /// The three summaries above pool two agents into one figure, and pooling is how a real gap
+    /// stayed invisible: the panel read "75 delivered" beside a green badge while Codex sat at zero
+    /// on all three hooks for days. A total cannot show a harness that has stopped.
+    pub delivery_channels: Vec<DeliveryChannel>,
 }
 
 /// What the brain's memories are doing, as opposed to how many there are.
@@ -172,6 +179,36 @@ pub struct ProviderState {
     pub usable: bool,
     pub detail: String,
 }
+
+/// One harness/hook pair, over the dashboard's 7-day window.
+///
+/// Emitted for every pair we expect to see rather than only the ones with rows, because absence is
+/// the finding. A channel missing from the list would render as nothing at all; a channel present
+/// with `deliveries: 0` renders as a zero somebody notices.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct DeliveryChannel {
+    pub harness: String,
+    pub event_name: String,
+    pub deliveries: u64,
+    pub mean_tokens: f64,
+    pub max_tokens: u64,
+    /// Absent when this channel has never delivered inside the window.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub last_delivered_at: Option<time::OffsetDateTime>,
+}
+
+/// The pairs a healthy system delivers on: both harnesses, all three hooks.
+///
+/// Hardcoded on purpose. Deriving it from the rows present would make a stopped harness disappear
+/// from the panel instead of showing up as zero — exactly the failure this exists to surface.
+const EXPECTED_DELIVERY_CHANNELS: [(&str, &str); 6] = [
+    ("claude-code", "SessionStart"),
+    ("claude-code", "UserPromptSubmit"),
+    ("claude-code", "SessionEnd"),
+    ("codex", "SessionStart"),
+    ("codex", "UserPromptSubmit"),
+    ("codex", "SessionEnd"),
+];
 
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
 pub struct DeliverySummary {
@@ -320,6 +357,7 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
         let deliveries_today = delivery_summary(&ledger, today_start);
         let deliveries_7d = delivery_summary(&ledger, now - time::Duration::days(7));
         let deliveries_30d = delivery_summary(&ledger, now - time::Duration::days(30));
+        let delivery_channels = delivery_channels(&ledger, now - time::Duration::days(7));
 
         // Providers
         let providers = provider_status(brain_home, &project_id.0.to_string())
@@ -353,6 +391,7 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
             deliveries_today,
             deliveries_7d,
             deliveries_30d,
+            delivery_channels,
         });
     }
 
@@ -403,6 +442,46 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Build the per-channel list, filling in the pairs the ledger has no rows for.
+fn delivery_channels(
+    ledger: &brain_store::EventLedger,
+    since: time::OffsetDateTime,
+) -> Vec<DeliveryChannel> {
+    let rows = ledger
+        .context_deliveries_by_harness(since)
+        .unwrap_or_default();
+    EXPECTED_DELIVERY_CHANNELS
+        .iter()
+        .map(|(harness, event_name)| {
+            let found = rows
+                .iter()
+                .find(|r| r.harness == *harness && r.event_name == *event_name);
+            match found {
+                Some(r) => DeliveryChannel {
+                    harness: (*harness).to_owned(),
+                    event_name: (*event_name).to_owned(),
+                    deliveries: r.deliveries,
+                    mean_tokens: if r.deliveries == 0 {
+                        0.0
+                    } else {
+                        r.total_tokens as f64 / r.deliveries as f64
+                    },
+                    max_tokens: r.max_tokens,
+                    last_delivered_at: r.last_delivered_at,
+                },
+                None => DeliveryChannel {
+                    harness: (*harness).to_owned(),
+                    event_name: (*event_name).to_owned(),
+                    deliveries: 0,
+                    mean_tokens: 0.0,
+                    max_tokens: 0,
+                    last_delivered_at: None,
+                },
+            }
+        })
+        .collect()
+}
 
 fn delivery_summary(
     ledger: &brain_store::EventLedger,

@@ -39,3 +39,21 @@ impl ContextDeliverySummary {
         self.total_tokens as f64 / self.deliveries as f64
     }
 }
+
+/// Deliveries for one harness and one hook.
+///
+/// Kept flat rather than nested so a harness that delivered nothing is simply an absent row, which
+/// the renderer turns into an explicit zero. A nested map would have to invent the empty case, and
+/// inventing it is what made "codex: 0" look like "codex: fine" for two days.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct HarnessDeliveries {
+    pub harness: String,
+    pub event_name: String,
+    pub deliveries: u64,
+    pub total_tokens: u64,
+    pub max_tokens: u64,
+    /// When this channel last delivered. The count answers "how much"; this answers "is it still
+    /// alive", which is the question a stopped harness is only visible through.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub last_delivered_at: Option<time::OffsetDateTime>,
+}
