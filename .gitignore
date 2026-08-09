@@ -7,3 +7,6 @@
 
 # CodeGraph index — rebuildable from source, per-machine
 .codegraph/
+
+# Cygwin/MSYS crash dumps — an artefact of the shell, never source
+*.stackdump
