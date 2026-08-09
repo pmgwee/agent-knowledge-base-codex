@@ -85,6 +85,10 @@ impl ContextCompiler {
         project_id: ProjectId,
         limit: usize,
     ) -> Result<Self> {
+        // Timed per step. `from_ledger` was 14.3 s on one project and 0.3 s on another with more
+        // memories, so which *step* costs the time was never deducible from the totals — and a
+        // wrong guess here already cost one rewrite aimed at the wrong query.
+        let started = std::time::Instant::now();
         let events = ledger
             .recent_events(project_id, limit)?
             .into_iter()
@@ -105,7 +109,9 @@ impl ContextCompiler {
                 raw: event.raw,
             })
             .collect::<Vec<_>>();
+        let events_ms = started.elapsed().as_millis();
         let ranking = rank_memories_against_recent_work(ledger, project_id, &events);
+        let ranking_ms = started.elapsed().as_millis() - events_ms;
         // Demoted, never dropped. A stale memory is one nothing has asked for in ninety days, which
         // is a weak signal on its own — plenty of correct claims are simply never queried. It is
         // strong enough to break a tie for the last slot in an orientation and not strong enough
@@ -116,9 +122,20 @@ impl ContextCompiler {
                 time::Duration::days(STALE_AFTER_DAYS),
             )
             .unwrap_or_default();
+        let stale_ms = started.elapsed().as_millis() - events_ms - ranking_ms;
+        let memories = ledger.current_project_memories()?;
+        tracing::info!(
+            events_ms,
+            ranking_ms,
+            stale_ms,
+            memories_ms = started.elapsed().as_millis() - events_ms - ranking_ms - stale_ms,
+            events = events.len(),
+            memories = memories.len(),
+            "orientation material loaded"
+        );
         Ok(Self {
             events,
-            memories: ledger.current_project_memories()?,
+            memories,
             global_preferences: Vec::new(),
             live_state: None,
             provider_results: Vec::new(),

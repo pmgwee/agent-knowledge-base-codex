@@ -327,36 +327,141 @@ impl EventLedger {
             .query_row("SELECT COUNT(*) FROM memory_versions", [], |row| row.get(0))?)
     }
 
+    /// Every memory whose latest version still stands, with its evidence and supersession edges.
+    ///
+    /// **Four queries, whatever the corpus.** It used to be one per memory plus `current_memory`,
+    /// which is itself a tombstone lookup, a versions query, and then two more queries *per
+    /// version* for evidence and supersession — around 23,000 round trips on a project with 5,505
+    /// memories, each re-preparing its SQL. Measured through the session-start hook: 303 ms at
+    /// 2,107 memories and **14,282 ms at 5,505**, which is 18× the per-memory cost for 2.6× the
+    /// memories. That is not a corpus that grew, it is a shape that does not scale, and it was the
+    /// entire orientation budget on two of three registered projects — both timed out and delivered
+    /// nothing at all.
+    ///
+    /// The tempting fix was to load fewer memories — rank first, then fetch the top slice. That one
+    /// is wrong: the caller hands this list to `resolve_candidates`, which closes over supersession
+    /// and contradiction across the *whole* set. Bounding the input would silently narrow that
+    /// closure, and the failure would look like a correct orientation missing a conflict marker.
+    ///
+    /// So the set is unchanged and only the fetching is different: latest version per memory, then
+    /// all their evidence and all their supersession edges in one pass each, grouped in memory. The
+    /// status filter, the tombstone filter and the `projection_path` ordering are exactly as they
+    /// were — a memory whose newest version is `Superseded` or `Invalid` is still excluded, which is
+    /// deliberately *not* the same predicate as [`crate::CURRENT_CLAIM`].
     pub fn current_project_memories(&self) -> Result<Vec<MemoryRecord>> {
-        let mut statement = self.connection.prepare(
-            "SELECT memory_id FROM memory_records WHERE project_id = ?1 ORDER BY projection_path",
-        )?;
-        let rows = statement.query_map([self.project_scope.0.to_string()], |row| {
-            row.get::<_, String>(0)
-        })?;
-        let ids = rows
-            .map(|row| Ok(uuid::Uuid::parse_str(&row?)?))
-            .collect::<Result<Vec<_>>>()?;
         // Withdrawn memories are filtered here rather than at each caller, because this is the
         // one query the projection and the export both go through. A read path that forgot would
         // resurrect a memory the user believed they had removed.
         let withdrawn = self.tombstoned_ids()?;
-        let mut memories = Vec::with_capacity(ids.len());
-        for id in ids {
-            if withdrawn.contains(&id) {
+        let project = self.project_scope.0.to_string();
+
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT v.memory_id, v.version_id, r.kind, v.worktree_id, v.task_id, v.title,
+                   v.content, v.valid_from_ns, v.valid_to_ns, v.recorded_at_ns,
+                   v.confidence, v.authority, v.status
+            FROM memory_versions v
+            JOIN memory_records r ON r.memory_id = v.memory_id
+            WHERE r.project_id = ?1
+              AND v.version_number = (
+                SELECT MAX(w.version_number) FROM memory_versions w WHERE w.memory_id = v.memory_id
+              )
+            "#,
+        )?;
+        let rows = statement.query_map([&project], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                RawProjectMemory {
+                    version_id: row.get(1)?,
+                    kind: row.get(2)?,
+                    worktree_id: row.get(3)?,
+                    task_id: row.get(4)?,
+                    title: row.get(5)?,
+                    content: row.get(6)?,
+                    valid_from_ns: row.get(7)?,
+                    valid_to_ns: row.get(8)?,
+                    recorded_at_ns: row.get(9)?,
+                    confidence: row.get(10)?,
+                    authority: row.get(11)?,
+                    status: row.get(12)?,
+                },
+            ))
+        })?;
+        let latest = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+
+        let evidence = self.edges_by_version(
+            r#"
+            SELECT m.version_id, m.event_id
+            FROM memory_evidence m
+            JOIN memory_versions v ON v.version_id = m.version_id
+            JOIN memory_records r ON r.memory_id = v.memory_id
+            WHERE r.project_id = ?1
+            ORDER BY m.event_id
+            "#,
+            &project,
+        )?;
+        let supersedes = self.edges_by_version(
+            r#"
+            SELECT s.version_id, s.superseded_version_id
+            FROM memory_supersession s
+            JOIN memory_versions v ON v.version_id = s.version_id
+            JOIN memory_records r ON r.memory_id = v.memory_id
+            WHERE r.project_id = ?1
+            ORDER BY s.superseded_version_id
+            "#,
+            &project,
+        )?;
+
+        let mut memories = Vec::with_capacity(latest.len());
+        for (memory_id, raw) in latest {
+            let memory_id = uuid::Uuid::parse_str(&memory_id)?;
+            if withdrawn.contains(&memory_id) {
                 continue;
             }
-            if let Some(memory) = self.current_memory(id)?
-                && !matches!(
-                    memory.status,
-                    MemoryStatus::Invalid | MemoryStatus::Superseded
-                )
-            {
-                memories.push(memory);
+            let mut memory = raw.parse_without_edges(memory_id, self.project_scope)?;
+            if matches!(
+                memory.status,
+                MemoryStatus::Invalid | MemoryStatus::Superseded
+            ) {
+                continue;
             }
+            memory.evidence_ids = evidence
+                .get(&memory.version_id)
+                .cloned()
+                .unwrap_or_default();
+            memory.supersedes = supersedes
+                .get(&memory.version_id)
+                .cloned()
+                .unwrap_or_default();
+            memories.push(memory);
         }
         memories.sort_by_key(MemoryRecord::projection_path);
         Ok(memories)
+    }
+
+    /// Every edge of one kind for this project, grouped by the version it belongs to.
+    ///
+    /// The two edge tables have identical shape from here — a version and a uuid — so one helper
+    /// serves both rather than two near-copies that drift.
+    fn edges_by_version(
+        &self,
+        sql: &str,
+        project: &str,
+    ) -> Result<std::collections::HashMap<uuid::Uuid, Vec<uuid::Uuid>>> {
+        let mut statement = self.connection.prepare(sql)?;
+        let rows = statement.query_map([project], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut grouped: std::collections::HashMap<uuid::Uuid, Vec<uuid::Uuid>> =
+            std::collections::HashMap::new();
+        for row in rows {
+            let (version_id, other) = row?;
+            grouped
+                .entry(uuid::Uuid::parse_str(&version_id)?)
+                .or_default()
+                .push(uuid::Uuid::parse_str(&other)?);
+        }
+        Ok(grouped)
     }
 }
 
@@ -701,6 +806,33 @@ impl RawProjectMemory {
         project_id: ProjectId,
     ) -> Result<MemoryRecord> {
         let version_id = uuid::Uuid::parse_str(&self.version_id)?;
+        let evidence_ids = load_ids(
+            connection,
+            "SELECT event_id FROM memory_evidence WHERE version_id = ?1 ORDER BY event_id",
+            version_id,
+        )?;
+        let supersedes = load_ids(
+            connection,
+            "SELECT superseded_version_id FROM memory_supersession WHERE version_id = ?1 ORDER BY superseded_version_id",
+            version_id,
+        )?;
+        let mut record = self.parse_without_edges(memory_id, project_id)?;
+        record.evidence_ids = evidence_ids;
+        record.supersedes = supersedes;
+        Ok(record)
+    }
+
+    /// The row itself, with both edge lists left empty for the caller to fill.
+    ///
+    /// Split out so a bulk loader can fetch every version's edges in one query per table instead of
+    /// two queries per version — the difference between four statements and twenty-three thousand
+    /// on a real project. Single-memory callers keep [`Self::parse`], which fills them here.
+    fn parse_without_edges(
+        self,
+        memory_id: uuid::Uuid,
+        project_id: ProjectId,
+    ) -> Result<MemoryRecord> {
+        let version_id = uuid::Uuid::parse_str(&self.version_id)?;
         Ok(MemoryRecord {
             id: memory_id,
             version_id,
@@ -722,16 +854,8 @@ impl RawProjectMemory {
             confidence: self.confidence as f32,
             authority: Authority::from_name(&self.authority)
                 .context("stored memory authority is invalid")?,
-            evidence_ids: load_ids(
-                connection,
-                "SELECT event_id FROM memory_evidence WHERE version_id = ?1 ORDER BY event_id",
-                version_id,
-            )?,
-            supersedes: load_ids(
-                connection,
-                "SELECT superseded_version_id FROM memory_supersession WHERE version_id = ?1 ORDER BY superseded_version_id",
-                version_id,
-            )?,
+            evidence_ids: Vec::new(),
+            supersedes: Vec::new(),
             status: MemoryStatus::from_name(&self.status)
                 .context("stored memory status is invalid")?,
         })

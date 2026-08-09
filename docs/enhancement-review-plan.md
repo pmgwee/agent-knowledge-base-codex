@@ -56,6 +56,48 @@ happened** — and everything worked out in conversation evaporated when the ses
 
 ---
 
+### A3b · The harness split — shipped `ee357eb`, and it found something on its first run
+
+`context_delivery_summary` counts every row for a project, so one live harness covers for a dead one
+and three hooks average into a number belonging to none of them. The snapshot now carries
+`delivery_channels`: all six harness/hook pairs over 7 days, **including the pairs with no rows**.
+The expected list is hardcoded rather than derived from what the ledger holds — a harness that
+stopped has no rows and would otherwise vanish from the panel instead of reading zero.
+
+It immediately found a gap, and the gap was ours rather than Codex's:
+
+| Channel | Deliveries, 7 d |
+|---|---|
+| `claude-code` / `SessionStart` | 21 + 77 + 2 across three projects |
+| `codex` / `SessionStart` | 6 |
+| **`*` / `UserPromptSubmit`** | **0** |
+| **`*` / `SessionEnd`** | **0** |
+
+Both branches returned `HookOutcome::bare` — they push lease warnings and mid-session context and
+recorded **none** of it. Every project would have read zero on those four channels however well they
+worked. Both now stage a delivery when they actually return text, and only then: a push that returns
+nothing is not a delivery.
+
+### A7 · Session replay and clickable citations — shipped `fbb76d0`
+
+The route could not be written as planned. `brain replay --session --json` returned `StoredEvent`,
+which carries the harness's original record beside the normalised one — correct for a ledger,
+unusable on a wire. **The largest captured session here is 16,148 events and serialises to 100 MB.**
+
+So two shapes rather than one. The list is a projection — a preview per turn, `raw` dropped — which
+takes 100 turns to 32 KB, with `--limit`/`--offset` paging it. Opening a turn fetches that one event
+whole, and `--event <uuid>` answers that directly. Which is exactly what a citation needs, so the
+same control serves both: `CitedEvent` is a disclosure, not a link, and it appears on every event hit
+in search results as well as on every turn in replay. A citation into another project's ledger
+answers `null` → 404 → "not held here", never a cross-project read.
+
+The part that had to be measured rather than assumed was extracting the turn text. The first version
+read `payload["content"].as_str()` and rendered blank rows for the 818 most recent `agent.responded`
+events, because claude-code stores those under `message.content` as a **block array**. Six shapes are
+present across the two harnesses; they are tabled in the doc comment with which events use each.
+
+---
+
 ## The Codex question — settled, and the cause was ours
 
 **Both harnesses are pushed to.** Codex Desktop dispatches `SessionStart`, `SessionEnd` and
@@ -266,19 +308,6 @@ position. Only the renderer is missing.
 **Shape:** a `/api/search` route shelling to `brain explain --json`, and a results view under the
 existing channel cards. Verified here: the route's values. Verified by you: that it renders.
 
-### A7 · Session replay UI, and citations clickable inline
-
-Replay belongs in a UI: 1,369 events is unreadable in a terminal. Provenance does **not** belong in a
-panel of its own — it belongs on the citation, wherever a citation appears.
-
-**Shape:** a `/api/replay` route over `brain replay --json`; citations become controls that expand
-the cited turn inline. Same verification split.
-
-### A3b · Harness split in the dashboard JSON
-
-`DeliverySummary` is per project, not per harness. The architecture band is corrected; the dashboard
-still averages two agents into one number, one of which is at zero.
-
 ### A9 · A human checkpoint on consolidation — *debatable, listed honestly*
 
 Karpathy stays involved on every ingest. We batch 200 events to a provider unattended, and the three
@@ -291,11 +320,10 @@ Not scheduled. Recorded so the choice is deliberate rather than forgotten.
 
 ## Order of work
 
-1. **A8b's validator and apply path** — fully verifiable here, and it is the operation that makes the
-   vault compound. Ready to run the moment quota returns.
-2. **A6**, then a screenshot.
-3. **A7**, then a screenshot.
-4. **A3b** alongside whichever of those touches the snapshot shape.
+1. **A8b's validator and apply path** — ✅ built and verified. The generation call waits on quota.
+2. **A6** — ✅ shipped, rendering confirmed.
+3. **A7** — ✅ shipped. Route verified against the live ledger; the rendered panel is yours to confirm.
+4. **A3b** — ✅ shipped, and it found four dead channels on its first run.
 
 ---
 

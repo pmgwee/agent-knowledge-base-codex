@@ -163,6 +163,20 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             PRIMARY KEY(version_id, superseded_version_id)
         );
 
+        -- The primary key indexes this table by the *superseding* version, and every read asks the
+        -- opposite question: "has this version been superseded?" Without an index on that column
+        -- the answer is unreachable by lookup, and SQLite works around it by driving the subquery
+        -- from `memory_versions` instead — `SEARCH newer USING INDEX idx_memory_versions_validity
+        -- (valid_from_ns<?)`, once per candidate row.
+        --
+        -- Measured on the live 5,669-version ledger, on the memories keyword query that every
+        -- session-start orientation runs: **42,001 ms with the index absent, 34.1 ms with it
+        -- present**, identical results, and the index itself builds in 3 ms. It scales with
+        -- versions × matched rows, which is why it stayed invisible while projects were small and
+        -- then took the whole 3 s hook budget on the largest one.
+        CREATE INDEX IF NOT EXISTS idx_memory_supersession_superseded
+            ON memory_supersession(superseded_version_id);
+
         CREATE TABLE IF NOT EXISTS global_preferences (
             preference_id TEXT NOT NULL,
             version_id TEXT PRIMARY KEY NOT NULL,

@@ -44,16 +44,33 @@ impl EventLedger {
         }
         let at = timestamp_ns(now)?;
         let project = self.project_scope.0.to_string();
-        let mut statement = self.connection.prepare_cached(
-            "INSERT INTO memory_access(memory_id, project_id, retrieved_count, last_retrieved_at_ns)
-             VALUES (?1, ?2, 1, ?3)
-             ON CONFLICT(memory_id) DO UPDATE SET
-                 retrieved_count = retrieved_count + 1,
-                 last_retrieved_at_ns = excluded.last_retrieved_at_ns",
-        )?;
-        for memory_id in memory_ids {
-            statement.execute(params![memory_id.to_string(), &project, at])?;
+        // One transaction, not one per id. Every search calls this with up to 64 memories, and
+        // without an explicit transaction each upsert commits on its own: 64 write-lock
+        // acquisitions against a database the service is concurrently writing to, each willing to
+        // wait out the 1 s `busy_timeout`.
+        //
+        // That is not a theoretical cost. Measured through the session-start hook, the memory
+        // ranking search took **14,394 ms** on one project and swung between 879 ms and 3,570 ms
+        // on another across consecutive runs — while the keyword query it was ranking measured
+        // 64 ms and 16 ms. The variance was the tell: the same query against the same corpus
+        // cannot differ fourfold, but the same query waiting on a different writer can.
+        //
+        // `unchecked_transaction` because this takes `&self` — the search path holds the ledger
+        // immutably, and recording a counter must not require exclusive access to it.
+        let transaction = self.connection.unchecked_transaction()?;
+        {
+            let mut statement = transaction.prepare_cached(
+                "INSERT INTO memory_access(memory_id, project_id, retrieved_count, last_retrieved_at_ns)
+                 VALUES (?1, ?2, 1, ?3)
+                 ON CONFLICT(memory_id) DO UPDATE SET
+                     retrieved_count = retrieved_count + 1,
+                     last_retrieved_at_ns = excluded.last_retrieved_at_ns",
+            )?;
+            for memory_id in memory_ids {
+                statement.execute(params![memory_id.to_string(), &project, at])?;
+            }
         }
+        transaction.commit()?;
         Ok(())
     }
 

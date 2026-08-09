@@ -226,11 +226,19 @@ impl ProjectHookHandler {
             }));
         }
 
+        // Timed in four stages, and the reason is that none of this was observable. The hook's
+        // ceiling went from correct to wrong silently once, and diagnosing the second time meant
+        // driving the named pipe by hand from three different languages because no CLI compiles an
+        // orientation and nothing logged how long one took. A stage that is slow should say so in
+        // the log the next person already reads.
+        let started = std::time::Instant::now();
         let ledger = EventLedger::open(&binding.ledger_path, binding.project_id)?;
-        let mut compiler =
-            ContextCompiler::from_ledger(&ledger, binding.project_id, 500)?.with_live_state(
-                LiveState::inspect(&binding.project_root, binding.worktree_id),
-            );
+        let opened_ms = started.elapsed().as_millis();
+        let live_state = LiveState::inspect(&binding.project_root, binding.worktree_id);
+        let live_ms = started.elapsed().as_millis() - opened_ms;
+        let mut compiler = ContextCompiler::from_ledger(&ledger, binding.project_id, 500)?
+            .with_live_state(live_state);
+        let loaded_ms = started.elapsed().as_millis() - opened_ms - live_ms;
         if let Some(path) = binding
             .global_preferences_path
             .as_ref()
@@ -258,7 +266,21 @@ impl ProjectHookHandler {
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned);
         query.native_session_id = native_session_id.clone();
+        let before_compile = started.elapsed().as_millis();
         let compiled = compiler.compile(query)?;
+        let compile_ms = started.elapsed().as_millis() - before_compile;
+        // `info`, not `debug`. The whole point is that it is present in the log somebody reads
+        // when a session starts slowly, without anyone having to raise a level first.
+        tracing::info!(
+            project = %binding.project_id.0,
+            open_ms = opened_ms,
+            live_state_ms = live_ms,
+            load_ms = loaded_ms,
+            compile_ms,
+            total_ms = started.elapsed().as_millis(),
+            citations = compiled.citations.len(),
+            "orientation compiled"
+        );
         if compiled.citations.is_empty() && coordination.is_none() && lease_warning.is_none() {
             // Nothing was compiled, so there is nothing to have delivered.
             return Ok(HookOutcome::bare(HookReply::default()));

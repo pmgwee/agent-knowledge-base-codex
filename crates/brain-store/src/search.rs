@@ -393,14 +393,18 @@ impl EventLedger {
         //
         // Ranked separately and fused by rank, the best memory and the best event both surface,
         // which is what a caller asking for both was always asking for.
+        let started = std::time::Instant::now();
         let mut channels: Vec<(f64, Vec<SearchHit>)> = Vec::new();
         if query.source_filter != SearchSourceFilter::Memories {
             channels.push((BM25_WEIGHT, self.search_events(query, depth, None)?));
         }
+        let events_ms = started.elapsed().as_millis();
         if query.source_filter != SearchSourceFilter::Events {
             channels.push((BM25_WEIGHT, self.search_memories(query, depth, None)?));
         }
+        let memories_ms = started.elapsed().as_millis() - events_ms;
         let vector = self.vector_channel(query, depth)?;
+        let vector_ms = started.elapsed().as_millis() - events_ms - memories_ms;
         if !vector.is_empty() {
             channels.push((VECTOR_WEIGHT, vector));
         }
@@ -439,8 +443,23 @@ impl EventLedger {
             }
         }
 
+        let expansion_ms = started.elapsed().as_millis() - events_ms - memories_ms - vector_ms;
         let seeds = fuse(&channels);
         let expansion = self.expand_by_evidence(&seeds, query)?;
+        let graph_ms =
+            started.elapsed().as_millis() - events_ms - memories_ms - vector_ms - expansion_ms;
+        // Per channel, because the totals never localised it. Three rounds of reasoning about
+        // which stage was slow picked the wrong one each time — the per-memory loader, then the
+        // access-counter writes — and both were real defects that changed this number not at all.
+        tracing::info!(
+            events_ms,
+            memories_ms,
+            vector_ms,
+            expansion_ms,
+            graph_ms,
+            depth,
+            "search channels"
+        );
         let mut ranked = if expansion.is_empty() {
             seeds
         } else {
@@ -671,6 +690,20 @@ impl EventLedger {
             }
         }
         Ok(linked)
+    }
+
+    /// The query plan SQLite would use for `sql`, one step per line.
+    ///
+    /// Exists so a test can pin an *access path* rather than a duration. The one defect this guards
+    /// — a supersession filter that could not reach its index and swept `memory_versions` instead —
+    /// cost 42 s on the live ledger and nothing measurable on any fixture, so a timing assertion
+    /// would have been both flaky and silent. The plan is the thing that actually changed.
+    pub fn explain_query_plan(&self, sql: &str) -> Result<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(3))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
     pub fn explain_text_search(&self, query: &SearchQuery) -> Result<Vec<String>> {
