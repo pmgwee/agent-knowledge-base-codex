@@ -28,6 +28,23 @@ that cannot apply here. Copying those would be building a lint for a language no
 
 ---
 
+## Correction of record — the Codex asymmetry never existed
+
+Several conclusions below were written on the premise that Codex could not be *pushed* to and had to
+be *asked*. **That premise was false, and the cause was ours.** `install_codex_hooks` wrote
+`commandWindows` with the executable quoted; Codex does not strip those quotes, so the hook exited 1
+before reaching our binary. Verified dispatching on 9 August 2026 after the fix — Desktop build
+`26.803.41515`, CLI `0.147.0`.
+
+The failure is worth carrying because of how it hid. A hook that cannot *launch* delivers nothing
+**and spools nothing** — identical to never being invoked. On that evidence we concluded first that
+Codex Desktop did not implement hooks, then that an upstream regression was responsible, recording a
+matching build number. Neither was true. Both were reached by reasoning that was sound from evidence
+that could not distinguish the cases.
+
+Where this document argues from the asymmetry, the argument is superseded. It is kept rather than
+rewritten, because a plan that silently repairs its own predictions cannot be checked later.
+
 ## Part 0 — The full ledger of what is left
 
 ### 0.1 From the original roadmap

@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use atomicwrites::{AllowOverwrite, AtomicFile};
 
 /// The hook events the brain registers, in both harnesses.
@@ -23,10 +23,13 @@ const CLAUDE_EVENTS: [&str; 3] = ["SessionStart", "SessionEnd", "UserPromptSubmi
 
 /// Events registered for Codex.
 ///
-/// No `UserPromptSubmit`: Codex's hook surface documents `SessionStart`, and registering an event a
-/// harness does not fire would look like a shipped feature that silently never runs. Add it when it
-/// can be verified firing, not before.
-const CODEX_EVENTS: [&str; 2] = ["SessionStart", "SessionEnd"];
+/// Now the same three as Claude. `UserPromptSubmit` was withheld while Codex appeared to dispatch
+/// nothing — registering an event a harness never fires looks exactly like a shipped feature that
+/// silently does not run. Codex Desktop was verified dispatching `SessionStart` on 9 August 2026
+/// (build 26.803.41515, CLI 0.147.0), so the premise is gone and the asymmetry it protected is not
+/// worth keeping: without this hook Codex orients once per session while Claude re-orients on every
+/// prompt.
+const CODEX_EVENTS: [&str; 3] = ["SessionStart", "SessionEnd", "UserPromptSubmit"];
 
 const SESSION_MATCHER: &str = "startup|resume|clear|compact|fork";
 
@@ -117,6 +120,14 @@ pub fn install_codex_hooks(
 ) -> Result<HookInstallResult> {
     let hooks_path = hooks_path.as_ref();
     let hook_executable = canonical_hook_executable(hook_executable.as_ref())?;
+    // `commandWindows` cannot quote the executable — see `codex_command_windows` — so a path with a
+    // space in it would produce a hook that cannot launch. Refuse loudly here rather than write one
+    // that fails silently, which is the exact shape of the defect this rule exists to prevent.
+    ensure!(
+        !hook_executable.to_string_lossy().contains(' '),
+        "Codex hooks cannot launch an executable whose path contains a space: {}. Codex's          commandWindows field does not strip quotes, so quoting it fails with `hook exited with          code 1`. Install brain-hook.exe somewhere without spaces — ~/AgentBrain/bin is the default.",
+        hook_executable.display()
+    );
     let mut document = read_json_document(hooks_path, "Codex hooks")?;
     validate_hooks_shape(&document, "Codex hooks")?;
 
@@ -445,12 +456,13 @@ fn push_codex_hook_entry(document: &mut serde_json::Value, hook_executable: &Pat
         .as_array_mut()
         .context("Codex hooks.SessionStart must be an array")?;
     let command = codex_command(hook_executable);
+    let command_windows = codex_command_windows(hook_executable);
     session_start.push(serde_json::json!({
         "matcher": CODEX_SESSION_MATCHER,
         "hooks": [{
             "type": "command",
             "command": command,
-            "commandWindows": command,
+            "commandWindows": command_windows,
             "timeout": CODEX_HOOK_TIMEOUT_SECONDS,
             "statusMessage": "Loading project memory",
             "additionalContextLimit": 1500
@@ -466,15 +478,59 @@ fn push_codex_hook_entry(document: &mut serde_json::Value, hook_executable: &Pat
         "hooks": [{
             "type": "command",
             "command": command,
-            "commandWindows": command,
+            "commandWindows": command_windows,
+            "timeout": CODEX_HOOK_TIMEOUT_SECONDS
+        }]
+    }));
+    // Mid-session push, now that the premise for withholding it is gone.
+    //
+    // This was deliberately not registered while Codex appeared to fire nothing — registering an
+    // event a harness never dispatches looks exactly like a shipped feature that silently does not
+    // run, which is the failure this project keeps finding. Codex now demonstrably dispatches, so
+    // the reasoning no longer applies and the asymmetry it protected is worth closing: without it
+    // Codex orients once per session while Claude re-orients on every prompt.
+    let prompt_submit = hooks
+        .entry("UserPromptSubmit")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .context("Codex hooks.UserPromptSubmit must be an array")?;
+    prompt_submit.push(serde_json::json!({
+        "matcher": ".*",
+        "hooks": [{
+            "type": "command",
+            "command": command,
+            "commandWindows": command_windows,
             "timeout": CODEX_HOOK_TIMEOUT_SECONDS
         }]
     }));
     Ok(())
 }
 
+/// The POSIX form, where quoting the executable is correct and necessary.
 fn codex_command(hook_executable: &Path) -> String {
     format!("\"{}\" --harness codex", hook_executable.display())
+}
+
+/// The Windows form — **unquoted**, and this is the whole reason Codex hooks appeared not to work.
+///
+/// Codex on Windows executes `commandWindows` in a way that does not strip a quoted executable, so
+/// `"C:\…\brain-hook.exe" --harness codex` fails with `hook exited with code 1` while
+/// `C:\…\brain-hook.exe --harness codex` runs. The installer emitted the quoted string for both
+/// fields, so **every Codex install this tool has ever produced had a hook that could not launch.**
+///
+/// It cost two wrong conclusions five days apart — first "Codex Desktop does not implement hooks",
+/// then an upstream regression (`openai/codex#21639`) with a matching build number, which made a
+/// guess look like a diagnosis. Both were reached from zero deliveries *and* zero spool entries,
+/// reasoning that a hook which fired and failed would still spool. It does spool — but a hook that
+/// **cannot launch** never reaches our binary at all, so it neither delivers nor spools. That
+/// observation is indistinguishable from "never invoked", and we read it as the latter twice.
+///
+/// The trade-off this accepts: an executable path containing a space would now break. That is the
+/// correct call here — the path is ours, it is `~/AgentBrain/bin/brain-hook.exe`, and a launcher
+/// that never launches is worse than one with a documented constraint. `install_codex_hooks`
+/// refuses such a path rather than writing a hook that silently cannot run.
+fn codex_command_windows(hook_executable: &Path) -> String {
+    format!("{} --harness codex", hook_executable.display())
 }
 
 fn command_text_eq(candidate: &str, expected: &str) -> bool {

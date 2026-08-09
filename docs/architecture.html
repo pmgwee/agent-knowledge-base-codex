@@ -297,26 +297,26 @@
         <text class="box-sub" x="328" y="110">~/.codex/sessions</text>
 
         <rect class="s-retrieval" x="600" y="44" width="640" height="86" rx="5" stroke-width="1.4" />
-        <text class="tag t-retrieval" x="618" y="64">HOOK LIFECYCLE — both harnesses, once Codex hooks are trusted</text>
+        <text class="tag t-retrieval" x="618" y="64">HOOK LIFECYCLE — three hooks, both harnesses, harness-invoked</text>
 
         <rect class="s-retrieval" x="618" y="74" width="148" height="38" rx="4" stroke-width="1.4" />
         <text class="box-sub t-retrieval" x="630" y="89">SessionStart · push</text>
-        <text class="box-sub" x="630" y="105">claude 75 · codex 4</text>
+        <text class="box-sub" x="630" y="105">claude + codex · pushed</text>
 
         <rect class="s-retrieval" x="778" y="74" width="148" height="38" rx="4" stroke-width="1.4" />
         <text class="box-sub t-retrieval" x="790" y="89">SessionEnd · boundary</text>
-        <text class="box-sub" x="790" y="105">claude 3 · codex trusted</text>
+        <text class="box-sub" x="790" y="105">claude + codex · registered</text>
 
         <rect class="s-retrieval" x="938" y="74" width="184" height="38" rx="4" stroke-width="1.6" />
         <text class="box-sub t-retrieval" x="950" y="89">UserPromptSubmit · push</text>
-        <text class="box-sub" x="950" y="105">claude only · codex untested</text>
+        <text class="box-sub" x="950" y="105">claude + codex · 400 tok, metered</text>
 
         <rect class="s-memory" x="1134" y="74" width="90" height="38" rx="4" stroke-width="1.2" />
-        <text class="box-sub t-memory" x="1146" y="89">codex: + MCP</text>
-        <text class="box-sub t-memory" x="1146" y="105">brain_checkpoint</text>
+        <text class="box-sub t-memory" x="1146" y="89">MCP: depth</text>
+        <text class="box-sub t-memory" x="1146" y="105">on demand</text>
 
-        <text class="edge-label" x="618" y="127">Codex fires SessionStart once its hooks are trusted — a SHA-256 per hook in [hooks.state] of ~/.codex/config.toml. An untrusted hook is never invoked.</text>
-        <text class="edge-label" x="618" y="145">That gate cost two wrong conclusions: an untrusted hook never spools either, so "0 deliveries, 0 spool" cannot separate not-dispatched from not-trusted.</text>
+        <text class="edge-label" x="618" y="127">Both harnesses are pushed to, by the harness, before the model reads anything. Codex needs its hooks trusted — a SHA-256 per hook in [hooks.state].</text>
+        <text class="edge-label" x="618" y="145">MCP is no longer a delivery path. It answers questions a push cannot anticipate — search, timeline, evidence, claims, leases.</text>
 
         <!-- ============ BAND 2 — CAPTURE ============ -->
         <text class="band-label" x="40" y="196">2 · CAPTURE — brain-service.exe (Task Scheduler, 6 supervised loops) · 4 scheduled tasks</text>
@@ -921,6 +921,13 @@
         it should not be repeated as though it had been. It is also why the brain's own A/B needed a
         third condition: both hooks fire on every prompt, so a two-condition split would credit the
         brain with whatever CodeGraph saved.
+      </p>
+      <p>
+        <strong>And both now fire in both harnesses.</strong> CodeGraph registered its own hook in
+        Codex before we did; ours failed to launch there for five days because
+        <code>commandWindows</code> quoted the executable and Codex does not strip it. That is the
+        whole story of the &ldquo;Codex has no push path&rdquo; conclusion, and it was ours, not
+        Codex&rsquo;s.
       </p>
     </div>
   </section>

@@ -21,6 +21,13 @@ Waves 2, 4 and **5** are complete. Wave 0 is complete bar a quota-bound backlog.
 except for one generation step held back on purpose. Wave 1 is half done — retrieval quality is now
 fully measured, the token saving never has been, and the harness for measuring it exists.
 
+**Both harnesses are now pushed to, and the asymmetry that shaped this document is gone.** Codex
+Desktop dispatches `SessionStart`, `SessionEnd` and `UserPromptSubmit` exactly as Claude Code does —
+harness-invoked, before the model reads anything. It always could; **our `commandWindows` quoted the
+executable**, which Codex does not strip, so the hook exited 1 before reaching our binary. Five days
+and two confident wrong conclusions came from that one pair of quotes. MCP is no longer a delivery
+path; it is depth on demand.
+
 **The vault has revised claims in place for the first time, across all three projects.**
 `brain reconcile --apply` folded **97 contradictions**, superseding **142 memories** without
 deleting anything. Before it ran there were zero supersession edges anywhere — the whole lifecycle
@@ -100,7 +107,7 @@ separate things (`ec30787` and `a4ce736`), so the wave is complete rather than c
 | 4.1 | Access counting | **Shipped** `11f91dc` | Counted per result, not per search |
 | 4.2 | Staleness surfaced | **Shipped** `6707add` `2ba9729` | 23 notes carry `stale: true`, reversed by retrieval |
 | 4.3 | Gated eviction | **Shipped, gated** `73655b2` | Refuses for ~29 more days by design |
-| **6.1** | **Mid-session push** (`UserPromptSubmit`) | **Shipped** `af81e4d` `4aafe32` | 400 tokens, four memories, twenty per session, metered. Claude only — Codex documents no such hook |
+| **6.1** | **Mid-session push** (`UserPromptSubmit`) | **Shipped** `af81e4d` `4aafe32` | 400 tokens, four memories, twenty per session, metered. **Both harnesses** since the Codex command-line fix |
 | 5.1–5.3 | Vector coverage · jobs · lifecycle panels | **Shipped** `89bd75a` `6d8c6cd` `7d12c15` | Per-project, live |
 | — | Retrieval configuration panel *(unplanned)* | **Shipped** `a4ce736` | Each channel's weight beside whether it can fire. In-browser render unverified — see *Known gaps* |
 | 5.4 | Session replay | **Shipped** `3a2c5b1` | `brain replay` lists sessions and walks one in order |

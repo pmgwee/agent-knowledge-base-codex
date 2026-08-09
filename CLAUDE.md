@@ -407,12 +407,13 @@ once, at startup (`build_capture_bindings` in `crates/brain-service/src/main.rs`
 `schtasks /Run /TN "AgentBrain.Service"` runs, the project sits in the config with nothing
 capturing it — and everything looks fine while that is true.
 
-Then **append the brain section to the new project's `AGENTS.md`** — append, never overwrite,
-and substitute that project's own absolute path into the `brain_checkpoint(project: "...")`
-call. Both agents are already wired globally, so this is not wiring; it is the instruction that
-makes Codex *use* a tool it can already see, because its hook does not fire. Omitting it fails
-silently — Codex simply works without prior context and nothing looks wrong. Claude Code needs
-nothing: its hook is invoked by the harness and resolves the project from the session's `cwd`.
+**Nothing else.** There is no per-harness step: both hooks are registered globally and resolve
+the project from the session's `cwd`.
+
+The `AGENTS.md` brain section that used to be required here is **obsolete — delete it from any
+project that still carries it.** It asked Codex to call `brain_checkpoint` because its hook was
+believed not to fire; the hook fires. Leaving it in is worse than redundant, since it spends a
+tool call reproducing context the harness has already placed in front of the model.
 
 Full procedure, including verification and what to expect for storage:
 `docs/registering-a-project.md`.

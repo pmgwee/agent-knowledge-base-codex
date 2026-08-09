@@ -56,40 +56,61 @@ happened** — and everything worked out in conversation evaporated when the ses
 
 ---
 
-## The Codex question — reversed, twice, and now settled by finding the actual gate
+## The Codex question — settled, and the cause was ours
 
-**Codex Desktop fires `SessionStart`.** Four real deliveries on 9 August at 10:02–10:11 UTC, genuine
-v7 session ids, 1,030–1,041 tokens each with 46 coordination tokens and 4–7 citations, and zero spool
-entries.
+**Both harnesses are pushed to.** Codex Desktop dispatches `SessionStart`, `SessionEnd` and
+`UserPromptSubmit`, harness-invoked, before the model reads anything — the same guarantee Claude
+Code has always had. Verified 9 August 2026 on Desktop `26.803.41515` / CLI `0.147.0`.
 
-**What changed was trust, not dispatch.** `~/.codex/config.toml` gained a `[hooks.state]` section
-carrying a `trusted_hash` per hook. Codex records a SHA-256 of each hook and refuses to invoke an
-untrusted one.
+### The bug was one pair of quotes, in our installer
 
-**Two wrong conclusions, five days apart, from the same unsound discriminator.** Both times the
-evidence was zero deliveries *and* zero spool entries, read as "never invoked" on the reasoning that
-a hook which fired and failed would still spool. The reasoning is sound; the conclusion does not
-follow. **An untrusted hook is never invoked, so it never spools either** — from our side of the pipe
-"not dispatched" and "not trusted" are the same observation. The second attempt compounded it by
-attributing the behaviour to `openai/codex#21639` and recording a matching build number, which made
-a guess look like a diagnosis.
+```jsonc
+"commandWindows": "\"C:\…\brain-hook.exe\" --harness codex"   // hook exited with code 1
+"commandWindows": "C:\…\brain-hook.exe --harness codex"        // runs
+```
 
-A 5 August memory said *"Phase B Desktop hook test was confounded by an untrusted hook."* It was
-right. Louder, more confident, wrong memories outranked it — which is an argument for `brain lint`
-and `reconcile` doing their jobs, and for weighting a claim's *specificity* rather than its volume.
+Codex does not strip quotes from `commandWindows`. `install_codex_hooks` wrote the quoted string to
+**both** `command` and `commandWindows`, so every Codex install this tool ever produced carried a
+hook that could not launch. Fixed; `command` keeps its quotes for POSIX, `commandWindows` drops
+them, and the installer now refuses an executable path containing a space because the unquoted form
+cannot survive one. Pinned by `the_windows_command_is_unquoted_and_the_posix_one_is_not`.
 
-**So `[hooks.state]` is the first thing to check** — before the spool, before the deliveries table,
-before any issue tracker. Recorded in `CLAUDE.md` and `AGENTS.md`.
+The second gate, once the command runs: Codex records a SHA-256 per hook in `~/.codex/config.toml`
+under `[hooks.state]` and will not invoke an untrusted one. **Editing a hook revokes its trust**, so
+re-approve after any reinstall.
 
-### What this opens
+### Why it hid for five days, and what to check next time
 
-`UserPromptSubmit` is still not registered for Codex. `CODEX_EVENTS` omits it because registering an
-event Codex does not fire would look like a shipped feature that never runs — sound reasoning whose
-**premise has now changed**. Codex demonstrably fires hooks.
+A hook that cannot launch delivers nothing **and spools nothing** — indistinguishable from never
+being invoked. We reasoned that a hook which fired and failed to deliver would still spool, which is
+true and did not apply, and concluded first that Codex Desktop does not implement hooks, then that
+`openai/codex#21639` was responsible, recording a matching build number. **A guess with a citation
+looks like a diagnosis.**
 
-**A10 · Test `UserPromptSubmit` on Codex, and register it if it fires.** If it does, Codex gains
-mid-session re-orientation and the harnesses reach real parity — the gap that has been described as
-structural throughout this document turns out to be one untested registration.
+Order of checks, now written into both schema files: **the command line first**, then `[hooks.state]`,
+then the spool, then the deliveries table, and only then an issue tracker.
+
+### MCP stops being a delivery path
+
+`brain_checkpoint` via `AGENTS.md` was never wiring — it was a *request* that the model call a tool,
+with three failure modes a hook does not have: it may not read the file, may read it and skip the
+call, or may call it after it has already started reading the codebase, which is the cost the
+orientation exists to avoid. None are visible from outside.
+
+**Removed:** the per-project `AGENTS.md` brain section, from `docs/registering-a-project.md`, both
+mirrored sections, and this project's own `AGENTS.md`. Delete it from any project still carrying it.
+
+**Kept:** `[mcp_servers.brain]`. The hook *pushes* an orientation; the tools *answer questions* —
+`brain_search`, `brain_timeline`, `brain_evidence`, `brain_claims`, `brain_leases` have no hook
+equivalent and never will, because nothing can push an answer to a question not yet asked. MCP went
+back to being depth on demand, which is what it was always good at.
+
+### A10 is closed by the same commit
+
+`UserPromptSubmit` is now registered for Codex. It was withheld while Codex appeared to dispatch
+nothing, on the reasoning that registering an event a harness never fires looks exactly like a
+shipped feature that silently does not run. That premise is gone, so Codex gets mid-session
+re-orientation too. **Unverified**: whether Codex actually fires it. That is the one open question.
 
 ## How this round is verified — and the one thing that cannot be
 
