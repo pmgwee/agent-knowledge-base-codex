@@ -165,12 +165,26 @@ our fusion is the one everyone else measured.
 - **The vector channel re-applies every caller filter.** Time range, worktree, task, session,
   and — for memories — as-of and supersession. A channel that selected by id without those would
   resurrect retracted memories as current, on machines with a model and not on machines without.
-- **This improves explicit search, not the automatic orientation.** `brain query`, the query API
-  and the Codex MCP tools all go through `search()` and get the fused ranking. The session-start
-  hook does not go through `search()` at all — `ContextCompiler::from_ledger` reads
-  `recent_events()` chronologically, so the orientation is recency-shaped by design and no amount
-  of retrieval work changes it. Worth knowing before attributing an orientation's contents to a
-  ranking decision.
+- **The orientation's *events* are recency-shaped; its *memories* go through `search()`.** This
+  entry used to say the session-start hook does not touch `search()` at all, and that half of it
+  was wrong in a way that cost real time. `ContextCompiler::from_ledger` reads `recent_events()`
+  chronologically — that part holds, and no retrieval work changes which turns appear — but it then
+  calls `rank_memories_against_recent_work`, which builds a query from the last few turns and runs
+  a **`memories_only` search** to order the memory section. So a change to `search()` does reach the
+  orientation, and a slow search is a slow session start: that path was 12.6 s of a 14.9 s compile
+  before the supersession index landed.
+- **Time the stages before theorising about them.** Three `tracing::info!` lines carry this now, and
+  they exist because three rounds of confident diagnosis picked the wrong suspect: `orientation
+  compiled` (open / live_state / load / compile) in `hook_handler.rs`, `orientation material loaded`
+  (events / ranking / stale / memories) in `compiler.rs`, and `search channels` (events / memories /
+  vector / expansion / graph) in `search.rs`. They narrow a slow session start to one stage in a
+  single hook invocation — read them before forming a hypothesis, not after.
+- **`memory_supersession` must keep its index on `superseded_version_id`.** The primary key covers
+  the *superseding* version and every read asks the opposite question. Without the second index
+  SQLite answers "has this been superseded?" by sweeping `memory_versions` once per candidate row:
+  measured 42,001 ms against 34.1 ms on a 5,669-version ledger, which was the entire 3 s hook budget
+  on two of three projects. Pinned by plan, not by timing, in
+  `crates/brain-store/tests/search_query_plan.rs`.
 - **`all-MiniLM-L6-v2` is a bi-encoder.** It scores whether two texts are *alike*, not whether
   one *answers* the other. Measured: against a haystack sharing no vocabulary it lifts the
   answering turn from rank 3 to rank 1; against a merely on-topic haystack a turn about
