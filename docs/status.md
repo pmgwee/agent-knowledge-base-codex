@@ -65,6 +65,25 @@ original record beside the normalised one, and the largest captured session here
 fetches that one event. The same control sits under every event hit in the retrieval results, because
 provenance belongs on the citation rather than in a panel of its own.
 
+**The provider answered again on 10 August, and the four items waiting on it are done or running.**
+A8b's generation ran and **both validator rules were observed refusing real provider output** — the
+one thing holding it back. 3.2b's generation call shipped as `brain synthesize`; 63 subject pages
+now carry cited prose. The three dead-lettered jobs were requeued through `brain jobs --retry-dead`,
+which did not exist: the digest had reported the count for weeks and nothing could act on it.
+
+**A8b also produced the finding that matters more than the feature.** The merges were well-formed,
+well-cited, correctly shortened — and *confidently false*, because the claims they merged were.
+**Every guarantee the validator makes is mechanical, and none of them is truth.** Twenty-six current
+claims asserted that Codex Desktop does not fire hooks, a belief this project disproved the day
+before; three accurate claims now supersede them, append-only. `--apply` was not run.
+
+**Retracting those exposed a worse bug.** A claim can be retired two ways —
+`reconcile --apply` appends a `superseded` version, `remember --supersedes` writes an edge — and
+`current_project_memories` honoured only the first. After the retraction it still served **30
+retired claims**, and that query feeds the orientation, the vault projection and `brain export`.
+`search_memories` had excluded them all along, so the two read paths disagreed about what "current"
+means. Third variant of the `CURRENT_CLAIM` bug.
+
 **Shipped since the August competitor review:** the mid-session push, a continuous decay curve with
 access-strengthening, `brain reconcile` and the fold, `brain explain`, `brain replay`,
 retrieval-shaped notes, query expansion, a scheduled health digest, and the 500-instance benchmark.

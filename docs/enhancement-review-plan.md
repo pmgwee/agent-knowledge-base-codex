@@ -366,14 +366,72 @@ Not scheduled. Recorded so the choice is deliberate rather than forgotten.
 
 ---
 
+## The quota returned — what that unblocked, and the one thing it did not
+
+GLM answered again on 10 August. Four items had been waiting on it, and the same key turned out to
+unlock a fifth: `claude -p` authenticates and reports `glm-5.2` in its usage, so the "Anthropic
+weekly limit" and the "GLM quota" were never two blockers. The roadmap predicted exactly that and
+was right.
+
+### A8b's generation ran, and both validator rules refused real output
+
+This was held back on purpose — *"watching the citation check refuse a real bad citation from a real
+provider is the point"* — and both substantive rules were caught doing it:
+
+| Rule | What it refused |
+|---|---|
+| `LostNewEvidence` | *"dropped 1 event(s) that only the newer claim saw — those are the reason this pair was a candidate at all"* — a merge that was really the older claim restated |
+| `ForeignCitation` | *"cites event:019fd14e…, which neither claim rests on — a merge cannot invent provenance"* |
+
+**And the merges were confidently false anyway**, which is the finding that matters. The provider
+produced well-formed, well-cited, correctly-shortened prose asserting *"Codex Desktop does not fire
+SessionStart hooks"* — because the claims it was merging said so. **Every guarantee A8b makes is
+mechanical, and none of them is truth.** `--apply` was not run.
+
+### What that exposed: 26 current claims asserting a known falsehood
+
+The vault told any agent, twenty-six different ways, that Codex does not fire hooks — a belief this
+project disproved on 9 August. Retracted with three accurate claims via `remember --supersedes`,
+append-only, keeping the six that were true or explicitly historical (`Phase B test was confounded
+by an untrusted hook` was right all along and was outvoted by louder wrong ones).
+
+**Retracting them exposed a worse bug.** A claim can be retired two ways — `reconcile --apply`
+appends a `superseded` *version*, `remember --supersedes` writes a supersession *edge* — and
+`current_project_memories` honoured only the first. So after retracting 26 claims it still returned
+**30 retired ones**, and that query feeds the session-start orientation, the Markdown projection and
+`brain export`. `search_memories` had excluded them all along, so the two read paths disagreed about
+what "current" means. Third variant of the `CURRENT_CLAIM` bug. Fixed `7a75da6`; live count 2,315 →
+2,285.
+
+### 3.2b's generation shipped
+
+`brain synthesize` is the call that never existed — the validator, the store and the projector's
+read path had all been in place for months. 63 subject pages now carry prose; 93 remain. One
+refusal in 45, a provider timeout, correctly scoped to that subject rather than the run.
+
+### One resilience fix each, both from the same lesson
+
+`brain revise --limit 8` lost all seven completed merges to a single transient timeout, because `?`
+propagated it. A provider failure is now that candidate's failure. `brain synthesize` was written
+with the same rule from the start.
+
+### The A/B is unblocked and deliberately not run
+
+Its precondition is not met: **2,104 consolidation jobs are still queued**, and a half-consolidated
+brain understates the warm condition, so the figure would have to be re-run. Measured drain from
+completion timestamps: **~62 jobs/hour, ETA ~34 hours.** Operator's decision, taken: wait for the
+drain, then run 5 × 3 × 3.
+
+---
+
 ## Blocked, and by what
 
 | Item | Blocker |
 |---|---|
-| A8b's generation call | **Provider quota**, by choice — see the shipping posture above |
-| Token-saving A/B | **Provider quota.** Headless sessions return 429 until the weekly limit resets. Harness built and verified; run it with the inherited proxy variables cleared |
-| 3 dead-lettered jobs | Provider quota. They never retry on their own |
-| 3.2b synthesis prose | Provider quota, by choice |
+| ~~A8b's generation call~~ | ✅ **Run 10 August.** Both validator rules observed refusing real provider output |
+| Token-saving A/B | **Its own precondition, not quota.** `claude -p` authenticates and reports `glm-5.2`. 2,104 consolidation jobs are still queued and a half-consolidated brain understates the warm condition; measured drain ~62/hour, ETA ~34 h |
+| ~~3 dead-lettered jobs~~ | ✅ **Requeued 10 August** via `brain jobs --retry-dead`, which did not exist — the digest reported the count and nothing could act on it |
+| ~~3.2b synthesis prose~~ | ✅ **Shipped 10 August.** `brain synthesize`; 63 subject pages carry prose, 93 remain |
 | Codex mid-session parity | **Structural.** No hooks on Desktop. The ceiling is `brain_context_for_prompt` invoked voluntarily |
 | Rendered-UI verification | The Browser pane never paints. Split above |
 
