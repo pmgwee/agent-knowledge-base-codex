@@ -23,6 +23,7 @@ mod replay;
 mod revise;
 mod service;
 mod status;
+mod synthesize;
 
 pub use config_panel::{
     BudgetContract, ConfigDashboard, CredentialBinding, HarnessWiring, McpWiring, ScheduledJob,
@@ -89,6 +90,10 @@ pub use service::{
     uninstall_windows_service, windows_service_status,
 };
 pub use status::{BrainStatus, HermesStatus, read_hermes_status, read_status};
+pub use synthesize::{
+    SubjectOutcome, SynthesisReport, generate as generate_synthesis, render as render_synthesis,
+    survey as survey_synthesis,
+};
 pub use task::TaskCommands;
 
 mod task;

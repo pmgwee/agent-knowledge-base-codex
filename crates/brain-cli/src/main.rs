@@ -136,6 +136,22 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Write the paragraph at the top of each subject page.
+    ///
+    /// Without `--generate` this only reports which subjects have prose describing their current
+    /// memory set and which do not — no provider call, nothing written.
+    Synthesize {
+        #[arg(long)]
+        project: String,
+        /// Draft, validate and store prose. Nothing that fails validation is written.
+        #[arg(long)]
+        generate: bool,
+        /// Subjects per run. Each is one provider call.
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
     /// The consolidation queue, and the one action a stuck queue needs.
     ///
     /// `brain digest` reports a dead-letter count and nothing could act on it — three jobs sat dead
@@ -1167,6 +1183,56 @@ fn main() -> Result<()> {
             }
             if json {
                 println!("{}", serde_json::to_string_pretty(&digests)?);
+            }
+        }
+        Command::Synthesize {
+            project,
+            generate,
+            limit,
+            json,
+        } => {
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let report = if generate {
+                let Some(brain_service::ConsolidationProviderConfig::Glm {
+                    endpoint,
+                    model,
+                    api_key_env,
+                    timeout_ms,
+                    max_retries,
+                }) = config.consolidation.clone()
+                else {
+                    anyhow::bail!(
+                        "no consolidation provider is configured, so there is nothing to draft                          the prose with. `brain synthesize` without --generate still reports                          which subjects need it"
+                    );
+                };
+                let provider = brain_context::GlmClient::new(brain_context::GlmConfig {
+                    endpoint,
+                    model,
+                    api_key_env,
+                    timeout: std::time::Duration::from_millis(timeout_ms),
+                    max_retries,
+                })?;
+                // As in `revise`: a current-thread runtime for the one command that needs one,
+                // rather than a reactor under every command that does not.
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?
+                    .block_on(brain_cli::generate_synthesis(
+                        &ledger,
+                        &provider,
+                        limit,
+                        time::OffsetDateTime::now_utc(),
+                    ))?
+            } else {
+                brain_cli::survey_synthesis(&ledger)?
+            };
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", brain_cli::render_synthesis(&report));
             }
         }
         Command::Jobs {
