@@ -134,6 +134,28 @@ where
             HOOK_PROTOCOL_VERSION
         );
     }
+    // Every hook that reaches us, logged before anything decides what to do with it.
+    //
+    // This is the instrument that was missing for the whole Codex investigation. Only
+    // `SessionStart` leaves a delivery row; `UserPromptSubmit` records one solely when it has
+    // something to push, and `SessionEnd` usually pushes nothing at all — so for two of the three
+    // hooks, "the harness never called it" and "it called and we returned nothing" produce byte-for-byte
+    // identical evidence. That ambiguity has now produced three wrong conclusions: that Codex
+    // Desktop does not implement hooks, that `openai/codex#21639` was responsible, and most
+    // recently that `UserPromptSubmit` had stopped firing.
+    //
+    // One line ends the whole class of question. It is `info` because the moment anybody needs it,
+    // they need it about something that already happened.
+    tracing::info!(
+        harness = %envelope.harness.as_str(),
+        event = %envelope.event_name,
+        session = envelope
+            .payload
+            .get("session_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("-"),
+        "hook received"
+    );
     let outcome = handler(envelope).await?;
     let frame = encode_hook_frame(&outcome.reply)?;
     server.write_all(&frame).await.context("write hook reply")?;
