@@ -289,7 +289,34 @@ pub async fn merge_candidates(
 
         let instruction =
             brain_context::merge_instruction(&older.content, &newer.content, &allowed);
-        let body = provider.merge(&instruction).await?;
+        // A provider failure is *this candidate's* failure, not the run's.
+        //
+        // `?` here threw away every proposal already generated: one transient
+        // `operation timed out` from the endpoint discarded seven completed merges, each of
+        // which had cost a call and the better part of a minute. That makes the command
+        // unusable at any limit worth passing — and the failure is most likely exactly when
+        // the limit is large, because the service's own consolidation loop is hitting the same
+        // endpoint concurrently.
+        //
+        // Recorded as a rejection rather than swallowed, so the run's own report says which
+        // candidates never got an answer instead of quietly returning fewer than were asked for.
+        let body = match provider.merge(&instruction).await {
+            Ok(body) => body,
+            Err(error) => {
+                report.refused += 1;
+                report.outcomes.push(MergeOutcome {
+                    older_id: candidate.older_id,
+                    newer_id: candidate.newer_id,
+                    older_title: older.title.clone(),
+                    newer_title: newer.title.clone(),
+                    merged_title: None,
+                    merged_content: None,
+                    rejected: Some(format!("provider call failed: {error}")),
+                    applied: false,
+                });
+                continue;
+            }
+        };
         let checked = brain_context::parse_merge_response(&body)
             .map_err(|error| error.to_string())
             .and_then(|proposed| {
