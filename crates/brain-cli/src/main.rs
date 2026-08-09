@@ -136,6 +136,24 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// The consolidation queue, and the one action a stuck queue needs.
+    ///
+    /// `brain digest` reports a dead-letter count and nothing could act on it — three jobs sat dead
+    /// for three days because the only way to retry one was to edit SQLite by hand.
+    Jobs {
+        #[arg(long)]
+        project: String,
+        /// Return every dead-lettered job to the queue with its attempt count cleared.
+        ///
+        /// Manual on purpose. The five-attempt ceiling exists so a job that can never succeed stops
+        /// spending a provider call; re-arming it on a timer would undo that. Asking for this is a
+        /// human asserting something changed that the queue cannot observe — quota returned, or the
+        /// bug it kept hitting is fixed.
+        #[arg(long)]
+        retry_dead: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Replay one captured session as discrete events, or list sessions when none is named.
     Replay {
         #[arg(long)]
@@ -1149,6 +1167,27 @@ fn main() -> Result<()> {
             }
             if json {
                 println!("{}", serde_json::to_string_pretty(&digests)?);
+            }
+        }
+        Command::Jobs {
+            project,
+            retry_dead,
+            json,
+        } => {
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let mut ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let retried = if retry_dead {
+                ledger.retry_dead_letter_jobs(time::OffsetDateTime::now_utc())?
+            } else {
+                0
+            };
+            let report = brain_cli::job_report(&ledger, retried)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", brain_cli::render_jobs(&report));
             }
         }
         Command::Replay {

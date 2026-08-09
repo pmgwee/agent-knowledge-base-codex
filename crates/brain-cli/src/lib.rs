@@ -10,6 +10,7 @@ mod evict;
 mod explain;
 mod export;
 mod install_hooks;
+mod jobs;
 mod lint;
 mod longmemeval;
 mod provenance;
@@ -46,6 +47,7 @@ pub use install_hooks::{
     HookInstallResult, install_claude_hooks, install_codex_hooks, uninstall_claude_hooks,
     uninstall_codex_hooks,
 };
+pub use jobs::{DeadJob, JobReport, render as render_jobs, report as job_report};
 pub use lint::{
     DateRepairReport, LintFinding, LintReport, lint_project, render as render_lint,
     render_date_repair, repair_dates,

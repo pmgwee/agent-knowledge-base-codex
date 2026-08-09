@@ -194,6 +194,41 @@ impl EventLedger {
             .transpose()
     }
 
+    /// Every job in one status, newest first.
+    ///
+    /// Exists for the dead-letter list specifically. A count answers "is something stuck" and only
+    /// the jobs themselves answer "stuck on me or on the provider" — which is the difference
+    /// between waiting out a rate limit and fixing a bug, and the reason `last_error` is carried.
+    pub fn consolidation_jobs_with_status(
+        &self,
+        status: JobStatus,
+        limit: usize,
+    ) -> Result<Vec<ConsolidationJob>> {
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT job_id, project_id, first_event_id, last_event_id, reason,
+                   status, attempt, available_at_ns, lease_owner, lease_until_ns,
+                   last_error
+            FROM consolidation_jobs
+            WHERE project_id = ?1 AND status = ?2
+            ORDER BY created_at_ns DESC
+            LIMIT ?3
+            "#,
+        )?;
+        let rows = statement.query_map(
+            params![
+                self.project_scope.0.to_string(),
+                status.as_str(),
+                i64::try_from(limit).unwrap_or(i64::MAX)
+            ],
+            parse_job,
+        )?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .map(parse_job_record)
+            .collect()
+    }
+
     pub fn consolidation_job_count(&self) -> Result<u64> {
         Ok(self.connection.query_row(
             "SELECT COUNT(*) FROM consolidation_jobs WHERE project_id = ?1",
@@ -439,6 +474,37 @@ impl EventLedger {
             ],
         )?;
         Ok(())
+    }
+
+    /// Return dead-lettered jobs to the queue, clearing their attempt count.
+    ///
+    /// **Deliberately manual, and deliberately not automatic.** A job dead-letters after five
+    /// failures, and the whole point of that ceiling is that a job which can never succeed must
+    /// stop spending a provider call every time it is tried. Re-arming it on a timer would undo
+    /// exactly that. What makes it right *here* is that a human is asserting something changed —
+    /// quota returned, or the bug the job kept hitting is fixed — which is a fact the queue has no
+    /// way to observe for itself.
+    ///
+    /// The gap this closes is that `brain digest` reports a dead-letter count and nothing could act
+    /// on it: three jobs sat dead for three days because the only way to retry one was to edit
+    /// SQLite by hand. A number nobody can respond to is a number nobody reads.
+    ///
+    /// `last_error` is kept, not cleared. If the retry fails the same way, the pair of messages is
+    /// the evidence that it is not a quota problem — and clearing it would destroy the only record
+    /// of why the job died the first time.
+    ///
+    /// Returns how many jobs moved.
+    pub fn retry_dead_letter_jobs(&mut self, now: time::OffsetDateTime) -> Result<u64> {
+        let changed = self.connection.execute(
+            r#"
+            UPDATE consolidation_jobs SET
+                status = 'pending', attempt = 0, available_at_ns = ?2,
+                lease_owner = NULL, lease_until_ns = NULL
+            WHERE project_id = ?1 AND status = 'dead_letter'
+            "#,
+            params![self.project_scope.0.to_string(), timestamp_ns(now)?],
+        )?;
+        Ok(changed as u64)
     }
 
     pub fn record_redaction_manifest(
