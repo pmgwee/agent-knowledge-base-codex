@@ -18,6 +18,7 @@ mod rebuild;
 mod reconcile;
 mod register;
 mod remember;
+mod revise;
 mod service;
 mod status;
 
@@ -70,6 +71,9 @@ pub use register::{
     register_project_with_sources,
 };
 pub use remember::{RememberRequest, RememberedMemory, derive_evidence, remember};
+pub use revise::{
+    RevisionCandidate, RevisionReport, propose_revisions, render as render_revisions,
+};
 pub use service::{
     ServiceInstallOptions, ServiceInstallReport, ServiceStatusReport, ServiceTaskStatus,
     ServiceUninstallReport, install_windows_service, start_windows_service, stop_windows_service,

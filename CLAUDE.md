@@ -346,6 +346,39 @@ nothing enforces the correspondence, and a mismatch renders as plausible-looking
 Note that `time::OffsetDateTime` serializes as a 9-element array, except in the deployment
 section, where timestamps originate as RFC 3339 strings in the deploy manifest.
 
+## How each harness receives context — they are not symmetric
+
+**Claude Code is pushed to. Codex Desktop must ask.** This is not a configuration difference to be
+fixed; it is a property of the two harnesses, and every plan that assumed parity has been wrong.
+
+| | Claude Code | Codex Desktop |
+|---|---|---|
+| `SessionStart` | Fires. 75 real deliveries | **Never fires.** 0 deliveries, 0 of 144 spool entries |
+| `SessionEnd` | Fires | Never fires |
+| `UserPromptSubmit` | Fires — mid-session push, 400 tokens | **Not registered.** Codex has no mid-session re-orientation at all |
+| MCP | Not wired | 16 tools; `brain_checkpoint` has all the real deliveries |
+
+**Codex Desktop does not implement hooks.** The official hook documentation
+(`SessionStart`, `~/.codex/hooks.json`, `hookSpecificOutput.additionalContext`) describes the
+**Codex CLI**. Tested 9 August 2026 against a real Desktop session: zero deliveries, and — the
+discriminator that settles it — **zero spool entries**, since a hook that fired and failed to
+deliver would still spool. It is never invoked.
+
+**Our side is proven working.** A manual invocation produces a full 974-token Codex orientation
+through the same binary, pipe and reply shape, and there is a test pinning the Codex reply shape.
+The registration is correct and unexercised.
+
+**So: keep `~/.codex/hooks.json` registered and wait.** Removing it would break the Codex CLI path
+and would have to be redone the day Desktop adds support. What must not happen is *reporting* it as
+delivering — one "SHIPPED" badge covering two harnesses, one of them at zero, is how this went
+unnoticed for four days.
+
+**What this costs, concretely:** Codex orients once per session, voluntarily, because `AGENTS.md`
+tells it to call `brain_checkpoint`. It then goes quiet unless the model chooses to call
+`brain_search`. Claude re-orients on every prompt whether it wants to or not. **The parity gap is
+continuous re-orientation, not the handover** — and on Desktop it cannot be closed with hooks, only
+with an instruction the model may ignore.
+
 ## Registering a project
 
 > **Mirrored section.** The same procedure appears under *Registering a project* in `AGENTS.md`,

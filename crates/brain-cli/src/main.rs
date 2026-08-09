@@ -167,6 +167,21 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Show older claims a newer observation on the same subject appears to complete.
+    ///
+    /// Karpathy's Ingest operation — "a single source might touch 10–15 wiki pages" — is the one
+    /// this system does not perform. Detection is derived; the rewrite is a judgement and stays
+    /// yours. Reports and stops.
+    Revise {
+        #[arg(long)]
+        project: String,
+        /// Include pairs written the same day. Off by default: 441 of 454 on this corpus were
+        /// consolidation windows overlapping, which is the fold's business, not a revision.
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Show which memories eviction would retire — and refuse to retire them until access has
     /// been counted long enough for "never retrieved" to mean anything.
     Evict {
@@ -1212,6 +1227,18 @@ fn main() -> Result<()> {
                 } else {
                     print!("{}", brain_cli::render_reconcile(&report));
                 }
+            }
+        }
+        Command::Revise { project, all, json } => {
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let report = brain_cli::propose_revisions(&ledger, project_id, all.then_some(0.0))?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", brain_cli::render_revisions(&report));
             }
         }
         Command::Evict {
