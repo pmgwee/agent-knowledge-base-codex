@@ -18,6 +18,7 @@ mod rebuild;
 mod reconcile;
 mod register;
 mod remember;
+mod replay;
 mod revise;
 mod service;
 mod status;
@@ -71,6 +72,11 @@ pub use register::{
     register_project_with_sources,
 };
 pub use remember::{RememberRequest, RememberedMemory, derive_evidence, remember};
+pub use replay::{
+    DEFAULT_PAGE as REPLAY_DEFAULT_PAGE, ReplayEvent, ReplayPage, ReplaySession, ReplayTurn,
+    event as replay_event, page as replay_page, render_page as render_replay_page,
+    sessions as replay_sessions,
+};
 pub use revise::{
     MergeOutcome, MergeReport, RevisionCandidate, RevisionReport, merge_candidates,
     propose_revisions, render as render_revisions, render_merges,

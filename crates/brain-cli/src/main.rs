@@ -142,6 +142,15 @@ enum Command {
         project: String,
         #[arg(long)]
         session: Option<String>,
+        /// One event in full, by id — what expanding an `event:<uuid>` citation fetches.
+        #[arg(long)]
+        event: Option<uuid::Uuid>,
+        /// Turns per page. The default is a page, not a session: the largest session here is
+        /// 15,969 events and serialises to 100 MB.
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
         #[arg(long)]
         json: bool,
     },
@@ -1145,50 +1154,64 @@ fn main() -> Result<()> {
         Command::Replay {
             project,
             session,
+            event,
+            limit,
+            offset,
             json,
         } => {
             let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
             let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
             let project_config = config.project(Some(project_id))?;
             let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            if let Some(event_id) = event {
+                let found = brain_cli::replay_event(&ledger, event_id)?;
+                match (found, json) {
+                    (Some(found), true) => println!("{}", serde_json::to_string_pretty(&found)?),
+                    (Some(found), false) => println!(
+                        "{}  {}
+{}
+
+{}",
+                        found.occurred_at,
+                        found.event_type,
+                        found.source_locator,
+                        found.content.unwrap_or_else(|| "(no text)".to_owned())
+                    ),
+                    (None, true) => println!("null"),
+                    // Not an error. A citation can point at another project's ledger, and the
+                    // honest answer there is "not here", never a cross-project read.
+                    (None, false) => println!("event {event_id} is not in this project's ledger"),
+                }
+                return Ok(());
+            }
             match session {
                 None => {
-                    let sessions = ledger.captured_sessions(25)?;
+                    let sessions = brain_cli::replay_sessions(&ledger, 25)?;
                     if json {
                         println!("{}", serde_json::to_string_pretty(&sessions)?);
                     } else {
-                        for (id, count, last) in sessions {
-                            println!("  {count:>6} events  {}  {id}", last.date());
+                        for session in sessions {
+                            println!(
+                                "  {:>6} events  {}  {}",
+                                session.event_count,
+                                session.last_event_at.date(),
+                                session.native_session_id
+                            );
                         }
                     }
                 }
                 Some(session) => {
-                    let events = ledger.session_events(project_id, &session)?;
+                    let page = brain_cli::replay_page(
+                        &ledger,
+                        project_id,
+                        &session,
+                        limit.unwrap_or(brain_cli::REPLAY_DEFAULT_PAGE),
+                        offset,
+                    )?;
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&events)?);
+                        println!("{}", serde_json::to_string_pretty(&page)?);
                     } else {
-                        println!(
-                            "{} — {} events
-",
-                            session,
-                            events.len()
-                        );
-                        for event in events {
-                            let summary = event
-                                .payload
-                                .get("content")
-                                .and_then(serde_json::Value::as_str)
-                                .unwrap_or("")
-                                .split_whitespace()
-                                .take(14)
-                                .collect::<Vec<_>>()
-                                .join(" ");
-                            println!(
-                                "  {}  {:<22} {summary}",
-                                event.occurred_at.time(),
-                                event.event_type.as_str()
-                            );
-                        }
+                        print!("{}", brain_cli::render_replay_page(&page));
                     }
                 }
             }

@@ -764,12 +764,28 @@ impl EventLedger {
     /// competitor's viewer does that ours does not. All the data was already here; nothing read it
     /// back in order.
     ///
-    /// Filters `recent_events` rather than issuing its own decode. One row-mapping is one place for
-    /// a column to be read wrongly; two is two, and the second one drifts.
+    /// **Unbounded, and that is only safe for a terminal.** One session in this project holds 15,969
+    /// events and serialises to 100 MB, because every row carries its `raw` record alongside the
+    /// normalised one. Anything paging a session for a UI wants [`Self::session_events_page`].
     pub fn session_events(
         &self,
         project_id: ProjectId,
         native_session_id: &str,
+    ) -> Result<Vec<StoredEvent>> {
+        self.session_events_page(project_id, native_session_id, usize::MAX, 0)
+    }
+
+    /// One window of a session, oldest first.
+    ///
+    /// Exists because the unbounded read above is a 100 MB response on this project's largest
+    /// session, and a replay view that must fetch all of it to show the first twenty turns is a
+    /// replay view nobody opens twice.
+    pub fn session_events_page(
+        &self,
+        project_id: ProjectId,
+        native_session_id: &str,
+        limit: usize,
+        offset: usize,
     ) -> Result<Vec<StoredEvent>> {
         if project_id != self.project_scope {
             bail!(
@@ -790,10 +806,16 @@ impl EventLedger {
             FROM events
             WHERE project_id = ?1 AND native_session_id = ?2
             ORDER BY occurred_at_ns ASC, observed_at_ns ASC, source_offset ASC
+            LIMIT ?3 OFFSET ?4
             "#,
         )?;
         let rows = statement.query_map(
-            params![project_id.0.to_string(), native_session_id],
+            params![
+                project_id.0.to_string(),
+                native_session_id,
+                i64::try_from(limit).unwrap_or(i64::MAX),
+                i64::try_from(offset).unwrap_or(0),
+            ],
             |row| {
                 Ok(RawStoredEvent {
                     event_id: row.get(0)?,
@@ -823,6 +845,16 @@ impl EventLedger {
     }
 
     /// Sessions this project has captured, most recent first, with their event counts.
+    /// How many events one session holds. A pager that cannot say "of how many" is a scroll bar
+    /// with no thumb.
+    pub fn session_event_count(&self, native_session_id: &str) -> Result<u64> {
+        Ok(self.connection.query_row(
+            "SELECT COUNT(*) FROM events WHERE project_id = ?1 AND native_session_id = ?2",
+            params![self.project_scope.0.to_string(), native_session_id],
+            |row| row.get::<_, i64>(0),
+        )? as u64)
+    }
+
     pub fn captured_sessions(
         &self,
         limit: usize,
