@@ -16,8 +16,8 @@ Rust 1.88.0 (MSVC, edition 2024), a 10-crate Cargo workspace producing four bina
 |---|---|
 | `brain.exe` | CLI — register, status, query, dashboard, service install |
 | `brain-service.exe` | Background capture, consolidation, rediscovery. Runs as a Task Scheduler task. |
-| `brain-hook.exe` | Claude Code session-start hook. Pushes orientation over a named pipe (~9–12 ms). |
-| `brain-mcp.exe` | MCP stdio server for Codex. Pull-based: `brain_checkpoint`, `brain_search`, and four others. |
+| `brain-hook.exe` | Lifecycle hook for **both** harnesses — `SessionStart`, `SessionEnd`, `UserPromptSubmit`. Pushes over a named pipe. |
+| `brain-mcp.exe` | MCP stdio server for Codex. **Depth on demand, not delivery** — `brain_search`, `brain_timeline` and four others answer questions a push cannot anticipate. |
 
 ## Deployment — read this before changing any Rust code
 
@@ -368,9 +368,14 @@ once its hooks were trusted.
 | | Claude Code | Codex Desktop |
 |---|---|---|
 | `SessionStart` | Fires. 75+ deliveries | **Fires.** 4 real deliveries, 1,030–1,041 tokens, 46 coordination tokens |
-| `SessionEnd` | Fires | Registered and trusted; not yet observed |
-| `UserPromptSubmit` | Fires — mid-session push, 400 tokens | **Not registered.** See below |
-| MCP | Not wired | 16 tools; `brain_checkpoint` remains available as depth |
+| `SessionEnd` | Fires | Registered and trusted; declares a 3 s timeout because Codex clamps anything larger |
+| `UserPromptSubmit` | Fires — mid-session push, 400 tokens | **Fires.** Registered `eb67502`; four invocations observed across two prompts |
+| MCP | Not wired | 16 tools — **depth on demand, never delivery.** `brain_checkpoint` is redundant with the hook and no longer requested anywhere |
+
+**Full parity.** All three hooks, both harnesses, harness-invoked before the model reads anything.
+The table above contradicted itself for a day — the `UserPromptSubmit` row said "not registered"
+while the paragraph below it said the opposite — which is what a table updated by hand next to prose
+updated by hand does.
 
 ### The trust gate — check this before concluding anything about Codex hooks
 
@@ -422,10 +427,17 @@ capturing it — and everything looks fine while that is true.
 **Nothing else.** There is no per-harness step: both hooks are registered globally and resolve
 the project from the session's `cwd`.
 
-The `AGENTS.md` brain section that used to be required here is **obsolete — delete it from any
-project that still carries it.** It asked Codex to call `brain_checkpoint` because its hook was
+The `AGENTS.md` brain section that used to be required here is **obsolete, and has been removed
+from all three registered projects.** It asked Codex to call `brain_checkpoint` because its hook was
 believed not to fire; the hook fires. Leaving it in is worse than redundant, since it spends a
-tool call reproducing context the harness has already placed in front of the model.
+tool call reproducing context the harness has already placed in front of the model — and it is a
+*request*, not wiring, so the model may skip it, or make it after it has already started reading the
+codebase, which is the cost the orientation exists to avoid.
+
+Worth knowing if you carry this instruction to a new machine: this claim was written here on
+9 August while only one of the three projects had actually been cleaned. The other two spent a day
+telling Codex to fetch context the harness had already pushed. **Check the file, do not trust the
+note.**
 
 Full procedure, including verification and what to expect for storage:
 `docs/registering-a-project.md`.

@@ -11,6 +11,82 @@ check whether the reasoning held.
 
 ---
 
+## Status board — every item, current as of 10 August 2026
+
+**✅ shipped · ⚠️ open · ~~struck through~~ = the item is resolved and no longer applies.**
+
+### The seven from the original plan, plus what the round added
+
+| # | Item | Status | Where it stands |
+|---|---|---|---|
+| **A1** | `push-snapshot.mjs` 10 s → 45 s | ✅ shipped | `6e006c0`. `brain dashboard` takes 18 s, so every push timed out and Redis served a pre-Config snapshot. Config panel renders |
+| **A2** | Architecture diagram — split recency-orientation from fused-push | ✅ shipped | `4c213f3`. It taught that RRF feeds session-start. It does not |
+| **A3** | Harness named on delivery metrics | ✅ shipped | `33684d4`. One green badge covered two agents |
+| **A3b** | Harness split in the dashboard JSON | ✅ shipped | `ee357eb`. Six harness/hook channels including the zeros — and it found four channels that recorded nothing |
+| **A4** | Capture-staleness detection | ✅ shipped | `4c213f3`. A 100-minute stall with every panel green |
+| **A5** | The file-back loop | ✅ shipped | `4c213f3`. `--evidence` optional, citations derived. **7+ human claims filed since**, against 0 in the two months before |
+| **A6** | Search on the Retrieval panel | ✅ shipped | Route verified end to end; **⚠️ rendered pixels are yours to confirm** — see the verification split |
+| **A7** | Session replay UI + inline citations | ✅ shipped | `fbb76d0`. Could not be built as designed: a session is 100 MB whole, so it pages |
+| **A8a** | Cross-claim revision — detection | ✅ shipped | `5bd4c49`. Grouping by shared evidence after two groupings failed |
+| **A8b** | Cross-claim revision — the rewrite | ✅ shipped, generation run | Both validator rules observed refusing real provider output. **⚠️ `--apply` deliberately not run** — see below |
+| **A9** | Human checkpoint on consolidation | ⚠️ open, unscheduled | Recorded as a deliberate choice, not forgotten. A8b's false merges are now the evidence for it |
+| **A10** | Does Codex fire hooks? | ✅ settled | **Yes — all three.** The fork in the road, resolved |
+| **A11** | Orientation compile too slow for the hook budget | ✅ closed | `35ef05f`. One absent index: 42,001 ms → 34.1 ms |
+
+### The Codex work, which was the fork in the road
+
+| Item | Status | Where it stands |
+|---|---|---|
+| ~~Codex never fires hooks; MCP is its ceiling~~ | ~~resolved~~ | **Falsified.** Our `commandWindows` quoted the executable and Codex does not strip quotes, so the hook exited 1 before reaching our binary |
+| ~~Un-register the Codex hooks so the dashboard stops claiming a feature that does not run~~ | ~~resolved~~ | Not done, and correctly not done — the feature runs |
+| ~~Codex mid-session parity is structural~~ | ~~resolved~~ | **Falsified.** `UserPromptSubmit` is registered and observed firing four times in one Codex session |
+| `SessionStart` on both harnesses | ✅ shipped | Harness-invoked, before the model reads anything |
+| `SessionEnd` on both harnesses | ✅ shipped | Codex clamps the timeout to 3 s and warns; the installer now declares 3 |
+| `UserPromptSubmit` on both harnesses | ✅ shipped | `eb67502` |
+| MCP demoted from delivery to depth | ✅ shipped | `[mcp_servers.brain]` **kept** — `brain_search`, `brain_timeline`, `brain_evidence`, `brain_claims`, `brain_leases` answer questions a push cannot anticipate |
+| `AGENTS.md` brain block removed from every registered project | ✅ shipped | All three rewritten. The `brain_checkpoint` instruction is gone; **no per-project step remains** |
+| `docs/registering-a-project.md` step 3 | ✅ shipped | Now reads *"Nothing."* |
+
+**Two entries in the day's recap are struck through above because they were overtaken by evidence
+the same day.** They are kept rather than deleted: "Codex hook test ✅ settled — never fires on
+Desktop" was the confident wrong conclusion, and the reasoning that produced it — *zero deliveries
+and zero spool entries must mean it was never invoked* — is sound and does not apply, because a hook
+that cannot **launch** neither delivers nor spools.
+
+### The quota-blocked four, on the day quota returned
+
+| Item | Status | Where it stands |
+|---|---|---|
+| ~~A8b's generation call~~ | ✅ **run 10 August** | Both rules caught refusing real output: `LostNewEvidence` and `ForeignCitation` |
+| ~~3 dead-lettered jobs~~ | ✅ **requeued** | Through `brain jobs --retry-dead`, which did not exist — the digest reported the count and nothing could act on it |
+| ~~3.2b subject-page prose~~ | ✅ **shipped** | `brain synthesize`. 63 pages carry cited prose, ⚠️ 93 remain |
+| Consolidation backlog | ⚠️ **draining** | 2,191 → ~2,100. Measured ~62 jobs/hour, ETA ~34 h. Unattended |
+| Token-saving A/B | ⚠️ **not run, by decision** | Never blocked on a second quota — `claude -p` reports `glm-5.2`. Blocked on its own precondition: a half-consolidated brain understates the warm condition |
+
+### Against Karpathy's pattern — the two skips that were wrong
+
+| His element | Then | Now |
+|---|---|---|
+| **Ingest = integrate into existing pages** | ❌ we appended, never integrated | ✅ **`brain revise` merges; `brain synthesize` writes the page's prose.** The machine now integrates |
+| **Query = file answers back** | ❌ 0 of 13,493 | ✅ **`brain remember` with derived citations.** 7+ filed, including today's three retractions |
+| Human in the loop on ingest | ⚠️ debatable | ⚠️ still open as **A9**, and A8b's false merges are the argument for it |
+
+The other six skips stand as correct and unchanged.
+
+### Found while doing the above — none of it was on the plan
+
+| Item | Status | What it was |
+|---|---|---|
+| Retired claims still served | ✅ fixed `7a75da6` | Two ways to retire a claim, one honoured. 30 retracted claims were still reaching the orientation, the vault and `brain export` |
+| 26 claims asserting a disproved belief | ✅ retracted | The vault told any agent, 26 ways, that Codex does not fire hooks |
+| `UserPromptSubmit` / `SessionEnd` recorded nothing | ✅ fixed `ee357eb` | They pushed context and staged no delivery, so four channels read zero however well they worked |
+| One timeout discarded seven finished merges | ✅ fixed `650b978` | `?` propagated a transient provider failure through the whole run |
+| No CLI could retry a dead letter | ✅ fixed `50547dd` | `brain jobs` |
+| Nothing timed the orientation compile | ✅ fixed | Three `tracing::info!` lines; they ended a diagnosis that three rounds of reasoning got wrong |
+
+
+---
+
 ## The finding that shaped everything below
 
 Measured against the pattern, this system skipped **eight** of its elements. Six of those skips were
@@ -146,7 +222,14 @@ call, or may call it after it has already started reading the codebase, which is
 orientation exists to avoid. None are visible from outside.
 
 **Removed:** the per-project `AGENTS.md` brain section, from `docs/registering-a-project.md`, both
-mirrored sections, and this project's own `AGENTS.md`. Delete it from any project still carrying it.
+mirrored sections, and **all three registered projects** — `agent-knowledge-base-codex`,
+`Ai-community-channel` and `subscription-agent`.
+
+That last part was claimed here before it was true. On 9 August only this project's block was
+rewritten; the other two still carried the `brain_checkpoint` instruction verbatim until 10 August,
+which means two of three registered projects spent a day being told to call a tool for context the
+harness had already pushed. **No per-project step remains** — `brain register <path>` and a service
+restart is the whole procedure.
 
 **Kept:** `[mcp_servers.brain]`. The hook *pushes* an orientation; the tools *answer questions* —
 `brain_search`, `brain_timeline`, `brain_evidence`, `brain_claims`, `brain_leases` have no hook
@@ -276,9 +359,9 @@ feature yet. This is the shape every successful verification in this round alrea
 
 ---
 
-## Open
+## Open — detail behind the board above
 
-### A8b · Cross-claim revision — the rewrite
+### ✅ A8b · Cross-claim revision — the rewrite
 
 **Detection shipped (`5bd4c49`). The rewrite is designed and buildable today except the generation
 call.**
@@ -338,7 +421,7 @@ the live generation until quota. Watching the citation check refuse a *real* bad
 *real* provider is the point; shipping it against a stub and calling it verified would invert the
 entire argument for having a validator.
 
-### A6 · Search on the Retrieval panel
+### ✅ A6 · Search on the Retrieval panel
 
 The panel reads configuration and runs zero searches, which is why it feels inert. `brain query` and
 `brain explain` already compute everything a results view needs — per-channel rank beside the fused
@@ -347,13 +430,19 @@ position. Only the renderer is missing.
 **Shape:** a `/api/search` route shelling to `brain explain --json`, and a results view under the
 existing channel cards. Verified here: the route's values. Verified by you: that it renders.
 
-### A9 · A human checkpoint on consolidation — *debatable, listed honestly*
+### ⚠️ A9 · A human checkpoint on consolidation — *still open, and now with evidence*
 
 Karpathy stays involved on every ingest. We batch 200 events to a provider unattended, and the three
 dead-lettered jobs are that gap showing. Reviewing all of it is not realistic; reviewing **decisions**
 (22% of memories, and what the orientation leans on hardest) might be.
 
 Not scheduled. Recorded so the choice is deliberate rather than forgotten.
+
+**10 August gave it evidence.** A8b's generation produced merges that passed every mechanical
+check — provenance, brevity, evidence retention — and asserted a falsehood, because the claims they
+merged asserted it. No validator catches that, and no amount of validator design will: the rules are
+about *form*, and this is about *truth*. That is the case for a human checkpoint stated better than
+the original argument stated it.
 
 ---
 
@@ -432,7 +521,7 @@ drain, then run 5 × 3 × 3.
 | Token-saving A/B | **Its own precondition, not quota.** `claude -p` authenticates and reports `glm-5.2`. 2,104 consolidation jobs are still queued and a half-consolidated brain understates the warm condition; measured drain ~62/hour, ETA ~34 h |
 | ~~3 dead-lettered jobs~~ | ✅ **Requeued 10 August** via `brain jobs --retry-dead`, which did not exist — the digest reported the count and nothing could act on it |
 | ~~3.2b synthesis prose~~ | ✅ **Shipped 10 August.** `brain synthesize`; 63 subject pages carry prose, 93 remain |
-| Codex mid-session parity | **Structural.** No hooks on Desktop. The ceiling is `brain_context_for_prompt` invoked voluntarily |
+| ~~Codex mid-session parity~~ | ✅ **Resolved.** It was never structural: `UserPromptSubmit` is registered and observed firing four times across two Codex prompts. Nothing is invoked voluntarily any more |
 | Rendered-UI verification | The Browser pane never paints. Split above |
 
 ---

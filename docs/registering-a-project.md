@@ -59,8 +59,9 @@ different clone of the same repo elsewhere on disk is a *different* project by d
 3. **Nothing.** Both harnesses are now wired globally, and neither needs a per-project step.
 
    This used to be the required, easily-forgotten step: append a brain section to the new
-   project's `AGENTS.md` telling Codex to call `brain_checkpoint`. **It is obsolete**, and the
-   section can be deleted from projects that carry it.
+   project's `AGENTS.md` telling Codex to call `brain_checkpoint`. **It is obsolete**, and it has
+   been removed from all three registered projects — the last two on 10 August, a day after this
+   file first said they were done.
 
    Codex hooks were verified dispatching on 9 August 2026 (Desktop build `26.803.41515`, CLI
    `0.147.0`). Codex is now pushed to exactly as Claude Code is — `SessionStart`, `SessionEnd`
