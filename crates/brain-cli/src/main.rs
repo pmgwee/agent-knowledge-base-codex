@@ -96,9 +96,17 @@ enum Command {
         title: String,
         #[arg(long)]
         content: String,
-        /// One or more `event:<uuid>` this conclusion rests on. At least one is required.
-        #[arg(long = "evidence", required = true)]
+        /// One or more `event:<uuid>` this conclusion rests on.
+        ///
+        /// **Omit it.** Nobody can know an event UUID by hand, which is why this command shipped
+        /// in June and had never been used once across 13,493 memories. Left empty, the citations
+        /// are derived by running the claim's own text through the same fused retrieval the rest of
+        /// the brain uses, and the chosen turns are printed so you can check them.
+        #[arg(long = "evidence")]
         evidence: Vec<String>,
+        /// Scope derived citations to one session. Defaults to the whole project.
+        #[arg(long)]
+        session: Option<String>,
         /// Memory ids this replaces. Their current versions are superseded, never deleted.
         #[arg(long = "supersedes")]
         supersedes: Vec<String>,
@@ -1000,6 +1008,7 @@ fn main() -> Result<()> {
             title,
             content,
             evidence,
+            session,
             supersedes,
             kind,
         } => {
@@ -1021,6 +1030,27 @@ fn main() -> Result<()> {
                     })
                     .collect()
             };
+            // Derive the citations when none were given. This is the whole file-back fix: the
+            // command was unusable while it demanded UUIDs by hand, so it was never used once.
+            let evidence_ids = if evidence.is_empty() {
+                let derived = brain_cli::derive_evidence(
+                    &ledger,
+                    project_id,
+                    &format!("{title}. {content}"),
+                    session.as_deref(),
+                )?;
+                anyhow::ensure!(
+                    !derived.is_empty(),
+                    "no turn in this project discusses that claim, so there is nothing to cite.                      Either the wording shares no vocabulary with the corpus, or the conclusion is                      genuinely new — in which case pass --evidence explicitly and say what it rests on"
+                );
+                println!("citing {} turn(s), derived from the claim:", derived.len());
+                for id in &derived {
+                    println!("  event:{id}");
+                }
+                derived
+            } else {
+                parse_ids(&evidence, "--evidence")?
+            };
             let request = brain_cli::RememberRequest {
                 project_id,
                 worktree_id: project_config.worktree_id,
@@ -1028,7 +1058,7 @@ fn main() -> Result<()> {
                     .with_context(|| format!("unknown memory kind {kind:?}"))?,
                 title: &title,
                 content: &content,
-                evidence_ids: parse_ids(&evidence, "--evidence")?,
+                evidence_ids,
                 supersedes: parse_ids(&supersedes, "--supersedes")?,
                 now: time::OffsetDateTime::now_utc(),
             };

@@ -37,9 +37,24 @@ pub struct Digest {
     pub jobs_dead: u64,
     /// Sessions the brain pushed context into, mid-session.
     pub subjects: usize,
+    /// Minutes since the newest captured event. `None` when nothing has been captured at all.
+    ///
+    /// The instrument this system was missing. Capture stalled for 100 minutes on 9 August with the
+    /// service running, `capture_blocked: false`, and every panel green — because nothing anywhere
+    /// compared the newest event against the wall clock. A stalled cursor and a quiet afternoon
+    /// look identical unless you ask how old the newest thing is.
+    pub capture_lag_minutes: Option<f64>,
     /// What changed since the previous digest, when there was one.
     pub notes: Vec<String>,
 }
+
+/// How stale capture may get before the digest says so.
+///
+/// The service rescans transcript roots every 120 s, so anything past a few minutes is either a
+/// genuinely idle machine or a stall. Thirty minutes is quiet on a normal working day and loud on
+/// the failure that actually happened — and the note states both readings rather than picking one,
+/// because the digest cannot know whether you were at the keyboard.
+const CAPTURE_STALE_AFTER_MINUTES: f64 = 30.0;
 
 pub fn build(
     ledger: &EventLedger,
@@ -60,6 +75,11 @@ pub fn build(
     };
     let queue = ledger.consolidation_queue()?;
     let reconcile = crate::propose_reconciliation(ledger, project_id)?;
+    let capture_lag_minutes = ledger
+        .latest_event_at()
+        .ok()
+        .flatten()
+        .map(|latest| ((now - latest).as_seconds_f64() / 60.0).max(0.0));
 
     let mut notes = Vec::new();
     // Each note is a reading, not an instruction. The digest states what is true and stops; what to
@@ -78,6 +98,20 @@ pub fn build(
              every side.",
             reconcile.contradictions, reconcile.undecidable
         ));
+    }
+    // Capture staleness leads the notes when it fires, because every number below it is computed
+    // from a corpus that stopped growing — they are stale in a way they cannot report themselves.
+    if let Some(lag) = capture_lag_minutes
+        && lag > CAPTURE_STALE_AFTER_MINUTES
+    {
+        notes.insert(
+            0,
+            format!(
+                "Nothing captured for {lag:.0} minutes. If a session is open, capture has stalled \
+                 and every figure here is computed from a corpus that stopped growing. Restarting \
+                 AgentBrain.Service clears it — capture resumes losslessly from its cursors."
+            ),
+        );
     }
     if queue.dead_letter > 0 {
         notes.push(format!(
@@ -109,6 +143,7 @@ pub fn build(
         jobs_pending: queue.pending,
         jobs_dead: queue.dead_letter,
         subjects: ledger.subject_synthesis_count().unwrap_or(0) as usize,
+        capture_lag_minutes,
         notes,
     })
 }
@@ -125,7 +160,8 @@ pub fn render_markdown(digest: &Digest) -> String {
          | Stale | {stale} |\n\
          | Mean retention | {retention:.3} |\n\
          | Contradictions | {contradictions} ({undecidable} undecidable) |\n\
-         | Jobs pending / dead | {pending} / {dead} |\n\n",
+         | Jobs pending / dead | {pending} / {dead} |\n\
+         | Capture lag | {lag} |\n\n",
         events = digest.events,
         memories = digest.memories,
         never = digest.never_retrieved,
@@ -140,6 +176,10 @@ pub fn render_markdown(digest: &Digest) -> String {
         undecidable = digest.undecidable_contradictions,
         pending = digest.jobs_pending,
         dead = digest.jobs_dead,
+        lag = digest
+            .capture_lag_minutes
+            .map(|lag| format!("{lag:.0} min"))
+            .unwrap_or_else(|| "—".to_owned()),
     );
     for note in &digest.notes {
         out.push_str(&format!("- {note}\n"));
@@ -152,7 +192,8 @@ pub fn render_markdown(digest: &Digest) -> String {
 pub fn render(digest: &Digest) -> String {
     let mut out = format!(
         "health digest — {}\n\n  {:>9} events\n  {:>9} memories · {} never retrieved · {} stale\n  \
-         {:>9.3} mean retention\n  {:>9} contradictions ({} undecidable)\n  {:>9} jobs pending, {} dead\n\n",
+         {:>9.3} mean retention\n  {:>9} contradictions ({} undecidable)\n  {:>9} jobs pending, {} dead\n  \
+         {:>9} since the newest captured event\n\n",
         digest.generated_at.date(),
         digest.events,
         digest.memories,
@@ -163,6 +204,10 @@ pub fn render(digest: &Digest) -> String {
         digest.undecidable_contradictions,
         digest.jobs_pending,
         digest.jobs_dead,
+        digest
+            .capture_lag_minutes
+            .map(|lag| format!("{lag:.0} min"))
+            .unwrap_or_else(|| "—".to_owned()),
     );
     for note in &digest.notes {
         out.push_str(&format!("  · {note}\n"));

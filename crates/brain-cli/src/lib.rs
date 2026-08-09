@@ -69,7 +69,7 @@ pub use register::{
     AgentSourceOptions, RegisterOptions, RegistrationResult, register_project,
     register_project_with_sources,
 };
-pub use remember::{RememberRequest, RememberedMemory, remember};
+pub use remember::{RememberRequest, RememberedMemory, derive_evidence, remember};
 pub use service::{
     ServiceInstallOptions, ServiceInstallReport, ServiceStatusReport, ServiceTaskStatus,
     ServiceUninstallReport, install_windows_service, start_windows_service, stop_windows_service,

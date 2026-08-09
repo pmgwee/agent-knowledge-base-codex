@@ -269,7 +269,7 @@
     <h2>Full pipeline</h2>
     <div class="canvas">
       <svg viewBox="0 0 1280 1900" role="img"
-           aria-label="Data flow of the secondary brain: agent sessions write transcripts, a watcher captures them into SQLite ledgers, an LLM consolidates events into cited memories, four retrieval channels fuse into an orientation returned to the agent, and a projector writes a Markdown vault for Obsidian.">
+           aria-label="Data flow of the secondary brain: agent sessions write transcripts, a watcher captures them into SQLite ledgers, an LLM consolidates events into cited memories, four retrieval channels fuse to answer queries and to push context mid-session, a separate recency-shaped orientation is returned at session start, and a projector writes a Markdown vault for Obsidian.">
 
         <defs>
           <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -464,14 +464,21 @@
         <text class="edge-label t-planned" x="1012" y="1014">bypassed by default</text>
         <text class="edge-label t-planned" x="1012" y="1032">— the fused order stands</text>
 
-        <rect class="s-retrieval" x="40" y="1090" width="1200" height="72" rx="5" stroke-width="1.8" />
-        <text class="box-title t-retrieval" x="58" y="1118">Orientation — the product</text>
-        <text class="box-sub" x="58" y="1140">1,000–1,500 tokens contracted, 3,000 hard max · mean 1,115, max 1,490 over 35 receipts · counted after the pipe flushes, never at compile</text>
+        <rect class="s-retrieval" x="40" y="1090" width="590" height="72" rx="5" stroke-width="1.8" />
+        <text class="box-title t-retrieval" x="58" y="1118">Mid-session push — what fusion actually feeds</text>
+        <text class="box-sub" x="58" y="1140">every prompt · 400 tokens · 4 memories · 20 per session · Claude only</text>
 
-        <path class="flow-warm" d="M 500 1054 L 500 1084" marker-end="url(#ar-warm)" />
+        <rect class="s-retrieval" x="650" y="1090" width="590" height="72" rx="5" stroke-width="1.8" />
+        <text class="box-title t-retrieval" x="668" y="1118">Session-start orientation — NOT fused</text>
+        <text class="box-sub" x="668" y="1140">recent_events() chronological, memories ranked · 1,000–1,500 tokens, 3,000 max · mean 1,115</text>
+
+        <path class="flow-warm" d="M 335 1054 L 335 1084" marker-end="url(#ar-warm)" />
+        <path class="flow-soft" d="M 945 300 L 945 1084" marker-end="url(#ar-soft)" />
+        <text class="edge-label t-planned" x="960" y="700">the orientation reads the ledger directly —</text>
+        <text class="edge-label t-planned" x="960" y="718">it never passes through the four channels</text>
 
         <path class="flow-warm" d="M 1240 1126 L 1264 1126 L 1264 87 L 1246 87" marker-end="url(#ar-warm)" />
-        <text class="edge-label t-retrieval" x="1000" y="1182">returned at session start — the loop that makes it a brain</text>
+        <text class="edge-label t-retrieval" x="1000" y="1182">both return to the agent — the loop that makes it a brain</text>
 
         <!-- ============ BAND 6 — PROJECT ============ -->
         <text class="band-label" x="40" y="1228">6 · PROJECT — human-readable, human-owned</text>
