@@ -71,6 +71,44 @@ not evidence of absence.**
 first pass at this used `MAX(native_session_id)`, which sorts `diag-codex-1` above every UUID and
 made the real deliveries invisible.
 
+#### One instrument replaces all three — `bda5a2f`, 10 August
+
+The table above needs a different receipt per hook, and getting the pairing wrong is what produced
+every wrong conclusion in this document. That is a design flaw in the *measurement*, not in the
+hooks. `crates/brain-service/src/pipe.rs` now logs one `info` line for **every** hook arriving at
+the pipe — harness, event, session — before any decision about what to reply:
+
+```bash
+grep 'hook received' ~/AgentBrain/runtime/logs/brain-service.$(date +%F).jsonl
+```
+
+**All three Codex hooks, one live session, first use of the instrument** —
+`019fe7c5-698c-7c63-b4bd-57c66056f628`:
+
+| Time (UTC) | Event | Delivery row |
+|---|---|---|
+| 18:25:02 | `SessionEnd` | — (prior session `019fe7c5-4aee` closing) |
+| 18:25:05 | `SessionStart` | ✅ 1,045 tokens, 46 coordination |
+| 18:25:06 | `UserPromptSubmit` | **none** |
+| 18:29:37 | `UserPromptSubmit` | ✅ 358 tokens, all coordination |
+
+**Two invocations, one delivery row** — the ambiguity, caught on the instrument's first outing. The
+first `UserPromptSubmit` fired 0.9 s after `SessionStart`, when the orientation had just gone out
+and there was nothing to add, and correctly returned nothing. Counting deliveries reports "1 of 2
+prompts"; in a session where both are quiet it reports zero, which is indistinguishable from a dead
+hook. Three states that used to look identical:
+
+| `hook received` | Delivery row | Meaning |
+|---|---|---|
+| absent | absent | The harness never invoked it — check `[hooks.state]` trust first |
+| present | absent | Fired and had nothing to say. **Healthy.** |
+| present | present | Fired and pushed |
+
+**A fourth wrong conclusion, on 9 August, which this closes.** A test read
+`UserPromptSubmit` as "did not fire" from a delivery count taken **36 seconds before** the row
+appeared — in a window a hand-fired diagnostic was itself writing into. Polling a table you are also
+writing to cannot establish who wrote the row, and no amount of care in reading it fixes that.
+
 Trust survives a deploy: `~/.codex/hooks.json` is untouched by `scripts/deploy.ps1`, which replaces
 binaries only, so the three `[hooks.state]` hashes stay valid. Editing the hook file is what revokes
 trust.

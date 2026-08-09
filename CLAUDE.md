@@ -367,19 +367,57 @@ once its hooks were trusted.
 
 | | Claude Code | Codex Desktop |
 |---|---|---|
-| `SessionStart` | Fires. 75+ deliveries | **Fires.** 4 real deliveries, 1,030–1,041 tokens, 46 coordination tokens |
+| `SessionStart` | Fires. 75+ deliveries | **Fires.** 1,043–1,045 tokens, 46 coordination tokens |
 | `SessionEnd` | Fires | **Fires.** Real `session.ended` events with v7 ids. Declares a 3 s timeout because Codex clamps anything larger |
-| `UserPromptSubmit` | Fires — mid-session push, 400 tokens | **Fires.** Registered `eb67502`; four invocations observed across two prompts |
+| `UserPromptSubmit` | Fires — mid-session push, 400 tokens | **Fires.** Registered `eb67502` |
 | MCP | Not wired | 16 tools — **depth on demand, never delivery.** `brain_checkpoint` is redundant with the hook and no longer requested anywhere |
 
-**Full parity, and each half proven by its own instrument.** `SessionStart` by a delivery row,
-`UserPromptSubmit` by the pushed text appearing in Codex's own transcript, `SessionEnd` by the
-`session.ended` event it writes. Looking for all three in `context_deliveries` finds two zeros and
-concludes they never fired — which is wrong twice over, because `UserPromptSubmit` pushes only when
-it has something to say and `SessionEnd` usually pushes nothing at all.
-The table above contradicted itself for a day — the `UserPromptSubmit` row said "not registered"
-while the paragraph below it said the opposite — which is what a table updated by hand next to prose
-updated by hand does.
+**Full parity, and all of it observed in one instrumented Codex session** —
+`019fe7c5-698c-7c63-b4bd-57c66056f628`, 10 August 2026:
+
+| Time (UTC) | Event | Delivery |
+|---|---|---|
+| 18:25:02 | `SessionEnd` | — (prior session closing) |
+| 18:25:05 | `SessionStart` | 1,045 tokens, 46 coordination |
+| 18:25:06 | `UserPromptSubmit` | **none** |
+| 18:29:37 | `UserPromptSubmit` | 358 tokens, all coordination |
+
+### To ask whether a hook fired, count `hook received` — never `context_deliveries`
+
+This is the entry that would have prevented three wrong conclusions in five days, so read it before
+running any hook diagnosis.
+
+`context_deliveries` records that the brain **had something to say**, not that a hook ran. Only
+`SessionStart` always does; `UserPromptSubmit` pushes when there is something new, and `SessionEnd`
+usually pushes nothing at all. So a live, correct, fully-wired hook leaves **no trace** in that table
+on most invocations — and a diagnosis that counts rows there reads healthy silence as a dead hook.
+
+The session above shows it exactly: **two `UserPromptSubmit` invocations, one delivery row.** The
+first fired 0.9 s after `SessionStart`, when the orientation had just gone out and there was nothing
+to add, and correctly returned nothing. Counting deliveries reports "1 of 2 prompts"; in a session
+where both are quiet it reports zero, which is indistinguishable from the hook never running.
+
+`crates/brain-service/src/pipe.rs` therefore logs one `info` line — harness, event, session — for
+**every** hook arriving at the pipe, before any decision about what to reply:
+
+```bash
+grep 'hook received' ~/AgentBrain/runtime/logs/brain-service.$(date +%F).jsonl
+```
+
+Three states, now distinguishable, that used to look identical:
+
+| `hook received` | Delivery row | Meaning |
+|---|---|---|
+| absent | absent | The harness never invoked it — check `[hooks.state]` trust first |
+| present | absent | Fired and had nothing to say. **Healthy.** |
+| present | present | Fired and pushed |
+
+**Two failure modes this section is built out of.** The table above contradicted itself for a day —
+the `UserPromptSubmit` row said "not registered" while the paragraph below said the opposite, which
+is what a hand-updated table beside hand-updated prose does. And on 9 August a test concluded
+`UserPromptSubmit` "did not fire" from a `context_deliveries` count taken **36 seconds before** the
+row appeared, in a window a hand-fired diagnostic was itself writing into. Polling a table you are
+also writing to cannot answer who wrote the row.
 
 ### The trust gate — check this before concluding anything about Codex hooks
 
@@ -407,9 +445,9 @@ and before reading any issue tracker.
 
 ### What is still asymmetric
 
-**Nothing.** `UserPromptSubmit` is registered for Codex as of `eb67502`, and Codex was observed
-firing it — two prompts in `subscription-agent` produced two `UserPromptSubmit` hook invocations.
-All three hooks now apply to both harnesses, harness-invoked, before the model reads anything.
+**Nothing.** All three hooks apply to both harnesses, harness-invoked, before the model reads
+anything — and as of 10 August that is no longer inferred from delivery rows but read directly off
+`hook received`, which records the invocation whether or not anything was pushed.
 
 ## Registering a project
 
