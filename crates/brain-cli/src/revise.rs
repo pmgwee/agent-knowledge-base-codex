@@ -24,7 +24,8 @@
 //! — and if the pairs turn out to be noise, the answer is stricter detection, not a louder feature.
 
 use anyhow::Result;
-use brain_domain::{MemoryRecord, ProjectId};
+use brain_context::authority_rank;
+use brain_domain::{MemoryRecord, MemoryScope, MemoryStatus, ProjectId};
 use brain_store::EventLedger;
 
 /// How much newer evidence a claim needs before it is worth reviewing an older one against it.
@@ -217,7 +218,199 @@ pub fn render(report: &RevisionReport) -> String {
         "Nothing was changed. Rewriting a claim to fold in what a later one learned is a judgement \
          about language, and a model making it silently is how a verifiable system becomes a \
          plausible one. Read the unseen evidence, then file the corrected claim with \
-         `brain remember --supersedes <older-id>`.\n",
+         `brain remember --supersedes <older-id>`, or run `--propose` to have one drafted.\n",
     );
     out
+}
+
+// ---------------------------------------------------------------------------
+// The rewrite half — proposing a merge, and refusing to apply an unsound one
+// ---------------------------------------------------------------------------
+
+/// What happened to one candidate when a provider was asked to merge it.
+#[derive(Debug, serde::Serialize)]
+pub struct MergeOutcome {
+    pub older_id: uuid::Uuid,
+    pub newer_id: uuid::Uuid,
+    pub older_title: String,
+    pub newer_title: String,
+    /// The merged claim, when the provider produced one that passed every rule.
+    pub merged_title: Option<String>,
+    pub merged_content: Option<String>,
+    /// Why it was refused, in words. Set when nothing was written.
+    pub rejected: Option<String>,
+    /// Whether the merge was appended, as opposed to merely proposed.
+    pub applied: bool,
+}
+
+#[derive(Debug, Default, serde::Serialize)]
+pub struct MergeReport {
+    pub proposed: usize,
+    pub applied: usize,
+    pub refused: usize,
+    pub outcomes: Vec<MergeOutcome>,
+}
+
+/// Ask a provider to merge each candidate, and let derivation decide what may be written.
+///
+/// **`apply` is the approval, and it is per-run rather than per-pair.** A deliberate limitation
+/// worth naming: reviewing thirteen proposals one at a time is a UI this does not have, so the
+/// honest workflow is to read them with `--propose`, then re-run with `--apply` once they look
+/// right. `--limit` keeps that a small number at a time.
+///
+/// A refusal records its reason on the outcome rather than raising, so one unsound proposal cannot
+/// discard the sound ones beside it — the same blast-radius lesson `validate_proposed_batch`
+/// learned when a single invented event id cost a job all seven of its memories.
+pub async fn merge_candidates(
+    ledger: &mut EventLedger,
+    project_id: ProjectId,
+    provider: &dyn brain_context::MergeProvider,
+    candidates: &[RevisionCandidate],
+    limit: usize,
+    apply: bool,
+    now: time::OffsetDateTime,
+) -> Result<MergeReport> {
+    let mut report = MergeReport::default();
+    for candidate in candidates.iter().take(limit) {
+        let (Some(older), Some(newer)) = (
+            ledger.current_memory(candidate.older_id)?,
+            ledger.current_memory(candidate.newer_id)?,
+        ) else {
+            continue;
+        };
+        let mut allowed: Vec<uuid::Uuid> = older
+            .evidence_ids
+            .iter()
+            .chain(newer.evidence_ids.iter())
+            .copied()
+            .collect();
+        allowed.sort_unstable();
+        allowed.dedup();
+
+        let instruction =
+            brain_context::merge_instruction(&older.content, &newer.content, &allowed);
+        let body = provider.merge(&instruction).await?;
+        let checked = brain_context::parse_merge_response(&body)
+            .map_err(|error| error.to_string())
+            .and_then(|proposed| {
+                brain_context::validate_merge(
+                    &proposed,
+                    &brain_context::MergeInputs {
+                        older_content: &older.content,
+                        newer_content: &newer.content,
+                        allowed_evidence: &allowed,
+                        unseen_evidence: &candidate.unseen_evidence,
+                    },
+                )
+                .map_err(|rejection| rejection.to_string())
+            });
+
+        let outcome = match checked {
+            Ok(validated) => {
+                let mut applied = false;
+                if apply {
+                    // Supersede *both* sides. The merged claim replaces the pair; leaving either
+                    // current would put three claims where there had been two.
+                    let record = MemoryRecord {
+                        id: uuid::Uuid::now_v7(),
+                        version_id: uuid::Uuid::now_v7(),
+                        scope: MemoryScope::Project(project_id),
+                        worktree_id: newer.worktree_id,
+                        task_id: None,
+                        kind: newer.kind.clone(),
+                        title: validated.title.clone(),
+                        content: validated.content.clone(),
+                        valid_from: newer.valid_from,
+                        valid_to: None,
+                        recorded_at: now,
+                        confidence: newer.confidence.min(older.confidence),
+                        // The higher of the two. A merge of a human correction and a derived claim
+                        // is still a corrected claim, and demoting it would let the next derived
+                        // memory on the subject outrank it.
+                        authority: if authority_rank(&older.authority)
+                            >= authority_rank(&newer.authority)
+                        {
+                            older.authority.clone()
+                        } else {
+                            newer.authority.clone()
+                        },
+                        evidence_ids: validated.evidence_ids.clone(),
+                        supersedes: vec![older.version_id, newer.version_id],
+                        status: MemoryStatus::Current,
+                    };
+                    ledger.append_memory(&record)?;
+                    for retired in [&older, &newer] {
+                        let mut version = retired.clone();
+                        version.version_id = uuid::Uuid::now_v7();
+                        version.recorded_at = now;
+                        version.status = MemoryStatus::Superseded;
+                        version.supersedes = Vec::new();
+                        ledger.append_memory(&version)?;
+                    }
+                    applied = true;
+                    report.applied += 1;
+                }
+                report.proposed += 1;
+                MergeOutcome {
+                    older_id: older.id,
+                    newer_id: newer.id,
+                    older_title: older.title.clone(),
+                    newer_title: newer.title.clone(),
+                    merged_title: Some(validated.title),
+                    merged_content: Some(validated.content),
+                    rejected: None,
+                    applied,
+                }
+            }
+            Err(reason) => {
+                report.refused += 1;
+                MergeOutcome {
+                    older_id: older.id,
+                    newer_id: newer.id,
+                    older_title: older.title.clone(),
+                    newer_title: newer.title.clone(),
+                    merged_title: None,
+                    merged_content: None,
+                    rejected: Some(reason),
+                    applied: false,
+                }
+            }
+        };
+        report.outcomes.push(outcome);
+    }
+    Ok(report)
+}
+
+pub fn render_merges(report: &MergeReport) -> String {
+    let mut out = format!(
+        "{} merge(s) proposed · {} applied · {} refused\n\n",
+        report.proposed, report.applied, report.refused
+    );
+    for outcome in &report.outcomes {
+        out.push_str(&format!(
+            "  {}\n  + {}\n",
+            clip(&outcome.older_title),
+            clip(&outcome.newer_title)
+        ));
+        match (&outcome.merged_title, &outcome.rejected) {
+            (Some(title), _) => out.push_str(&format!(
+                "    -> {}{}\n\n",
+                clip(title),
+                if outcome.applied { "  [applied]" } else { "" }
+            )),
+            (None, Some(reason)) => out.push_str(&format!("    -> refused: {reason}\n\n")),
+            _ => {}
+        }
+    }
+    if report.applied == 0 && report.proposed > 0 {
+        out.push_str("Nothing was written. Re-run with --apply once the proposals read right.\n");
+    }
+    out
+}
+
+fn clip(text: &str) -> String {
+    if text.chars().count() <= 62 {
+        return text.to_owned();
+    }
+    format!("{}…", text.chars().take(61).collect::<String>())
 }

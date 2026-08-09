@@ -72,7 +72,8 @@ pub use register::{
 };
 pub use remember::{RememberRequest, RememberedMemory, derive_evidence, remember};
 pub use revise::{
-    RevisionCandidate, RevisionReport, propose_revisions, render as render_revisions,
+    MergeOutcome, MergeReport, RevisionCandidate, RevisionReport, merge_candidates,
+    propose_revisions, render as render_revisions, render_merges,
 };
 pub use service::{
     ServiceInstallOptions, ServiceInstallReport, ServiceStatusReport, ServiceTaskStatus,

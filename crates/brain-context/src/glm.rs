@@ -37,6 +37,53 @@ impl GlmClient {
     }
 }
 
+/// The same endpoint, asked to merge two claims rather than distil a batch.
+///
+/// Deliberately thin: the caller supplies the whole instruction, because the rules a merge must
+/// satisfy live beside the validator that enforces them (`brain_context::merge`) rather than being
+/// split across a client that cannot check them.
+#[async_trait]
+impl crate::MergeProvider for GlmClient {
+    async fn merge(&self, instruction: &str) -> Result<String> {
+        let key = std::env::var(&self.config.api_key_env).with_context(|| {
+            format!(
+                "GLM API key environment variable {} is unavailable",
+                self.config.api_key_env
+            )
+        })?;
+        ensure!(!key.trim().is_empty(), "GLM API key is empty");
+        let request = serde_json::json!({
+            "model": self.config.model,
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+            "messages": [{"role": "user", "content": instruction}]
+        });
+        let response = self
+            .client
+            .post(&self.config.endpoint)
+            .bearer_auth(&key)
+            .json(&request)
+            .send()
+            .await
+            .context("send GLM merge request")?;
+        ensure!(
+            response.status().is_success(),
+            "GLM merge request failed with HTTP status {}",
+            response.status()
+        );
+        let text = response.text().await.context("read GLM merge response")?;
+        // The chat envelope is the same; only the payload inside differs, so the existing extractor
+        // would work — but it parses straight into a memory batch. Pull the content out and let the
+        // merge module interpret it.
+        let value: serde_json::Value = serde_json::from_str(&text).context("parse GLM envelope")?;
+        Ok(value
+            .pointer("/choices/0/message/content")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(&text)
+            .to_owned())
+    }
+}
+
 #[async_trait]
 impl ConsolidationLlm for GlmClient {
     async fn propose(&self, packet: &EvidencePacket) -> Result<ProposedMemoryBatch> {

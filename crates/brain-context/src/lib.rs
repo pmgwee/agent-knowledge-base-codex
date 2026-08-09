@@ -8,6 +8,7 @@ mod glm;
 mod live_state;
 mod llm;
 mod llm_wiki;
+mod merge;
 mod providers;
 mod query;
 mod retrieval;
@@ -30,6 +31,10 @@ pub use llm::{
     ValidatedBatch, truncate_for_error, validate_proposed_batch,
 };
 pub use llm_wiki::{LlmWikiProvider, LlmWikiSourceStatus, validate_llm_wiki_vault};
+pub use merge::{
+    MergeInputs, MergeProvider, MergeRejection, ProposedMerge, ValidatedMerge, merge_instruction,
+    parse_merge_response, validate_merge,
+};
 pub use providers::{
     CodeGraphConfig, ContextProvider, GuardedProviderResult, LlmWikiConfig, ProviderConfig,
     ProviderGuard, ProviderResult, ProviderStatus, retrieve_provider_results,

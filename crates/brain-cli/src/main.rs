@@ -175,6 +175,17 @@ enum Command {
     Revise {
         #[arg(long)]
         project: String,
+        /// Ask the configured provider to draft the merged claim for each candidate. Prints the
+        /// proposals and writes nothing.
+        #[arg(long)]
+        propose: bool,
+        /// Write the proposals that pass every rule, superseding both sides. Requires --propose.
+        #[arg(long)]
+        apply: bool,
+        /// How many candidates to draft in one run. Small on purpose — these cost a provider call
+        /// each, and thirteen proposals is more than anyone reviews carefully in one sitting.
+        #[arg(long, default_value = "5")]
+        limit: usize,
         /// Include pairs written the same day. Off by default: 441 of 454 on this corpus were
         /// consolidation windows overlapping, which is the fold's business, not a revision.
         #[arg(long)]
@@ -1229,16 +1240,70 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Command::Revise { project, all, json } => {
+        Command::Revise {
+            project,
+            all,
+            propose,
+            apply,
+            limit,
+            json,
+        } => {
             let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
             let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
             let project_config = config.project(Some(project_id))?;
-            let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let mut ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
             let report = brain_cli::propose_revisions(&ledger, project_id, all.then_some(0.0))?;
+            if !propose {
+                anyhow::ensure!(
+                    !apply,
+                    "--apply needs --propose: nothing can be written until a merge is drafted and checked"
+                );
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print!("{}", brain_cli::render_revisions(&report));
+                }
+                return Ok(());
+            }
+
+            let Some(brain_service::ConsolidationProviderConfig::Glm {
+                endpoint,
+                model,
+                api_key_env,
+                timeout_ms,
+                max_retries,
+            }) = config.consolidation.clone()
+            else {
+                anyhow::bail!(
+                    "no consolidation provider is configured, so there is nothing to draft the                      merge with. `brain revise` without --propose still lists the candidates"
+                );
+            };
+            let provider = brain_context::GlmClient::new(brain_context::GlmConfig {
+                endpoint,
+                model,
+                api_key_env,
+                timeout: std::time::Duration::from_millis(timeout_ms),
+                max_retries,
+            })?;
+            // `main` is synchronous — the CLI is otherwise entirely blocking, and making it async
+            // to serve one command would put a reactor under every other one. A current-thread
+            // runtime here is the smaller change.
+            let merged = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?
+                .block_on(brain_cli::merge_candidates(
+                    &mut ledger,
+                    project_id,
+                    &provider,
+                    &report.candidates,
+                    limit,
+                    apply,
+                    time::OffsetDateTime::now_utc(),
+                ))?;
             if json {
-                println!("{}", serde_json::to_string_pretty(&report)?);
+                println!("{}", serde_json::to_string_pretty(&merged)?);
             } else {
-                print!("{}", brain_cli::render_revisions(&report));
+                print!("{}", brain_cli::render_merges(&merged));
             }
         }
         Command::Evict {

@@ -287,3 +287,129 @@ fn append(
         })
         .expect("append memory");
 }
+
+// ---------------------------------------------------------------------------
+// The rewrite half, exercised against a stub
+// ---------------------------------------------------------------------------
+//
+// The live generation is deliberately held until provider quota returns — watching the citation
+// check refuse a *real* bad citation from a *real* provider is the point of having the check, and
+// shipping it against a stub while calling it verified would invert that argument. Everything
+// between the proposal and the ledger is exercised here.
+
+struct Stub(String);
+
+#[async_trait::async_trait]
+impl brain_context::MergeProvider for Stub {
+    async fn merge(&self, _instruction: &str) -> anyhow::Result<String> {
+        Ok(self.0.clone())
+    }
+}
+
+fn candidates(ledger: &EventLedger, project: ProjectId) -> Vec<brain_cli::RevisionCandidate> {
+    brain_cli::propose_revisions(ledger, project, Some(0.0))
+        .expect("revise")
+        .candidates
+}
+
+#[tokio::test]
+async fn a_sound_merge_replaces_both_claims_and_deletes_nothing() {
+    let (mut ledger, project) = fixture();
+    let found = candidates(&ledger, project);
+    let evidence: Vec<String> = ledger
+        .current_memory(found[0].newer_id)
+        .expect("newer")
+        .expect("present")
+        .evidence_ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect();
+    let body = format!(
+        r#"{{"title":"Hooks fire on the CLI only","content":"Short.","evidence_ids":{}}}"#,
+        serde_json::to_string(&evidence).expect("json")
+    );
+
+    let records_before = ledger.memory_count().expect("before");
+    let report =
+        brain_cli::merge_candidates(&mut ledger, project, &Stub(body), &found, 10, true, day(20))
+            .await
+            .expect("merge");
+
+    assert_eq!(report.applied, 1);
+    assert_eq!(report.refused, 0);
+    let current = ledger.current_project_memories().expect("after");
+    assert_eq!(current.len(), 1, "the pair becomes one claim");
+    assert_eq!(current[0].title, "Hooks fire on the CLI only");
+    assert_eq!(
+        ledger.memory_count().expect("after"),
+        records_before + 1,
+        "a merge appends a record; it never removes one"
+    );
+}
+
+#[tokio::test]
+async fn propose_without_apply_writes_nothing() {
+    // The whole point of a two-step approval: reading the proposals must be free.
+    let (mut ledger, project) = fixture();
+    let found = candidates(&ledger, project);
+    let evidence: Vec<String> = ledger
+        .current_memory(found[0].newer_id)
+        .expect("newer")
+        .expect("present")
+        .evidence_ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect();
+    let body = format!(
+        r#"{{"title":"Merged","content":"Short.","evidence_ids":{}}}"#,
+        serde_json::to_string(&evidence).expect("json")
+    );
+
+    let report = brain_cli::merge_candidates(
+        &mut ledger,
+        project,
+        &Stub(body),
+        &found,
+        10,
+        false,
+        day(20),
+    )
+    .await
+    .expect("merge");
+
+    assert_eq!(report.proposed, 1);
+    assert_eq!(report.applied, 0);
+    assert_eq!(
+        ledger.current_project_memories().expect("after").len(),
+        2,
+        "both claims stay current until --apply"
+    );
+}
+
+#[tokio::test]
+async fn an_unsound_proposal_is_refused_with_its_reason_and_writes_nothing() {
+    // A refusal that says nothing is the defect three dead-lettered jobs shipped with: 400
+    // characters of plausible JSON and no reason, because `fail()` kept only the top-level message.
+    let (mut ledger, project) = fixture();
+    let found = candidates(&ledger, project);
+    let stranger = uuid::Uuid::now_v7();
+    let body = format!(r#"{{"title":"Merged","content":"Short.","evidence_ids":["{stranger}"]}}"#);
+
+    let report =
+        brain_cli::merge_candidates(&mut ledger, project, &Stub(body), &found, 10, true, day(20))
+            .await
+            .expect("merge");
+
+    assert_eq!(report.applied, 0);
+    assert_eq!(report.refused, 1);
+    let reason = report.outcomes[0].rejected.as_deref().expect("a reason");
+    assert!(
+        reason.contains("cannot invent provenance"),
+        "the refusal must say what was wrong: {reason}"
+    );
+    assert_eq!(
+        ledger.current_project_memories().expect("after").len(),
+        2,
+        "a refused merge leaves the pair untouched"
+    );
+}
