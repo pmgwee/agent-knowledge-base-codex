@@ -343,11 +343,25 @@ impl ContextCompiler {
 ///
 /// Enough to describe what the session was about, few enough that a long-running project does not
 /// dilute the query into a description of the whole repository.
-const RECENT_TURNS_AS_QUERY: usize = 12;
+const RECENT_TURNS_AS_QUERY: usize = 4;
 
-/// Longest implicit query, in characters. Embedding truncates at 512 tokens anyway, and a longer
-/// query is a vaguer one.
-const MAX_QUERY_CHARACTERS: usize = 1_200;
+/// Longest implicit query, in characters.
+///
+/// **This number decided whether the brain worked at all**, and 1,200 was far past the point where
+/// it stopped. Measured on a 5,644-memory project: a three-word query resolved in 4.6 s, a
+/// 1,383-character one in **15.6 s**, and a full orientation compile in **41.7 s** — against a hook
+/// budget of 3 s. Two of three registered projects had therefore *never once* delivered an
+/// orientation, and every hook invocation spooled. The symptom read as a broken pipe for two days.
+///
+/// The cost is superlinear because FTS terms are OR-joined: 1,200 characters is roughly 180 terms,
+/// each matched across the corpus and then fused. The query's actual job is far smaller — establish
+/// what this session is *about*, well enough to order a handful of memories — and four turns of 240
+/// characters does that. A longer query is not a more precise one; past a couple of sentences it
+/// describes the repository rather than the moment.
+///
+/// The old comment said "a longer query is a vaguer one" and was right about the quality argument
+/// while missing the cost one entirely.
+const MAX_QUERY_CHARACTERS: usize = 240;
 
 /// How long a memory must be both old and unretrieved before it is demoted in an orientation.
 ///
