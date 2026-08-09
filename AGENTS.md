@@ -65,6 +65,21 @@ fixed; it is a property of the two harnesses, and every plan that assumed parity
 discriminator that settles it — **zero spool entries**, since a hook that fired and failed to
 deliver would still spool. It is never invoked.
 
+**This is a known upstream regression, not a configuration problem.**
+`openai/codex#21639` — lifecycle hooks stopped dispatching in the Desktop app, the VSCode extension
+and the app-server path at **CLI 0.129.0-alpha.15 (May 2026)** and were still broken through 0.146.x.
+This machine runs Desktop **26.727.51351** with embedded **codex-cli 0.146.0-alpha.9.2**, which is
+exactly the build reported in that issue. Only the CLI TUI dispatches.
+
+Two things that look like fixes and are not: trusting the hook through the CLI TUI's `/hooks`
+command addresses a *different* gate (may this hook run) and leaves dispatch broken; and
+`openai/codex#33229` means Desktop's own internal background tasks can fire hooks with no
+discriminator, so a stray delivery is not evidence the feature works.
+
+**So the action is to wait for an upstream fix**, keep the registration, and re-test after a Desktop
+update. Any agent about to re-run this experiment: it has been run twice. Search the brain for
+`codex desktop hooks` before spending the time.
+
 **Our side is proven working.** A manual invocation produces a full 974-token Codex orientation
 through the same binary, pipe and reply shape, and there is a test pinning the Codex reply shape.
 The registration is correct and unexercised.
