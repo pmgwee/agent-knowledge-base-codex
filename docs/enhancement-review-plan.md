@@ -128,30 +128,50 @@ Two operational details, both from the operator and both now in the installer:
   requires re-approval at the CLI TUI. Claude Code has no equivalent gate — its hooks run from
   `~/.claude/settings.json` with no review step, which is why that side has never needed one.
 
-### ⛔ Blocking: hook delivery is failing for **both** harnesses
+### ⛔ A11 · Blocking — orientation compile is superlinear in memory count
 
-Found while verifying the above, and it is the top priority — everything else in this document is
-downstream of the pipe working.
+**The pipe is fine. The compile is too slow to finish inside the hook's budget.**
 
-All six Codex hook invocations **spooled instead of delivering**. The service log carries six
-matching `hook pipe request failed / error="write hook reply"` — the service compiled each
-orientation and found the client gone before it could reply.
+| Project | events | memories | compile |
+|---|---|---|---|
+| `agent-knowledge-base-codex` | 32,643 | 2,106 | **1.5 s** ✅ |
+| `Ai-community-channel` | 37,886 | 5,505 | **38.5 s** ❌ |
+| `subscription-agent` | 75,595 | 5,644 | **41.7 s** ❌ |
 
-What has been ruled out:
+It tracks **memories, not events** — `Ai-community-channel` has half `subscription-agent`'s events
+and nearly the same compile time. 2.6× the memories costs 25× the time, so something in the compile
+path is superlinear in memory count.
 
-| | |
+`brain_hook::HOOK_HARD_TIMEOUT` is 3 s, so **two of three projects can never deliver an
+orientation**, every invocation spools, and the service logs
+`hook pipe request failed / write hook reply` — which is the *symptom*: the client timed out long
+before the compile finished.
+
+**What this rules out**, each checked rather than assumed:
+
+| Suspected | Verdict |
 |---|---|
-| Codex-specific | **No.** A `--harness claude-code` probe fails identically |
-| Service down | No. Running, and restarted cleanly mid-diagnosis |
-| Stale deployment | No. All four binaries present and matching the manifest |
-| Pipe-name mismatch | No. `service.json` and `DEFAULT_PIPE_NAME` agree |
-| A timeout | No. The hook returns `{}` in ~140 ms against a 3 s budget |
-| Recent change to the pipe | No. `pipe.rs`, `hook_handler.rs` and `brain-hook/` are untouched since it last worked |
+| The named pipe | **No.** It delivers fine on the fast project |
+| Codex specifically | **No.** A `claude-code` probe fails identically on the slow ones |
+| GLM 429 pressure starving the reactor | **No.** Deferrals measured at 5–7/min, not a flood |
+| Stale deployment, pipe-name mismatch, service down | No, all checked |
+| A recent change | No. `pipe.rs`, `hook_handler.rs` and `brain-hook/` are untouched since it last worked |
 
-Reproducible on demand: a probe at 11:08:03 UTC produced a fresh failure. The next step is
-instrumenting the hook client's error path — it fails open to `{}` and discards the reason, which is
-correct for a session start and useless for debugging. **That discarded error is the whole
-investigation**, and a `BRAIN_HOOK_DEBUG` escape hatch that prints it would have saved this session.
+**Why it looked like a Codex problem.** Every Codex test ran in `subscription-agent`, the slowest
+project. Every Claude session that appeared healthy ran in `agent-knowledge-base-codex`, the only
+fast one. The variable was never the harness.
+
+**Where to look first:** `ContextCompiler::from_ledger` calls `resolve_candidates` over *every*
+current memory before `apply_memory_ranking` selects the two or three that fit the budget. Compiling
+5,644 candidates to choose 3 is the wrong shape regardless of the constant, and supersession and
+conflict grouping inside it are the superlinear suspects. Bounding the candidate set before it is
+resolved is likely both the fix and a considerable simplification.
+
+**Do not raise `HOOK_HARD_TIMEOUT` to paper over this.** It blocks session start, Codex clamps
+`SessionEnd` to 3 s regardless, and a 40-second orientation is not one anybody wants delivered.
+
+**This outranks everything else in this document.** A7, A3b and the token-saving A/B all assume
+orientations arrive; on two of three projects they never have.
 
 ## How this round is verified — and the one thing that cannot be
 
