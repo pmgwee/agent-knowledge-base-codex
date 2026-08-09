@@ -16,7 +16,7 @@
 
 use anyhow::Result;
 use brain_context::MergeProvider;
-use brain_store::{EventLedger, MAX_SUBJECTS, SubjectInput, derive_subjects, memory_set_hash};
+use brain_store::{EventLedger, MAX_SUBJECTS, SubjectInput, derive_subjects};
 
 /// How much of each memory the provider is shown.
 ///
@@ -51,12 +51,15 @@ pub struct SynthesisReport {
     pub outcomes: Vec<SubjectOutcome>,
 }
 
+/// A subject that needs prose: its term, and the memory set the prose must describe.
+type PendingSubject = (String, Vec<uuid::Uuid>);
+
 /// Subjects whose stored prose does not describe their current memory set.
 ///
 /// `subject_synthesis` returns `None` the moment the set changes, so "stale" and "absent" are the
 /// same state here — which is the design: a page with no paragraph asserts nothing and cannot be
 /// wrong, while a page with a paragraph about a memory set that no longer exists can be.
-fn subjects_needing_prose(ledger: &EventLedger) -> Result<(Vec<(String, Vec<uuid::Uuid>)>, usize)> {
+fn subjects_needing_prose(ledger: &EventLedger) -> Result<(Vec<PendingSubject>, usize)> {
     let memories = ledger.current_project_memories()?;
     let vectors: std::collections::HashMap<uuid::Uuid, Vec<f32>> = ledger
         .current_memory_vectors()
@@ -254,9 +257,4 @@ pub fn render(report: &SynthesisReport) -> String {
         out.push_str("\n  The projector picks these up on its next pass.\n");
     }
     out
-}
-
-/// Exposed so a caller can confirm a stored paragraph still matches the set it was written for.
-pub fn set_hash(memory_ids: &[uuid::Uuid]) -> String {
-    memory_set_hash(memory_ids)
 }
