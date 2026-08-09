@@ -109,6 +109,11 @@ enum Command {
     Lint {
         #[arg(long)]
         project: String,
+        /// Re-date claims the provider dated at the Unix epoch, from the evidence they cite.
+        /// A claim rests on all its evidence, so it cannot predate the last piece — this is
+        /// arithmetic, not a judgement. Claims whose citations resolve to nothing are left alone.
+        #[arg(long)]
+        repair_dates: bool,
         #[arg(long)]
         json: bool,
     },
@@ -1205,11 +1210,25 @@ retired {retired} memories as tombstones"
                 );
             }
         }
-        Command::Lint { project, json } => {
+        Command::Lint {
+            project,
+            repair_dates,
+            json,
+        } => {
             let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
             let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
             let project_config = config.project(Some(project_id))?;
-            let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let mut ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            if repair_dates {
+                let repaired =
+                    brain_cli::repair_dates(&mut ledger, time::OffsetDateTime::now_utc())?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&repaired)?);
+                } else {
+                    print!("{}", brain_cli::render_date_repair(&repaired));
+                }
+                return Ok(());
+            }
             let report =
                 brain_cli::lint_project(&ledger, project_id, time::OffsetDateTime::now_utc())?;
             if json {

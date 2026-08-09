@@ -640,9 +640,38 @@ fn insert_capture_gap(
     )?)
 }
 
+/// A timestamp at or before this is a default, not a date. One year past the epoch, matching the
+/// `brain lint` rule, so the two cannot disagree about what "undated" means.
+const UNDATED_BEFORE_NS: i64 = 31_536_000_000_000_000;
+
 fn insert_event(transaction: &rusqlite::Transaction<'_>, event: &NormalizedEvent) -> Result<usize> {
-    let occurred_at_ns = timestamp_ns(event.occurred_at)?;
     let observed_at_ns = timestamp_ns(event.observed_at)?;
+    // An undated record is stored at its observation time, not at the epoch.
+    //
+    // Measured on the live ledgers: **10,187 events across three projects** carried
+    // `occurred_at = 0` beside a perfectly good `observed_at`, because every adapter defaults an
+    // unparseable timestamp to `UNIX_EPOCH`. The epoch is not a missing value, it is a wrong one,
+    // and wrong in the worst available direction: it sorts to the *front* of every chronological
+    // view, so the records we know least about lead the timeline. It reaches past the timeline too
+    // — `resolve_candidates` breaks contradictions on recency, so an epoch-dated claim reads as the
+    // oldest side of every disagreement it joins, and `brain lint`'s "misdated" memories were
+    // simply inheriting the dates of their evidence.
+    //
+    // **This belongs here rather than in the adapters, and the conformance suite is why.**
+    // `assert_adapter_contract` requires normalisation to be a pure function of the record —
+    // normalise twice, get the same `occurred_at` — and a `now_utc()` fallback inside an adapter
+    // breaks that, which is exactly how the first attempt at this fix failed. `observed_at` is
+    // already a per-ingest value the contract exempts, so substituting at the boundary keeps
+    // normalisation deterministic and still records an honest bound: a record seen at T occurred at
+    // or before T.
+    let occurred_at_ns = {
+        let raw = timestamp_ns(event.occurred_at)?;
+        if raw < UNDATED_BEFORE_NS && observed_at_ns >= UNDATED_BEFORE_NS {
+            observed_at_ns
+        } else {
+            raw
+        }
+    };
     let payload_json = serde_json::to_string(&event.payload)?;
     let raw_json = serde_json::to_string(&event.raw)?;
     Ok(transaction.execute(

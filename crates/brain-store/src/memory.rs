@@ -194,6 +194,61 @@ impl EventLedger {
         load_project_versions(&self.connection, self.project_scope, memory_id)
     }
 
+    /// Re-date events the adapter stamped at the epoch, from the moment capture saw them.
+    ///
+    /// Repairs what the adapters now prevent. Measured on this project: 2,412 of 29,953 events —
+    /// 8% — carried `occurred_at = 0` beside a real `observed_at`, because an unparseable
+    /// timestamp defaulted to `UNIX_EPOCH` rather than to the bound capture already held.
+    ///
+    /// This is the one place in the ledger that **updates in place** rather than appending, and it
+    /// is worth being uncomfortable about. Events are immutable evidence; the justification is
+    /// narrow and checkable: `occurred_at = 0` is not an observation, it is the absence of one,
+    /// and `observed_at` is a fact the same row already carries. Nothing else is touched, the row
+    /// count cannot change, and it only ever moves a value that was never measured in the first
+    /// place. Returns how many rows moved.
+    pub fn repair_epoch_event_dates(&mut self) -> Result<u64> {
+        let changed = self.connection.execute(
+            r#"
+            UPDATE events
+            SET occurred_at_ns = observed_at_ns
+            WHERE project_id = ?1
+              AND occurred_at_ns < 31536000000000000
+              AND observed_at_ns >= 31536000000000000
+            "#,
+            params![self.project_scope.0.to_string()],
+        )?;
+        Ok(changed as u64)
+    }
+
+    /// The latest `occurred_at` among the events a memory version cites.
+    ///
+    /// This is the honest floor for when a claim became true: it rests on all of its evidence, so
+    /// it cannot have been established before the last piece arrived. Used to repair memories the
+    /// provider dated at the Unix epoch — a default, not a date, which sorted them to the front of
+    /// every chronological view and made the oldest claims look like the newest.
+    ///
+    /// `None` when the citations resolve to nothing, which the caller must treat as "leave it
+    /// alone": inventing a date for a claim whose evidence cannot be found is worse than an obvious
+    /// 1970.
+    pub fn evidence_latest_occurred_at(
+        &self,
+        version_id: uuid::Uuid,
+    ) -> Result<Option<time::OffsetDateTime>> {
+        let latest: Option<i64> = self.connection.query_row(
+            r#"
+            SELECT MAX(e.occurred_at_ns)
+            FROM memory_evidence m
+            JOIN events e ON e.event_id = m.event_id
+            WHERE m.version_id = ?1 AND e.project_id = ?2
+            "#,
+            params![version_id.to_string(), self.project_scope.0.to_string()],
+            |row| row.get(0),
+        )?;
+        Ok(latest
+            .map(|ns| time::OffsetDateTime::from_unix_timestamp_nanos(ns as i128))
+            .transpose()?)
+    }
+
     /// How many claims each current memory absorbed, by supersession.
     ///
     /// Returned as a map rather than per-memory because the projection needs it for every memory

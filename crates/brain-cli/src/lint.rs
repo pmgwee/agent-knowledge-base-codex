@@ -272,3 +272,113 @@ pub fn render(report: &LintReport) -> String {
     }
     out
 }
+
+/// What repairing the misdated claims did.
+#[derive(Debug, Default, serde::Serialize)]
+pub struct DateRepairReport {
+    /// Events moved off the epoch to their observation time.
+    pub events_repaired: u64,
+    pub repaired: usize,
+    /// Claims left at the epoch because their citations resolved to nothing.
+    pub unresolvable: usize,
+    pub details: Vec<String>,
+}
+
+/// Re-date claims the provider dated at the Unix epoch, from the evidence they already cite.
+///
+/// This was filed under "open findings that need a human", and that was wrong. Nothing here is a
+/// judgement: a claim rests on all of its evidence, so it cannot have been established before the
+/// last piece of it arrived, and the latest cited `occurred_at` is therefore an honest floor. The
+/// provider supplied no date and the field defaulted; deriving one is arithmetic over rows the
+/// ledger already holds.
+///
+/// It matters more than four rows suggests. An unset `valid_from` is not merely missing — it sorts
+/// to the **front** of every chronological view, so the claims with the least known about them lead
+/// the timeline, and `resolve_candidates` reads them as the oldest side of any contradiction they
+/// join.
+///
+/// Append-only, like every other write here: a new version carrying the derived date, with the
+/// original left in place. A claim whose citations resolve to nothing is **left at the epoch** —
+/// inventing a date for evidence that cannot be found is worse than an obvious 1970.
+pub fn repair_dates(
+    ledger: &mut EventLedger,
+    now: time::OffsetDateTime,
+) -> Result<DateRepairReport> {
+    let epoch_ish = time::OffsetDateTime::UNIX_EPOCH + time::Duration::days(365);
+    // Events first. A memory inherits its date from its evidence, so repairing the claims before
+    // the events they rest on would derive the epoch from the epoch and report success — which is
+    // exactly what the first version of this did.
+    let events = ledger.repair_epoch_event_dates()?;
+    let misdated: Vec<brain_domain::MemoryRecord> = ledger
+        .current_project_memories()?
+        .into_iter()
+        .filter(|memory| memory.valid_from < epoch_ish)
+        .collect();
+
+    let mut report = DateRepairReport {
+        events_repaired: events,
+        ..Default::default()
+    };
+    for memory in misdated {
+        let Some(derived) = ledger.evidence_latest_occurred_at(memory.version_id)? else {
+            report.unresolvable += 1;
+            report.details.push(format!(
+                "left at the epoch — no citation resolves: {}",
+                memory.title
+            ));
+            continue;
+        };
+        if derived < epoch_ish {
+            // The evidence is undated too, and nothing else in the ledger knows better. Say so
+            // rather than appending a version that changes nothing and calling it a repair.
+            report.unresolvable += 1;
+            report.details.push(format!(
+                "left at the epoch — its evidence is undated too: {}",
+                memory.title
+            ));
+            continue;
+        }
+        let mut repaired = memory.clone();
+        repaired.version_id = uuid::Uuid::now_v7();
+        repaired.valid_from = derived;
+        repaired.recorded_at = now;
+        ledger.append_memory(&repaired)?;
+        report.repaired += 1;
+        report.details.push(format!(
+            "{} -> {} — {}",
+            memory.valid_from.date(),
+            derived.date(),
+            memory.title
+        ));
+    }
+    Ok(report)
+}
+
+pub fn render_date_repair(report: &DateRepairReport) -> String {
+    if report.repaired == 0 && report.unresolvable == 0 && report.events_repaired == 0 {
+        return "no misdated claims or events
+"
+        .to_owned();
+    }
+    let mut out = format!(
+        "re-dated {} event{} to their observation time
+",
+        report.events_repaired,
+        if report.events_repaired == 1 { "" } else { "s" },
+    );
+    out += &format!(
+        "re-dated {} claim{} from their own evidence · {} left at the epoch
+
+",
+        report.repaired,
+        if report.repaired == 1 { "" } else { "s" },
+        report.unresolvable
+    );
+    for detail in &report.details {
+        out.push_str(&format!(
+            "  {detail}
+"
+        ));
+    }
+    out
+}

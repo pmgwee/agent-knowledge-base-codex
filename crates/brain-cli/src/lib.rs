@@ -44,7 +44,10 @@ pub use install_hooks::{
     HookInstallResult, install_claude_hooks, install_codex_hooks, uninstall_claude_hooks,
     uninstall_codex_hooks,
 };
-pub use lint::{LintFinding, LintReport, lint_project, render as render_lint};
+pub use lint::{
+    DateRepairReport, LintFinding, LintReport, lint_project, render as render_lint,
+    render_date_repair, repair_dates,
+};
 pub use longmemeval::{
     LongMemEvalInstance, LongMemEvalOptions, LongMemEvalReport, run_longmemeval,
 };
