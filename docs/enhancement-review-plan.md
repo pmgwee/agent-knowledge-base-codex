@@ -78,6 +78,12 @@ recorded **none** of it. Every project would have read zero on those four channe
 worked. Both now stage a delivery when they actually return text, and only then: a push that returns
 nothing is not a delivery.
 
+**Verified by firing both hooks by hand against a registered project.** `UserPromptSubmit` pushed
+1,030 characters in 0.13 s and its delivery row went 0 → 1. `SessionEnd` pushed nothing — no lease
+was outstanding — and recorded nothing, which is the designed behaviour rather than a failure. So the
+four zeros are a **measurement gap now closed, not four dead hooks**: all three hooks are registered
+on both harnesses, and all three Codex hooks are trusted in `[hooks.state]`, both re-checked.
+
 ### A7 · Session replay and clickable citations — shipped `fbb76d0`
 
 The route could not be written as planned. `brain replay --session --json` returned `StoredEvent`,
