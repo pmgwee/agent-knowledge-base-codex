@@ -297,25 +297,26 @@
         <text class="box-sub" x="328" y="110">~/.codex/sessions</text>
 
         <rect class="s-retrieval" x="600" y="44" width="640" height="86" rx="5" stroke-width="1.4" />
-        <text class="tag t-retrieval" x="618" y="64">HOOK LIFECYCLE — three shipped · push at start AND mid-session</text>
+        <text class="tag t-retrieval" x="618" y="64">HOOK LIFECYCLE — every figure below is claude-code · codex fires none of them</text>
 
         <rect class="s-retrieval" x="618" y="74" width="148" height="38" rx="4" stroke-width="1.4" />
         <text class="box-sub t-retrieval" x="630" y="89">SessionStart · push</text>
-        <text class="box-sub" x="630" y="105">SHIPPED · 75 delivered</text>
+        <text class="box-sub" x="630" y="105">claude 75 · codex 0</text>
 
         <rect class="s-retrieval" x="778" y="74" width="148" height="38" rx="4" stroke-width="1.4" />
         <text class="box-sub t-retrieval" x="790" y="89">SessionEnd · boundary</text>
-        <text class="box-sub" x="790" y="105">SHIPPED · 3 recorded</text>
+        <text class="box-sub" x="790" y="105">claude 3 · codex 0</text>
 
         <rect class="s-retrieval" x="938" y="74" width="184" height="38" rx="4" stroke-width="1.6" />
         <text class="box-sub t-retrieval" x="950" y="89">UserPromptSubmit · push</text>
-        <text class="box-sub" x="950" y="105">SHIPPED · 400 tok, metered</text>
+        <text class="box-sub" x="950" y="105">claude only · not registered for codex</text>
 
-        <rect class="s-plain" x="1134" y="74" width="90" height="38" rx="4" stroke-width="1.2" />
-        <text class="box-sub" x="1146" y="89">6 capture</text>
-        <text class="box-sub" x="1146" y="105">hooks — n/a</text>
+        <rect class="s-planned" x="1134" y="74" width="90" height="38" rx="4" stroke-width="1.2" />
+        <text class="box-sub t-planned" x="1146" y="89">codex: MCP</text>
+        <text class="box-sub t-planned" x="1146" y="105">brain_checkpoint</text>
 
-        <text class="edge-label" x="618" y="127">solid = shipped and firing · plain = not needed, the transcript already holds it · Claude only for the mid-session push</text>
+        <text class="edge-label" x="618" y="127">Codex registers SessionStart and SessionEnd and has never fired either: 0 real deliveries, 0 of 144 spool entries. Desktop does not implement hooks.</text>
+        <text class="edge-label" x="618" y="145">The registration is kept — it is correct, and the Codex CLI documents the surface. On Desktop, MCP is the ceiling and it is voluntary, not pushed.</text>
 
         <!-- ============ BAND 2 — CAPTURE ============ -->
         <text class="band-label" x="40" y="196">2 · CAPTURE — brain-service.exe (Task Scheduler, 6 supervised loops) · 4 scheduled tasks</text>
