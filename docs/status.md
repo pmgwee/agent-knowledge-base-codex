@@ -42,6 +42,29 @@ one that sorts to the front of every chronological view — and, through recency
 those records the oldest side of every contradiction they joined. Fixed at the ledger boundary and
 repaired in place; **0 epoch-dated rows remain**.
 
+**Every project delivers an orientation again, and the cause was one absent index.** Two of three
+had been silently delivering nothing: the hook gave up at its 3 s ceiling while the service kept
+compiling for another 36 s behind it. `memory_supersession` is indexed by the *superseding* version,
+while every read asks the opposite question, so SQLite answered "has this been superseded?" by
+sweeping `memory_versions` once per candidate row. On the live 5,669-version ledger that query went
+**42,001 ms → 34.1 ms**, and `brain explain` went 82.8 s → 1.8 s. The index builds in 3 ms. Three
+rounds of diagnosis blamed the corpus size and were wrong twice before instrumentation settled it in
+one pass — see [enhancement-review-plan.md](enhancement-review-plan.md) for what that cost.
+
+**The dashboard stopped averaging two harnesses into one number, and immediately found four dead
+channels.** A pooled delivery total cannot show a harness that has stopped; the snapshot now carries
+all six harness/hook pairs including the ones with no rows. `UserPromptSubmit` and `SessionEnd`
+returned `HookOutcome::bare` on both harnesses — they push lease warnings and mid-session context and
+recorded none of it — so those four channels would have read zero however well they worked. Both
+branches now record a delivery when they actually return text.
+
+**Session replay has a UI, and a citation opens wherever it appears.** The route could not be written
+as first planned: `brain replay --session --json` returned every stored row with the harness's
+original record beside the normalised one, and the largest captured session here serialises to
+**100 MB**. It is now a projection with `--limit`/`--offset` — 100 turns in 32 KB — and opening a turn
+fetches that one event. The same control sits under every event hit in the retrieval results, because
+provenance belongs on the citation rather than in a panel of its own.
+
 **Shipped since the August competitor review:** the mid-session push, a continuous decay curve with
 access-strengthening, `brain reconcile` and the fold, `brain explain`, `brain replay`,
 retrieval-shaped notes, query expansion, a scheduled health digest, and the 500-instance benchmark.
@@ -53,13 +76,28 @@ and 3.2b's generation call.
 
 | | |
 |---|---|
-| Events captured | **143,479** across 3 projects · 0 undated |
-| Current memories | **13,246**, every one citing `event:<uuid>` |
-| Vector index | **complete** — 13,246 memories and 142,248 events; 3 remaining |
-| Vault | **13,560** notes · 450 subject pages · 20 flagged stale · **142 claims revised in place** |
-| Consolidation | **1,973 pending** · 3 dead-lettered |
-| Orientation | mean **1,115** tokens over 35 receipts, max 1,490, against a 3,000 hard cap |
-| Gates | `fmt` clean · clippy 0 errors · **125 test binaries green** |
+| Events captured | **147,235** across 3 projects · 0 undated |
+| Current memories | **13,594**, every one citing `event:<uuid>` |
+| Vector index | **complete** — 13,447 memories and 142,696 events; 5 remaining |
+| Vault | 450 subject pages · **142 claims revised in place** |
+| Consolidation | **2,191 pending** · 3 dead-lettered — both quota-bound |
+| Orientation | mean **1,007** tokens over 127 receipts, against a 3,000 hard cap |
+| Session start | **0.31–0.89 s** on all three projects, three rounds running, against a 3 s ceiling |
+| Gates | `fmt` clean · clippy 0 errors · full workspace suite green |
+
+**Deliveries by harness and hook, last 7 days** — the split that replaced the pooled total, and the
+reason the four zeros below are visible at all. The `SessionStart` rows are real traffic; the other
+four had no recording path until this round, so they are a measurement gap being closed, not evidence
+that the hooks are dead. Codex fires all three, observed.
+
+| Harness | Hook | Deliveries | Mean tokens |
+|---|---|---|---|
+| `claude-code` | `SessionStart` | **121** | 1,007 |
+| `codex` | `SessionStart` | **6** | 1,010 |
+| `claude-code` | `UserPromptSubmit` | 0 | — |
+| `claude-code` | `SessionEnd` | 0 | — |
+| `codex` | `UserPromptSubmit` | 0 | — |
+| `codex` | `SessionEnd` | 0 | — |
 
 ---
 

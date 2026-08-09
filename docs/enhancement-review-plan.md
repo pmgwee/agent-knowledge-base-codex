@@ -170,50 +170,83 @@ Two operational details, both from the operator and both now in the installer:
   requires re-approval at the CLI TUI. Claude Code has no equivalent gate — its hooks run from
   `~/.claude/settings.json` with no review step, which is why that side has never needed one.
 
-### ⛔ A11 · Blocking — orientation compile is superlinear in memory count
+### ✅ A11 · Closed — one absent index cost 42 s, and the "superlinear in memory count" framing was wrong
 
-**The pipe is fine. The compile is too slow to finish inside the hook's budget.**
+**Symptom:** two of three registered projects delivered no orientation. The hook gave up at its 3 s
+ceiling, the service kept compiling for another 36 s behind it, and the log recorded
+`hook pipe request failed / write hook reply` — which reads as a broken pipe and was a client that
+had already left.
 
-| Project | events | memories | compile |
-|---|---|---|---|
-| `agent-knowledge-base-codex` | 32,643 | 2,106 | **1.5 s** ✅ |
-| `Ai-community-channel` | 37,886 | 5,505 | **38.5 s** ❌ |
-| `subscription-agent` | 75,595 | 5,644 | **41.7 s** ❌ |
+**Cause:** `memory_supersession`'s primary key indexes it by the *superseding* version, and every
+read asks the opposite question — "has this version been superseded?" With no index on
+`superseded_version_id` that is unreachable by lookup, so SQLite drove the subquery from
+`memory_versions` instead — `SEARCH newer USING INDEX idx_memory_versions_validity
+(valid_from_ns<?)`, once per candidate row. Cost scales with **versions × matched rows**, which is
+why it was invisible on small projects and took the whole budget on the largest.
 
-It tracks **memories, not events** — `Ai-community-channel` has half `subscription-agent`'s events
-and nearly the same compile time. 2.6× the memories costs 25× the time, so something in the compile
-path is superlinear in memory count.
+Measured on the live 5,669-version ledger, same query, identical results. The index builds in 3 ms.
 
-`brain_hook::HOOK_HARD_TIMEOUT` is 3 s, so **two of three projects can never deliver an
-orientation**, every invocation spools, and the service logs
-`hook pipe request failed / write hook reply` — which is the *symptom*: the client timed out long
-before the compile finished.
+| | before | after |
+|---|---|---|
+| memories keyword query | 42,001 ms | **34.1 ms** |
+| session-start hook, `Ai-community-channel` | timeout, 0 delivered | **0.74–0.82 s** |
+| session-start hook, `subscription-agent` | timeout, 0 delivered | **0.69–0.79 s** |
+| session-start hook, `agent-knowledge-base-codex` | 1.5 s | **0.31–0.89 s** |
+| `brain explain`, `Ai-community-channel` | 82,809 ms | **1,755 ms** |
+| `brain explain`, `subscription-agent` | 91,883 ms | **3,089 ms** |
 
-**What this rules out**, each checked rather than assumed:
+All three projects now deliver on every round, three rounds running. `ee357eb`, `35ef05f`.
 
-| Suspected | Verdict |
-|---|---|
-| The named pipe | **No.** It delivers fine on the fast project |
-| Codex specifically | **No.** A `claude-code` probe fails identically on the slow ones |
-| GLM 429 pressure starving the reactor | **No.** Deferrals measured at 5–7/min, not a flood |
-| Stale deployment, pipe-name mismatch, service down | No, all checked |
-| A recent change | No. `pipe.rs`, `hook_handler.rs` and `brain-hook/` are untouched since it last worked |
+#### The framing was wrong, and it cost two rewrites
 
-**Why it looked like a Codex problem.** Every Codex test ran in `subscription-agent`, the slowest
-project. Every Claude session that appeared healthy ran in `agent-knowledge-base-codex`, the only
-fast one. The variable was never the harness.
+"Superlinear in memory count" survived three rounds of measurement because it kept nearly fitting.
+It was falsified twice and re-asserted anyway:
 
-**Where to look first:** `ContextCompiler::from_ledger` calls `resolve_candidates` over *every*
-current memory before `apply_memory_ranking` selects the two or three that fit the budget. Compiling
-5,644 candidates to choose 3 is the wrong shape regardless of the constant, and supersession and
-conflict grouping inside it are the superlinear suspects. Bounding the candidate set before it is
-resolved is likely both the fix and a considerable simplification.
+| Round | Reading | What it should have said |
+|---|---|---|
+| First | `Ai-community` 5,505 → 38.5 s; `subscription` 5,644 → 41.7 s | Consistent with memory count |
+| Second | `subscription` 5,644 → **1.0 s**; `Ai-community` 5,505 → 39 s | **Falsified.** Nearly equal corpora, 39× apart |
+| Third | `subscription` 5,749 → **0.7 s**; `Ai-community` 5,445 → 39 s | Falsified again |
 
-**Do not raise `HOOK_HARD_TIMEOUT` to paper over this.** It blocks session start, Codex clamps
-`SessionEnd` to 3 s regardless, and a 40-second orientation is not one anybody wants delivered.
+The discriminator was never the corpus. It was whether the query text was non-empty:
+`rank_memories_against_recent_work` returns early when the recent turns yield no text, and
+`subscription-agent`'s fast runs were **all** empty-query runs. A project looked healthy because it
+was skipping the work, not because it was doing it quickly.
 
-**This outranks everything else in this document.** A7, A3b and the token-saving A/B all assume
-orientations arrive; on two of three projects they never have.
+**Two of the three fixes attempted were wrong about this, and both were real defects worth keeping:**
+
+- `current_project_memories` ran ~4 queries **per memory version** — about 23,000 round trips at
+  5,505 memories — and is now four queries flat. It was 14.3 s of the load on one project. Pinned by
+  `crates/brain-store/tests/memory_bulk_load.rs`, which asserts it returns exactly what the
+  per-memory path returned: this list is what `resolve_candidates` closes over for supersession and
+  contradiction, so a dropped edge would surface as a confident wrong orientation, never an error.
+- `record_memory_access` committed **once per id** — up to 64 write-lock acquisitions per search
+  against a database the service writes to concurrently, each willing to wait out the 1 s
+  `busy_timeout`. Now one transaction.
+
+Neither moved the number.
+
+#### What actually ended it was instrumentation, not reasoning
+
+Nothing timed the compile, so three rounds of diagnosis were guesses dressed as deductions —
+including one that drove the named pipe by hand from three languages because no CLI compiles an
+orientation. Three `info` lines settled it:
+
+| Line | Fields | Answered |
+|---|---|---|
+| `orientation compiled` | `open` / `live_state` / `load` / `compile` | The compile is 118 ms; the *load* is 14 s |
+| `orientation material loaded` | `events` / `ranking` / `stale` / `memories` | The load is one search, not the memory fetch |
+| `search channels` | `events` / `memories` / `vector` / `expansion` / `graph` | The search is one keyword channel, 12.6 s |
+
+From there, `EXPLAIN QUERY PLAN` named the clause in one call. **The 42 s was one log line away the
+whole time**, and the lesson generalises past this bug: `HOOK_HARD_TIMEOUT` was a reasonable number
+that went silently wrong, and a stage nobody times is a stage nobody can be right about.
+
+The regression is pinned by **plan, not duration** — `crates/brain-store/tests/search_query_plan.rs`
+asserts the filter reaches `idx_memory_supersession_superseded` and never sweeps `memory_versions`.
+A timing assertion would be flaky on a fixture and silent on the only shape that matters.
+
+---
 
 ## How this round is verified — and the one thing that cannot be
 

@@ -28,6 +28,34 @@ that cannot apply here. Copying those would be building a lint for a language no
 
 ---
 
+## Correction of record — "superlinear in memory count" was never true
+
+Two of three projects delivered no orientation for days, and the working hypothesis through three
+rounds of measurement was that the compile scales badly with the number of memories. It kept nearly
+fitting, and it was falsified twice before it was dropped:
+
+| Round | Reading | What it meant |
+|---|---|---|
+| First | `Ai-community` 5,505 memories → 38.5 s; `subscription` 5,644 → 41.7 s | Consistent with memory count |
+| Second | `subscription` 5,644 → **1.0 s**; `Ai-community` 5,505 → 39 s | **Falsified** — near-equal corpora, 39× apart |
+| Third | `subscription` 5,749 → **0.7 s**; `Ai-community` 5,445 → 39 s | Falsified again |
+
+The discriminator was never the corpus. `rank_memories_against_recent_work` returns early when the
+recent turns yield no text, and `subscription-agent`'s fast runs were **all** empty-query runs — the
+project looked healthy because it was skipping the work, not doing it quickly. Underneath sat a
+single absent index on `memory_supersession(superseded_version_id)`: **42,001 ms → 34.1 ms**, built
+in 3 ms.
+
+Two rewrites were spent on the wrong suspect before that. Both were genuine defects and both were
+kept — a per-memory loader doing ~23,000 round trips, and an access counter committing once per id —
+and **neither moved the number**. What ended it was three `tracing::info!` lines, added after the
+third failed guess, which located the cost in one pass. The general form is worth carrying:
+`HOOK_HARD_TIMEOUT` was a reasonable number that went silently wrong, and **a stage nobody times is a
+stage nobody can be right about.** Full account in
+[enhancement-review-plan.md](enhancement-review-plan.md).
+
+---
+
 ## Correction of record — the Codex asymmetry never existed
 
 Several conclusions below were written on the premise that Codex could not be *pushed* to and had to
