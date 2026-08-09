@@ -41,8 +41,8 @@ check whether the reasoning held.
 | ~~Un-register the Codex hooks so the dashboard stops claiming a feature that does not run~~ | ~~resolved~~ | Not done, and correctly not done — the feature runs |
 | ~~Codex mid-session parity is structural~~ | ~~resolved~~ | **Falsified.** `UserPromptSubmit` is registered and observed firing four times in one Codex session |
 | `SessionStart` on both harnesses | ✅ shipped | Harness-invoked, before the model reads anything |
-| `SessionEnd` on both harnesses | ✅ shipped | Codex clamps the timeout to 3 s and warns; the installer now declares 3 |
-| `UserPromptSubmit` on both harnesses | ✅ shipped | `eb67502` |
+| `SessionEnd` on both harnesses | ✅ shipped **and observed** | Real `session.ended` events from Codex. Codex clamps the timeout to 3 s and warns; the installer now declares 3 |
+| `UserPromptSubmit` on both harnesses | ✅ shipped **and observed** | `eb67502`. Four Codex turns carry the pushed text in their own transcript |
 | MCP demoted from delivery to depth | ✅ shipped | `[mcp_servers.brain]` **kept** — `brain_search`, `brain_timeline`, `brain_evidence`, `brain_claims`, `brain_leases` answer questions a push cannot anticipate |
 | `AGENTS.md` brain block removed from every registered project | ✅ shipped | All three rewritten. The `brain_checkpoint` instruction is gone; **no per-project step remains** |
 | `docs/registering-a-project.md` step 3 | ✅ shipped | Now reads *"Nothing."* |
@@ -52,6 +52,28 @@ the same day.** They are kept rather than deleted: "Codex hook test ✅ settled 
 Desktop" was the confident wrong conclusion, and the reasoning that produced it — *zero deliveries
 and zero spool entries must mean it was never invoked* — is sound and does not apply, because a hook
 that cannot **launch** neither delivers nor spools.
+
+### Each hook is proven by a different instrument — and looking at the wrong one cost a wrong answer twice
+
+`context_deliveries` is the right evidence for `SessionStart` and nothing else. Reading the
+delivery table and finding zeros for the other two produced "registered but not yet observed",
+which was false for both. The same shape as the original mistake: **absence in the wrong table is
+not evidence of absence.**
+
+| Hook | Right instrument | Why | Codex evidence |
+|---|---|---|---|
+| `SessionStart` | a `context_deliveries` row | it pushes an orientation, so a receipt is the point | ✅ **4 real deliveries**, v7 session ids `019fe5f9…`, `019fe5ff…`, `019fe5b6…` ×2, 1,030–1,041 tokens |
+| `UserPromptSubmit` | the pushed text **inside the harness's own transcript** | it pushes only when it has something to say, so silence is normal and a zero proves nothing | ✅ **4 Codex turns** carrying `Related memory for this turn:` — the push landed in Codex's own conversation |
+| `SessionEnd` | a `session.ended` **event** | it usually pushes nothing at all; a delivery row would be the wrong receipt | ✅ **real `session.ended` events**, v7 ids, most recent `019fe790…` |
+
+**The discriminator throughout is `native_session_id`.** A diagnostic run carries `diag-…` or
+`probe-…`; a genuine session carries the harness's own id. Every row above is a genuine one — and a
+first pass at this used `MAX(native_session_id)`, which sorts `diag-codex-1` above every UUID and
+made the real deliveries invisible.
+
+Trust survives a deploy: `~/.codex/hooks.json` is untouched by `scripts/deploy.ps1`, which replaces
+binaries only, so the three `[hooks.state]` hashes stay valid. Editing the hook file is what revokes
+trust.
 
 ### The quota-blocked four, on the day quota returned
 

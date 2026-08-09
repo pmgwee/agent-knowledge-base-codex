@@ -55,11 +55,15 @@ once its hooks were trusted.
 | | Claude Code | Codex Desktop |
 |---|---|---|
 | `SessionStart` | Fires. 75+ deliveries | **Fires.** 4 real deliveries, 1,030–1,041 tokens, 46 coordination tokens |
-| `SessionEnd` | Fires | Registered and trusted; declares a 3 s timeout because Codex clamps anything larger |
+| `SessionEnd` | Fires | **Fires.** Real `session.ended` events with v7 ids. Declares a 3 s timeout because Codex clamps anything larger |
 | `UserPromptSubmit` | Fires — mid-session push, 400 tokens | **Fires.** Registered `eb67502`; four invocations observed across two prompts |
 | MCP | Not wired | 16 tools — **depth on demand, never delivery.** `brain_checkpoint` is redundant with the hook and no longer requested anywhere |
 
-**Full parity.** All three hooks, both harnesses, harness-invoked before the model reads anything.
+**Full parity, and each half proven by its own instrument.** `SessionStart` by a delivery row,
+`UserPromptSubmit` by the pushed text appearing in Codex's own transcript, `SessionEnd` by the
+`session.ended` event it writes. Looking for all three in `context_deliveries` finds two zeros and
+concludes they never fired — which is wrong twice over, because `UserPromptSubmit` pushes only when
+it has something to say and `SessionEnd` usually pushes nothing at all.
 
 ### The trust gate — check this before concluding anything about Codex hooks
 
