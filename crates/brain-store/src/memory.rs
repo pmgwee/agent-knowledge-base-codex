@@ -366,6 +366,23 @@ impl EventLedger {
               AND v.version_number = (
                 SELECT MAX(w.version_number) FROM memory_versions w WHERE w.memory_id = v.memory_id
               )
+              -- A claim can be retired two different ways, and this query used to know only one.
+              --
+              -- `reconcile --apply` appends a *retirement version* whose status is `superseded`,
+              -- which the status filter below catches. `remember --supersedes` writes only a
+              -- supersession *edge* and leaves the old version's status alone — so a claim
+              -- explicitly retracted by a human stayed "current" here and kept being served.
+              --
+              -- Measured on the live ledger the moment it mattered: after retracting 26 claims
+              -- asserting that Codex Desktop does not fire hooks, this query still returned 30
+              -- retired claims. `search_memories` already excluded them, so the two read paths
+              -- disagreed about what "current" means — and this is the path that feeds the
+              -- session-start orientation, the Markdown projection and `brain export`. The vault
+              -- would have gone on publishing a claim its author had withdrawn.
+              AND NOT EXISTS (
+                  SELECT 1 FROM memory_supersession s
+                  WHERE s.superseded_version_id = v.version_id
+              )
             "#,
         )?;
         let rows = statement.query_map([&project], |row| {

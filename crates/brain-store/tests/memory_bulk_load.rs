@@ -156,6 +156,32 @@ fn the_bulk_loader_returns_exactly_what_the_per_memory_path_returned() {
     );
     ledger.append_memory(&retired_v2).expect("retired v2");
 
+    // Retracted by edge only: `remember --supersedes` writes a supersession edge and leaves the
+    // old version's status alone. That is the *other* way to retire a claim, and the bulk loader
+    // used to honour only the status one — so a claim a human had explicitly withdrawn stayed in
+    // the orientation and in the vault. Measured on the live ledger: 30 such claims still served.
+    let retracted_id = uuid::Uuid::now_v7();
+    let retracted = memory(
+        project,
+        worktree,
+        retracted_id,
+        "retracted claim",
+        vec![cite(0)],
+        Vec::new(),
+        MemoryStatus::Current,
+    );
+    ledger.append_memory(&retracted).expect("retracted");
+    let replacement = memory(
+        project,
+        worktree,
+        uuid::Uuid::now_v7(),
+        "replacement claim",
+        vec![cite(0), cite(2)],
+        vec![retracted.version_id],
+        MemoryStatus::Current,
+    );
+    ledger.append_memory(&replacement).expect("replacement");
+
     let invalid = memory(
         project,
         worktree,
@@ -189,7 +215,15 @@ fn the_bulk_loader_returns_exactly_what_the_per_memory_path_returned() {
     // The oracle: the old logic, rebuilt from the public API — `current_memory` per id, the same
     // status filter, the same ordering. `current_memory` already returns `None` for a tombstoned
     // memory, which is how the old path excluded withdrawals.
-    let ids = [plain.id, revised_id, retired_id, invalid.id, withdrawn.id];
+    let ids = [
+        plain.id,
+        revised_id,
+        retired_id,
+        invalid.id,
+        withdrawn.id,
+        retracted_id,
+        replacement.id,
+    ];
     let mut expected: Vec<MemoryRecord> = ids
         .iter()
         .filter_map(|id| ledger.current_memory(*id).expect("current memory"))
@@ -199,6 +233,10 @@ fn the_bulk_loader_returns_exactly_what_the_per_memory_path_returned() {
                 MemoryStatus::Invalid | MemoryStatus::Superseded
             )
         })
+        // The oracle models both retirement mechanisms, because the loader must honour both: a
+        // status of `superseded` from `reconcile --apply`, and an incoming supersession edge from
+        // `remember --supersedes`.
+        .filter(|memory| memory.version_id != retracted.version_id)
         .collect();
     expected.sort_by_key(MemoryRecord::projection_path);
 
@@ -235,6 +273,11 @@ fn the_bulk_loader_returns_exactly_what_the_per_memory_path_returned() {
     );
     assert!(!titles.contains(&"invalid claim"));
     assert!(!titles.contains(&"withdrawn claim"));
+    assert!(
+        !titles.contains(&"retracted claim"),
+        "a claim retired by a supersession edge came back as current — this is what put 30          withdrawn claims back into the orientation and the vault"
+    );
+    assert!(titles.contains(&"replacement claim"));
 
     let revised = actual
         .iter()
