@@ -258,7 +258,7 @@
     </p>
     <p class="stamp">
       Rebuilt 9 August 2026 · every figure below read from the running system, not recalled ·
-      3 projects · 142,830 events · 120 test binaries green · <strong>96.0% R@5 on all 500 LongMemEval-S questions</strong><br />
+      3 projects · 143,479 events · 125 test binaries green · <strong>96.0% R@5 on all 500 LongMemEval-S questions</strong><br />
       Per-item status and what is left live in <code>docs/status.md</code> — maintained there, not here.
     </p>
   </header>
@@ -356,7 +356,7 @@
 
         <rect class="s-plain" x="58" y="442" width="196" height="44" rx="4" stroke-width="1.2" />
         <text class="box-sub" x="72" y="460">events</text>
-        <text class="box-sub" x="72" y="477">142,830 captured</text>
+        <text class="box-sub" x="72" y="477">143,479 captured · none undated</text>
 
         <rect class="s-plain" x="266" y="442" width="196" height="44" rx="4" stroke-width="1.2" />
         <text class="box-sub" x="280" y="460">FTS5 index</text>
@@ -395,7 +395,7 @@
         <text class="box-sub" x="58" y="678">≤ 200 events and ≤ 400 KB per job</text>
         <text class="box-sub" x="58" y="696">leased · retried · dead-lettered</text>
         <text class="box-sub" x="58" y="714">trigger carried into the prompt</text>
-        <text class="box-sub" x="58" y="738">1,933 pending · 3 dead · quota-bound</text>
+        <text class="box-sub" x="58" y="738">1,973 pending · 3 dead · quota-bound</text>
 
         <rect class="s-memory" x="500" y="630" width="300" height="124" rx="5" stroke-width="1.4" />
         <text class="box-title" x="518" y="658">GLM · Z.ai</text>
@@ -484,7 +484,7 @@
         <text class="box-sub" x="58" y="1292">one file per current memory</text>
         <text class="box-sub" x="58" y="1310">content-addressed generation</text>
         <text class="box-sub" x="58" y="1328">revision trail where a claim was folded</text>
-        <text class="box-sub" x="58" y="1352">15,808 notes · 20 stale · 4 revised</text>
+        <text class="box-sub" x="58" y="1352">13,560 notes · 20 stale · 142 revised</text>
 
         <rect class="s-vault" x="460" y="1244" width="380" height="130" rx="5" stroke-width="1.4" />
         <text class="box-title" x="478" y="1272">Wikilinks · index · subjects</text>
@@ -550,7 +550,7 @@
 
         <rect class="s-planned" x="440" y="1646" width="380" height="112" rx="5" stroke-width="1.4" />
         <text class="box-title t-planned" x="458" y="1674">Waiting on provider quota</text>
-        <text class="box-sub t-planned" x="458" y="1694">1,933 consolidation jobs queued</text>
+        <text class="box-sub t-planned" x="458" y="1694">1,973 consolidation jobs queued</text>
         <text class="box-sub t-planned" x="458" y="1712">subject-page prose: validator ships,</text>
         <text class="box-sub t-planned" x="458" y="1730">the generation call withheld until verified</text>
 
@@ -604,13 +604,13 @@
     <div class="grid">
       <div class="card">
         <h3>Captured</h3>
-        <div class="stat" style="color: var(--evidence);">142,830</div>
+        <div class="stat" style="color: var(--evidence);">143,479</div>
         <p>events across three projects, from both agents. Zero cross-project leakage — ownership is decided by each transcript's own recorded <code>cwd</code>, never by proximity in the directory layout.</p>
       </div>
       <div class="card">
         <h3>Distilled</h3>
         <div class="stat" style="color: var(--memory);">13,246</div>
-        <p>current memories, every one citing <code>event:&lt;uuid&gt;</code>. 1,933 jobs still queued behind provider quota, so this is still climbing.</p>
+        <p>current memories, every one citing <code>event:&lt;uuid&gt;</code>. 1,973 jobs still queued behind provider quota, so this is still climbing.</p>
       </div>
       <div class="card">
         <h3>Vector index</h3>
@@ -624,7 +624,7 @@
       </div>
       <div class="card">
         <h3>Projected</h3>
-        <div class="stat" style="color: var(--vault);">15,808</div>
+        <div class="stat" style="color: var(--vault);">13,560</div>
         <p>vault notes across 450 derived subject pages. 20 flagged stale, reversible the moment retrieval returns one — and a dated health digest appended to each project&rsquo;s <code>log.md</code> every day.</p>
       </div>
       <div class="card">
@@ -866,13 +866,13 @@
           <tr><th>Tier</th><th>Ours</th><th>State</th></tr>
         </thead>
         <tbody>
-          <tr><td><strong>Working</strong> — raw observations</td><td><code>events</code>, 142,830 captured</td><td><span class="pill live">Have</span></td></tr>
+          <tr><td><strong>Working</strong> — raw observations</td><td><code>events</code>, 143,479 captured, none undated</td><td><span class="pill live">Have</span></td></tr>
           <tr><td><strong>Episodic</strong> — session summaries</td><td>Boundary hook + <code>session_stopped</code> consolidation</td><td><span class="pill live">Have — 8 Aug</span></td></tr>
           <tr><td><strong>Semantic</strong> — facts and patterns</td><td><code>Fact</code> · <code>Decision</code> · <code>Investigation</code> · <code>Preference</code></td><td><span class="pill live">Have</span></td></tr>
           <tr><td><strong>Procedural</strong> — workflows</td><td><code>Procedure</code> · <code>Task</code> · <code>Deployment</code> · <code>Checkpoint</code> · <code>Timeline</code></td><td><span class="pill live">Have</span></td></tr>
           <tr><td>Decay curve · access-strengthening</td><td>Ebbinghaus <code>retention_score</code>; ten retrievals decay ~3.4× slower, logarithmically</td><td><span class="pill live">Shipped</span></td></tr>
           <tr><td>Contradiction resolution</td><td><code>brain reconcile</code> proposes from authority → recency → evidence, and refuses when they are level</td><td><span class="pill live">Proposed, never applied</span></td></tr>
-          <tr><td>Revision in place</td><td>Supersession, live for the first time — <code>brain reconcile --apply</code> retired 7 memories into 4 claims, deleting nothing</td><td><span class="pill live">Shipped</span></td></tr>
+          <tr><td>Revision in place</td><td>Supersession, live across all three projects — <code>brain reconcile --apply</code> folded 97 contradictions and retired 142 memories, deleting nothing</td><td><span class="pill live">Shipped</span></td></tr>
           <tr><td>Scheduled reflection</td><td><code>brain digest</code> daily via <code>AgentBrain.Digest</code> — never-retrieved share, retention distribution, contradictions, queue depth, appended to each vault&rsquo;s <code>log.md</code></td><td><span class="pill live">Shipped — derived, no model</span></td></tr>
         </tbody>
       </table>
@@ -959,9 +959,16 @@
         a new memory, so the vault accumulated duplicates and <code>brain lint</code> called them
         contradictions. <code>brain reconcile --apply</code> folds them: two appends per fold, nothing
         deleted — a new version of the keeper carrying the supersession edges, and a retirement
-        version per loser. Live: <strong>4 contradictions folded, 7 memories superseded, 0
-        deleted</strong>, and <code>subjects/backup.md</code> now opens with <em>"1 of these 35 claims
-        has been revised in place, absorbing 4 earlier claims."</em>
+        version per loser. Live across all three projects: <strong>97 contradictions folded, 142
+        memories superseded, 0 deleted</strong>, and <code>subjects/backup.md</code> now opens with
+        <em>"1 of these 35 claims has been revised in place, absorbing 4 earlier claims."</em>
+      </p>
+      <p>
+        Ten contradictions remain, and they are the right ten: pairs filed twice on the same day from
+        the same evidence, level on authority, date <em>and</em> evidence count, differing only in
+        wording. Deciding whether two differently-worded bodies say the same thing is a reading of
+        the text — exactly where derivation should stop, because the alternative is a coin-flip
+        dressed as a rule, applied silently and never revisited.
       </p>
       <p>
         What remains open is genuinely narrower than the row above claimed: a paragraph that

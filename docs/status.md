@@ -21,11 +21,19 @@ Waves 2, 4 and **5** are complete. Wave 0 is complete bar a quota-bound backlog.
 except for one generation step held back on purpose. Wave 1 is half done — retrieval quality is now
 fully measured, the token saving never has been, and the harness for measuring it exists.
 
-**The vault has revised a claim in place for the first time.** `brain reconcile --apply` folded four
-contradictions into four claims, superseding seven memories without deleting anything. Before it ran
-there were 2,097 memories, 2,097 distinct ids, and **zero supersession edges** — the whole lifecycle
-was schema and reader filters production had never once exercised. `brain lint` now reports no
-contradictions on this project.
+**The vault has revised claims in place for the first time, across all three projects.**
+`brain reconcile --apply` folded **97 contradictions**, superseding **142 memories** without
+deleting anything. Before it ran there were zero supersession edges anywhere — the whole lifecycle
+was schema and reader filters production had never once exercised. What remains is **10
+contradictions that derivation genuinely cannot separate**: level on authority, date and evidence,
+where telling a re-wording from a disagreement needs a reading of the text.
+
+**And 10,187 events were dated 1970.** Chasing four "misdated" memories found that 8% of this
+project's captured events carried `occurred_at = 0` beside a good `observed_at`, because every
+adapter defaults an unparseable timestamp to the epoch. That is not a missing value, it is a wrong
+one that sorts to the front of every chronological view — and, through recency tie-breaking, made
+those records the oldest side of every contradiction they joined. Fixed at the ledger boundary and
+repaired in place; **0 epoch-dated rows remain**.
 
 **Shipped since the August competitor review:** the mid-session push, a continuous decay curve with
 access-strengthening, `brain reconcile` and the fold, `brain explain`, `brain replay`,
@@ -38,13 +46,13 @@ and 3.2b's generation call.
 
 | | |
 |---|---|
-| Events captured | **142,830** across 3 projects |
+| Events captured | **143,479** across 3 projects · 0 undated |
 | Current memories | **13,246**, every one citing `event:<uuid>` |
 | Vector index | **complete** — 13,246 memories and 142,248 events; 3 remaining |
-| Vault | **15,808** notes · 450 subject pages · 20 flagged stale — 4 subject pages now carry a revision trail |
-| Consolidation | **1,933 pending** · 3 dead-lettered |
+| Vault | **13,560** notes · 450 subject pages · 20 flagged stale · **142 claims revised in place** |
+| Consolidation | **1,973 pending** · 3 dead-lettered |
 | Orientation | mean **1,115** tokens over 35 receipts, max 1,490, against a 3,000 hard cap |
-| Gates | `fmt` clean · clippy 0 errors · **120 test binaries green** — plus the LongMemEval harness, which cannot relink while the 500-instance run holds its executable open |
+| Gates | `fmt` clean · clippy 0 errors · **125 test binaries green** |
 
 ---
 
@@ -73,7 +81,7 @@ separate things (`ec30787` and `a4ce736`), so the wave is complete rather than c
 | Wave | Item | State | Evidence, or why not |
 |---|---|---|---|
 | 0.1 | Deliveries counted at receipt | **Shipped** `407d345` | An outcome dropped without recording leaves zero rows |
-| **0.2** | **Consolidation drained** | **Quota-bound** | 1,933 pending across 3 projects; 290 of 294 deferrals were plain HTTP 429 |
+| **0.2** | **Consolidation drained** | **Quota-bound** | 1,973 pending across 3 projects; 290 of 294 deferrals were plain HTTP 429 |
 | 0.3 | Queue and dead letters visible | **Shipped** `6d8c6cd` | Pending / leased / completed / dead per project, with the reason a job died |
 | **1** | **Value proved** | **Half** | Retrieval measured on all 500 — 96.0% R@5. The token-saving A/B has never been run |
 | 2.1 | `brain export` | **Shipped** `5c6eebc` | 41 MB, zero unresolved citations |
@@ -106,7 +114,9 @@ separate things (`ec30787` and `a4ce736`), so the wave is complete rather than c
 | **7.1** | **Fold a contradiction** | **Shipped** `fbc6fe5` | `brain reconcile --apply`. Live: 4 folded, 7 superseded, 0 deleted. The first supersession this system has ever performed |
 | **7.2** | **Revision trail on subject pages** | **Shipped** `fbc6fe5` | `subjects/backup.md` now opens with *"1 of these 35 claims has been revised in place, absorbing 4 earlier claims"* |
 | **7.3** | **One definition of "current"** | **Shipped** `74423db` | Eleven queries disagreed with one. `digest` said 2,101 memories, `lint` said 2,090; both now say 2,090 |
-| **1.2** | **Token-saving A/B harness** | **Built, not run** `6b07b18` | `scripts/token-ab.ps1`. Three conditions, not two — see *Known gaps* |
+| **7.4** | **Fold every project** | **Shipped** | 97 contradictions folded, 142 memories superseded across 3 projects. 10 left that derivation cannot separate |
+| **7.5** | **An undated record is not a 1970 record** | **Shipped** `1c80f87` | 10,187 events re-dated to their observation time; 0 epoch-dated rows remain. `brain lint --repair-dates` |
+| **1.2** | **Token-saving A/B harness** | **Built, quota-blocked** `6b07b18` | `scripts/token-ab.ps1`. Three conditions, not two — see *Known gaps* |
 
 ---
 
@@ -116,7 +126,7 @@ All four tiers exist. The lifecycle over them is where the remaining work is.
 
 | Tier | Ours | State |
 |---|---|---|
-| **Working** — raw observations | `events`, 142,830 captured | ✅ |
+| **Working** — raw observations | `events`, 143,479 captured, none undated | ✅ |
 | **Episodic** — session summaries | Boundary hook + `session_stopped` consolidation | ✅ shipped 8 Aug |
 | **Semantic** — facts and patterns | `Fact`, `Decision`, `Investigation`, `Preference` | ✅ |
 | **Procedural** — workflows | `Procedure`, `Task`, `Deployment`, `Checkpoint`, `Timeline` | ✅ |
@@ -156,7 +166,7 @@ and therefore still reports during exactly the outage that makes it most useful.
 
 ## The four that are not simply "done"
 
-**0.2 is quota-bound, not code-bound.** 1,933 jobs pending across three projects. The deferral path
+**0.2 is quota-bound, not code-bound.** 1,973 jobs pending across three projects. The deferral path
 works exactly as designed — no attempt consumed, nothing lost — and it finishes when quota allows.
 There is no work here to do.
 
@@ -318,17 +328,23 @@ reporting confidently and wrongly.
 
 ## Known gaps
 
-**Open findings that need a human.** `brain lint` now reports **0 contradictions** on this project —
-all four were folded — plus **4 misdated** memories and **661 of 2,090 unlinked islands** (31.6%).
+**Open findings that need a human — now ten, and they are the right ten.** `brain lint` reports
+**0 contradictions on this project** and **10 across the other two**, every one of them level on
+authority, date *and* evidence count.
 
-The daily digest surfaces the same findings across every project, where the numbers are considerably
-worse. `Ai-community-channel` carries **74 contradictions, 9 of which derivation cannot separate**,
-and **all 5,505** of its memories have never been retrieved. `brain reconcile --apply` would fold the
-65 decidable ones there too; it has not been run, because that vault is not this one and the fold is
-the operator's call per project.
+They are not disagreements about facts. They are pairs like *"Session Rate Limit Interrupted
+Research"* filed twice on the same day from the same evidence, with bodies that differ in wording.
+Deciding whether two differently-worded bodies say the same thing is a reading of the text, and that
+is exactly where derivation should stop — the alternative is a coin-flip dressed as a rule, applied
+silently and never revisited.
 
-A count alone cannot distinguish a neglected corpus from a young access counter, which is why the
-digest says so in the note rather than colouring it red.
+The misdated finding is **gone**, and it should never have been on this list: it was arithmetic, not
+a judgement. See below.
+
+Still open and honest: **661 of 2,090 unlinked islands** (31.6%) here, and **all 5,505** of
+`Ai-community-channel`'s memories never retrieved. A count alone cannot distinguish a neglected
+corpus from a young access counter, which is why the digest says so in the note rather than
+colouring it red.
 
 **The A/B design had a confound, and it would have credited the brain with someone else's saving.**
 Part 2 specified two conditions: cold and warm. But **CodeGraph also sits on `UserPromptSubmit`**,
@@ -338,12 +354,20 @@ CodeGraph's own published claim is ~35% less cost — the same order as anything
 so the two are not separable after the fact. `scripts/token-ab.ps1` now runs **three** conditions,
 and the brain's contribution is `(code − warm)`, never `(bare − warm)`.
 
-**The A/B has not been run.** Two blockers, both stated rather than worked around: headless
-`claude -p` returns **401 Invalid bearer token** from this environment, so it needs an authenticated
-terminal; and the design's own precondition says a half-consolidated brain understates the warm
-condition, with 1,933 jobs still queued. The harness itself is verified — a 15-session dry
-execution switched all three conditions, spawned every session, parsed every result, and restored
-`~/.claude/settings.json` to a byte-identical hash.
+**The A/B has not been run, and the blocker turned out to be quota — the same one holding 0.2 and
+3.2b.** The earlier diagnosis of "401, needs an authenticated terminal" was incomplete. The 401 came
+from the child inheriting `ANTHROPIC_BASE_URL` without the auth that endpoint needs; clearing the
+inherited proxy variables authenticates cleanly and then returns **429 · Weekly/Monthly Limit
+Exhausted**. So this is not a third, separate blocker: it is the provider quota, and it belongs
+beside the other two rather than in the "nothing is holding this up" column.
+
+The harness itself is verified — a 15-session execution switched all three conditions, spawned every
+session, parsed every result, and restored `~/.claude/settings.json` to a byte-identical hash. Run
+it with the proxy variables cleared:
+
+```bash
+env -u ANTHROPIC_BASE_URL -u ANTHROPIC_DEFAULT_OPUS_MODEL_NAME -u ANTHROPIC_DEFAULT_SONNET_MODEL_NAME pwsh -File scripts/token-ab.ps1 -Execute
+```
 
 **The dashboard did not hydrate in the preview pane — now with a cause and a partial fix.** Every
 panel renders its skeleton and never its data. Two separate things were found underneath, and neither
@@ -391,9 +415,9 @@ original nine-item list has shipped. Full reasoning and done-when criteria in
 | # | Work | Blocked on | Size |
 |---|---|---|---|
 | ~~1~~ | ~~**Run all 500 LongMemEval instances**~~ — **done** 9 Aug. 96.0% R@5 / 98.2% R@10 / 0.922 MRR over 23,867 sessions in 3 h 54 m | — | — |
-| 2 | **Run the token-saving A/B** — 5 tasks × **3** conditions × 3 repeats | **An authenticated terminal** (`claude -p` returns 401 here), then 0.2. The harness is built and verified | L |
+| 2 | **Run the token-saving A/B** — 5 tasks × **3** conditions × 3 repeats | **Quota**, same as the two below — headless sessions return 429 until the weekly limit resets. Harness built and verified | L |
 | 3 | **3.2b** — the synthesis generation call | **Quota**, by choice: watching the citation check refuse a *real* bad citation is the point | M |
-| 4 | **0.2** — drain the consolidation backlog | **Quota.** 1,933 pending; nothing to build | — |
+| 4 | **0.2** — drain the consolidation backlog | **Quota.** 1,973 pending; nothing to build | — |
 | ~~5~~ | ~~**Resolve the 4 contradictions**~~ — **done** `fbc6fe5`. Folded, not decided: all four were re-derivations of one claim, which is arithmetic | — | — |
 | ~~—~~ | ~~Mid-session push~~ `af81e4d` · ~~AI-first notes~~ `6a1e34f` · ~~contradiction proposals~~ `eec8925` · ~~query expansion~~ `6b431c0` · ~~scheduled reflection~~ `d4629d6` · ~~5.6 config panel~~ `10b72f8` · ~~the fold~~ `fbc6fe5` | — | — |
 
@@ -473,7 +497,35 @@ predicate now lives once, as `CURRENT_CLAIM`, and both commands say 2,090.
 
 This is the third time in this project that a defect survived because production had never exercised
 the other branch — after the half-life that was a time constant, and the session replay that reused
-a project-wide query. It is worth expecting a fourth.
+a project-wide query. **The fourth arrived the same day**, from the same thread.
+
+### Chasing four misdated memories found 10,187 misdated events
+
+`brain lint` had been reporting four memories dated 1970-01-01, filed under *"open findings that need
+a human"*. They needed no human at all: a claim rests on all its evidence, so it cannot predate the
+last piece, and the latest cited `occurred_at` is an honest floor. Arithmetic.
+
+Except the first repair returned `1970-01-01 -> 1970-01-01` and reported success. **The evidence was
+undated too.** 2,412 of this project's 29,953 events — 8% — carried `occurred_at = 0` beside a
+perfectly good `observed_at`, because every adapter defaults an unparseable timestamp to
+`UNIX_EPOCH`. Across three ledgers: **10,187 events.**
+
+The epoch is not a missing value, it is a wrong one, and wrong in the direction that does the most
+damage. It sorts to the *front* of every chronological view, so the records we know least about lead
+the timeline. And `resolve_candidates` breaks contradictions on recency — so an epoch-dated claim was
+being read as the oldest side of every disagreement it joined, which means this was quietly biasing
+the fold that had just shipped.
+
+**The first fix was wrong and the conformance suite caught it.** Putting the fallback in the adapters
+broke `assert_adapter_contract`, which requires normalisation to be a pure function of the record —
+normalise twice, get the same `occurred_at`, and `now_utc()` does not. The contract was right. The
+substitution moved to the ledger boundary, where `observed_at` is already a per-ingest value, so
+normalisation stays deterministic and the bound stays honest: a record seen at T occurred at or
+before T.
+
+Live: **10,187 events re-dated, 0 epoch-dated rows remaining**, and the four claims now carry real
+dates. `brain lint --repair-dates` does events first and claims second — the reverse order derives
+the epoch from the epoch and reports success, which is exactly what the first run did.
 
 ### Scheduled reflection shipped — and why it has no model in it
 

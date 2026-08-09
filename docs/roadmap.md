@@ -134,9 +134,10 @@ review. What remains is two measurements and two provider-quota items — no unw
 | ~~**6**~~ | ~~**Scheduled reflection**~~ — **shipped** `d4629d6` as `brain digest` + `AgentBrain.Digest`, daily. Never-retrieved share, retention distribution, contradictions, queue depth, appended to each project's vault `log.md`. **No provider call**, so it reports during exactly the outage that makes it most useful | The "maintains itself" claim. Consolidation already ran continuously; what was missing was anything that stepped back and asked whether the result was still coherent | — | — |
 | **7** | **3.2b** — the synthesis *generation* call | The last piece of the Karpathy pattern. Validator, store and rendering ship | Watching the citation check refuse a real bad citation from a live provider | M |
 | ~~**8**~~ | ~~**5.6** — the config panel~~ — **shipped** `10b72f8` (Rust) and `c75507c` (dashboard). Wave 5 complete | Every delivery defect here looked identical from a settings page, so no setting renders without the fact that decides whether it does anything. Caught two things on its first run, one of them a bug in itself | — | — |
-| **9** | **0.2** — drain the consolidation backlog | 1,933 pending across three projects | **Provider quota.** 290 of 294 deferrals were plain HTTP 429. *Nothing to build* | — |
+| **9** | **0.2** — drain the consolidation backlog | 1,973 pending across three projects | **Provider quota.** 290 of 294 deferrals were plain HTTP 429. *Nothing to build* | — |
 | ~~**10**~~ | ~~**Resolve the 4 contradictions**~~ — **done** `fbc6fe5`. Folded rather than decided: all four were re-derivations of one claim from overlapping event windows, which is arithmetic, not a judgement about truth | 7 memories superseded, 0 deleted. The first supersession this system has ever performed | — | — |
-| **11** | **Fold the other projects** | `Ai-community-channel` carries 74 contradictions, 65 of them decidable. The command exists; running it on a vault is that vault's owner's call | **You** | S |
+| ~~**11**~~ | ~~**Fold the other projects**~~ — **done**. 97 contradictions folded across three projects, 142 memories superseded, nothing deleted | 10 remain that derivation cannot separate: level on authority, date and evidence, where telling a re-wording from a disagreement is a reading of the text | — | — |
+| **12** | **Decide the last 10 contradictions** | Pairs filed twice the same day from the same evidence, differing only in wording. Whether two bodies say the same thing is not derivable | **You** | S |
 | **—** | **1 (token-saving A/B)** — harness **built** `6b07b18`, design in Part 2 | The headline this project is asked about, and the numerator is all that has ever been counted | An authenticated terminal (`claude -p` returns 401 here), then 0.2 | L |
 
 **Done when**, for the ones where it is not obvious:
@@ -289,7 +290,7 @@ cannot show it is a marketing document.
 
 1. ~~Wave 0.1 must land first~~ — **landed** (`407d345`). Measuring saved tokens with an instrument
    that counted compiled orientations rather than received ones would have overstated the numerator.
-2. **Wave 0.2 must land first.** A half-consolidated brain understates the warm condition, and 1,933
+2. **Wave 0.2 must land first.** A half-consolidated brain understates the warm condition, and 1,973
    jobs are still queued.
 3. Stop `AgentBrain.Service` during runs. Measured: with the backfill draining, a hybrid benchmark
    took over three hours for work that takes four minutes with the machine to itself. **And keep it
@@ -297,8 +298,11 @@ cannot show it is a marketing document.
    any commit is back to contending with the backfill. The first 500-instance attempt died at 2h07m
    for a related reason: `cargo` relinking the harness out from under a run started through
    `cargo test`. Run a copy pinned outside `target/`.
-4. An **authenticated terminal**. `claude -p` returns `401 Invalid bearer token` when spawned from
-   inside an agent session, so the harness cannot drive itself.
+4. **Provider quota.** `claude -p` first appears to fail with `401 Invalid bearer token` when
+   spawned from an agent session — that is the child inheriting `ANTHROPIC_BASE_URL` without the
+   auth that endpoint needs. Clear the inherited proxy variables and it authenticates, then
+   returns `429 · Weekly/Monthly Limit Exhausted`. So this is the same blocker as 0.2, not a
+   separate one, and it belongs beside it rather than in the unblocked column.
 
 ### 2.4 The harness, and what is already verified
 
@@ -364,7 +368,7 @@ never-retrieved — a policy reading that number would retire all 13,246 of them
 reason for each. The refusal is arithmetic, not caution.
 
 **One correction to the original framing, which still holds.** The brain is not *insufficiently
-intelligent*; it is *incompletely running*. 1,933 pending jobs across three projects is a throughput
+intelligent*; it is *incompletely running*. 1,973 pending jobs across three projects is a throughput
 problem. Adding autonomy on top of a queue that is not draining would make an unreliable system
 harder to diagnose.
 
@@ -591,7 +595,7 @@ holding.
 
 | Their tier | Ours |
 |---|---|
-| Working — raw observations | `events`, append-only, **142,830** captured |
+| Working — raw observations | `events`, append-only, **143,479** captured, none undated |
 | Episodic — session summaries | **Closed** — 3.3, triggered by the boundary hook and told in the prompt that it is looking at a finished episode |
 | Semantic — facts and patterns | `Fact`, `Decision`, `Investigation`, `Preference` |
 | Procedural — workflows | `Procedure`, `Task`, `Deployment`, `Checkpoint`, `Timeline` |

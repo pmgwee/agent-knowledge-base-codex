@@ -293,7 +293,16 @@ four minutes with the machine to itself, and capture resumes losslessly from its
   Ownership of a transcript is decided by the transcript's own recorded `cwd`, never by
   proximity in the directory layout. See `crates/brain-service/src/rediscover.rs` and the
   `discovery_never_crosses_a_project_boundary` test.
-- **Evidence is append-only.** Supersede; never delete or rewrite.
+- **Evidence is append-only.** Supersede; never delete or rewrite. The one exception is
+  `repair_epoch_event_dates`, which moves `occurred_at` from the epoch to `observed_at` in place —
+  justified because `occurred_at = 0` is the *absence* of an observation and `observed_at` is a fact
+  the same row already holds. Row counts cannot change and a dated event is never touched.
+- **Normalisation is a pure function of the record.** `assert_adapter_contract` normalises twice and
+  compares; anything time-dependent inside an adapter breaks it. An undated record is dated at the
+  ledger boundary, not in the adapter — that is where `observed_at` already varies per ingest.
+- **`current` means the memory's *latest* version, and that it is current.** Both halves. They were
+  indistinguishable until the first supersession, and eleven queries had only the second — see
+  `CURRENT_CLAIM` in `crates/brain-store/src/lib.rs`.
 - **Live state outranks memory.** Git, tests, and deployments are authoritative. Memory is
   evidence to verify, not instruction to follow.
 - **The context budget is a contract.** 1,000–1,500 tokens normal, 3,000 hard max, with
