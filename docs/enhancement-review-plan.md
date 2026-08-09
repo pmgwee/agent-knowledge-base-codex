@@ -105,12 +105,53 @@ mirrored sections, and this project's own `AGENTS.md`. Delete it from any projec
 equivalent and never will, because nothing can push an answer to a question not yet asked. MCP went
 back to being depth on demand, which is what it was always good at.
 
-### A10 is closed by the same commit
+### A10 — answered. Codex fires all three hooks
 
-`UserPromptSubmit` is now registered for Codex. It was withheld while Codex appeared to dispatch
-nothing, on the reasoning that registering an event a harness never fires looks exactly like a
-shipped feature that silently does not run. That premise is gone, so Codex gets mid-session
-re-orientation too. **Unverified**: whether Codex actually fires it. That is the one open question.
+Tested 19:00 with a fresh Codex Desktop session in `subscription-agent`, two prompts:
+
+| Hook | Invocations |
+|---|---|
+| `SessionStart` | 2 |
+| `UserPromptSubmit` | **4** |
+
+**Codex fires `UserPromptSubmit`.** The parity gap this document called structural throughout was
+one untested registration, and it is now registered and observed. Both harnesses receive all three
+hooks, harness-invoked, before the model reads anything.
+
+Two operational details, both from the operator and both now in the installer:
+
+- **`SessionEnd` must declare a 3-second timeout.** Codex clamps anything larger and warns
+  (`⚠ clamping SessionEnd hook timeout to 3s`). The behaviour is right — a session that is *ending*
+  cannot be kept waiting — but emitting a number the harness overrules lets the config drift from
+  what actually runs. `CODEX_SESSION_END_TIMEOUT_SECONDS = 3`.
+- **Editing a hook revokes its trust.** Codex keys `[hooks.state]` on a SHA-256, so any reinstall
+  requires re-approval at the CLI TUI. Claude Code has no equivalent gate — its hooks run from
+  `~/.claude/settings.json` with no review step, which is why that side has never needed one.
+
+### ⛔ Blocking: hook delivery is failing for **both** harnesses
+
+Found while verifying the above, and it is the top priority — everything else in this document is
+downstream of the pipe working.
+
+All six Codex hook invocations **spooled instead of delivering**. The service log carries six
+matching `hook pipe request failed / error="write hook reply"` — the service compiled each
+orientation and found the client gone before it could reply.
+
+What has been ruled out:
+
+| | |
+|---|---|
+| Codex-specific | **No.** A `--harness claude-code` probe fails identically |
+| Service down | No. Running, and restarted cleanly mid-diagnosis |
+| Stale deployment | No. All four binaries present and matching the manifest |
+| Pipe-name mismatch | No. `service.json` and `DEFAULT_PIPE_NAME` agree |
+| A timeout | No. The hook returns `{}` in ~140 ms against a 3 s budget |
+| Recent change to the pipe | No. `pipe.rs`, `hook_handler.rs` and `brain-hook/` are untouched since it last worked |
+
+Reproducible on demand: a probe at 11:08:03 UTC produced a fresh failure. The next step is
+instrumenting the hook client's error path — it fails open to `{}` and discards the reason, which is
+correct for a session start and useless for debugging. **That discarded error is the whole
+investigation**, and a `BRAIN_HOOK_DEBUG` escape hatch that prints it would have saved this session.
 
 ## How this round is verified — and the one thing that cannot be
 

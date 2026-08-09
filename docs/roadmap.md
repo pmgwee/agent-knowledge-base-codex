@@ -601,7 +601,7 @@ holding.
 |---|---|---|
 | `SessionStart` | project profile + inject | **Have** |
 | `SessionEnd` / `Stop` | summarize the session | **Have** — for the boundary, which transcripts cannot express |
-| **`UserPromptSubmit`** | capture prompts *and inject routing hints* | **Both covered.** Capture from the transcript; push shipped `af81e4d`, Claude only |
+| **`UserPromptSubmit`** | capture prompts *and inject routing hints* | **Both covered, both harnesses.** Capture from the transcript; push shipped `af81e4d`, registered for Codex in `eb67502` and observed firing |
 | `PreToolUse` | capture file access *and inject context* | Capture covered; the push is a lesser version of item 2 |
 | `PreCompact` | re-inject before compaction | **Not needed** — `SessionStart` already matches `compact` |
 | `PostToolUse` | capture tool + output | Not needed — in the transcript |

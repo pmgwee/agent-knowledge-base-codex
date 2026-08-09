@@ -47,6 +47,18 @@ const CODEX_SESSION_MATCHER: &str = "^(startup|resume|clear|compact)$";
 const CLAUDE_HOOK_TIMEOUT_SECONDS: u64 = 10;
 const CODEX_HOOK_TIMEOUT_SECONDS: u64 = 15;
 
+/// Codex's ceiling for `SessionEnd`, which it clamps rather than honours.
+///
+/// Anything larger produces `⚠ clamping SessionEnd hook timeout to 3s` on every load. The warning
+/// is harmless and the behaviour is right — a session that is *ending* cannot be kept waiting —
+/// but emitting a number the harness will silently overrule is how a config drifts away from what
+/// actually runs. Write what Codex will use.
+///
+/// It is comfortably above the hook's own `HOOK_HARD_TIMEOUT`-bounded round trip (~150 ms healthy),
+/// and `SessionEnd` carries no orientation back — it only records a boundary — so the budget is not
+/// doing the work it does at session start.
+const CODEX_SESSION_END_TIMEOUT_SECONDS: u64 = 3;
+
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct HookInstallResult {
     pub changed: bool,
@@ -479,7 +491,7 @@ fn push_codex_hook_entry(document: &mut serde_json::Value, hook_executable: &Pat
             "type": "command",
             "command": command,
             "commandWindows": command_windows,
-            "timeout": CODEX_HOOK_TIMEOUT_SECONDS
+            "timeout": CODEX_SESSION_END_TIMEOUT_SECONDS
         }]
     }));
     // Mid-session push, now that the premise for withholding it is gone.

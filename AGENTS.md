@@ -85,11 +85,9 @@ and before reading any issue tracker.
 
 ### What is still asymmetric
 
-`UserPromptSubmit` is registered for Claude and not for Codex. `CODEX_EVENTS` omits it on the
-reasoning that registering an event Codex does not fire would look like a shipped feature that
-silently never runs. **That premise has now changed**: Codex demonstrably fires hooks. Whether it
-fires this one is untested, and testing it is the one open question left on parity. Until then Codex
-orients once per session while Claude re-orients on every prompt.
+**Nothing.** `UserPromptSubmit` is registered for Codex as of `eb67502`, and Codex was observed
+firing it — two prompts in `subscription-agent` produced two `UserPromptSubmit` hook invocations.
+All three hooks now apply to both harnesses, harness-invoked, before the model reads anything.
 
 ## Registering a project
 
