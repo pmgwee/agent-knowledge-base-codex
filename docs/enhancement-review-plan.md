@@ -29,10 +29,12 @@ check whether the reasoning held.
 | **A7** | Session replay UI + inline citations | ✅ shipped | `fbb76d0`. Could not be built as designed: a session is 100 MB whole, so it pages |
 | **A8a** | Cross-claim revision — detection | ✅ shipped | `5bd4c49`. Grouping by shared evidence after two groupings failed |
 | **A8b** | Cross-claim revision — the rewrite | ✅ shipped, generation run | Both validator rules observed refusing real provider output. **⚠️ `--apply` deliberately not run** — see below |
-| **A9** | Human checkpoint on consolidation | ⚠️ open, unscheduled | Recorded as a deliberate choice, not forgotten. A8b's false merges are now the evidence for it |
+| **A9** | Human checkpoint on consolidation | ✅ shipped for merges | `2750c29`. `--review-sheet` / `--apply-reviewed`: per-pair approval, the reviewed text written verbatim, edits re-checked, stale sheets refused. **⚠️ decision-grade memories at ingest remain ungated** |
 | **A10** | Does Codex fire hooks? | ✅ settled | **Yes — all three.** The fork in the road, resolved |
 | **A11** | Orientation compile too slow for the hook budget | ✅ closed | `35ef05f`. One absent index: 42,001 ms → 34.1 ms |
 | **A12** | One slow hook starved every hook behind it | ✅ shipped | `fc4e897`. The accept loop awaited the handler, so a 6,571 ms cold-cache compile cost three sessions their orientation, not one |
+| **A13** | Consolidation ran one provider call at a time | ✅ shipped | `3b33bcd`. Three ledgers now drain concurrently, one call each. Measured **~60 → ~171 jobs/hour** |
+| **A14** | The A/B's second and third conditions measured the first | ✅ shipped | `e9b7bb7`. `Set-Condition` read the file it had just stripped. Plus shuffled order, session-id manifest, blind grading sheet |
 
 ### The Codex work, which was the fork in the road
 
@@ -529,7 +531,92 @@ position. Only the renderer is missing.
 **Shape:** a `/api/search` route shelling to `brain explain --json`, and a results view under the
 existing channel cards. Verified here: the route's values. Verified by you: that it renders.
 
-### ⚠️ A9 · A human checkpoint on consolidation — *still open, and now with evidence*
+### ✅ A13 · Consolidation made one provider call at a time — measured 60 → ~190 jobs/hour
+
+`for project in &config.projects` awaited each project, and the inner `for _ in 0..8` awaited each
+job, so three projects and eight slots produced exactly one call in flight. At ~40 s per call that
+caps the service near 90 jobs/hour — the ceiling every measurement had been landing under, with
+nothing in the code saying so.
+
+One task per project now, capped at three in flight by a semaphore, all awaited before the tick
+ends. **Awaiting is what keeps the one-call-per-ledger promise**: without it a slow project would
+still be draining when the next tick spawned a second task against the same SQLite file.
+
+| | Before | After |
+|---|---|---|
+| Drain rate | ~60 jobs/hour | **~171 jobs/hour** |
+
+Measured 1,936 → 1,893 pending over 15 minutes, 10 August. Not a clean bench: the window included
+two `cargo build --release` runs, the full test suite, and a service restart from a deploy. It is
+therefore a *floor* on the improvement, and the honest way to read it is "roughly 3x", not "exactly
+2.85x".
+
+Three is the project count, and it is a *cap* rather than "one per project" so a fourth project
+widens the backlog instead of the request rate — a quota shared with `claude -p` is not one to find
+the edge of by accident. Backoff on `ProviderUnavailable` stays per-project; a shared one would make
+the cap behave like the serial loop again the moment any single project got throttled.
+
+The test asserts both directions because they pull against each other: some pair of calls must
+overlap *across* projects, and no pair may overlap *within* one. It fails against the serial
+arrangement on the first.
+
+### ✅ A14 · The A/B harness was measuring one condition three times
+
+Found while implementing the review's item 2, and it would have wasted the entire run.
+
+`Set-Condition` read `$settings` — the file it had itself just stripped. With the old block order
+that is silently fatal: `bare` removes both hooks and writes the result, `code` then filters *that*
+and keeps nothing, `warm` keeps nothing again. All forty-five sessions would have run with no hooks,
+the report would have shown three near-identical columns, and the honest reading of that is *"the
+brain saves nothing"* — a conclusion about the harness wearing the costume of a conclusion about the
+system.
+
+Every condition is now derived from the pristine backup, asserted off disk before each condition's
+first run, and `-SelfTest` applies the conditions in several orders against a throwaway fixture.
+Against the old version that self-test reports **seven failures** naming the exact hooks that went
+missing. It also checks that an unrelated third-party hook survives, since stripping someone else's
+hook would be a worse bug than the one it was written for.
+
+Three further changes from the review:
+
+- **Order is shuffled** as one flat list with a recorded seed, so condition and position are
+  independent. `warm` no longer always runs last, which was the direction that flattered the result.
+- **Every run gets an explicit `--session-id`**, all forty-five written to `sessions.json`. The
+  reason is *not* backlog growth: measured against this project's ledger a session's median is ~15
+  events, so the whole matrix is about three consolidation jobs, and the earlier note claiming
+  otherwise was wrong by two orders of magnitude. It is that a re-run would otherwise score against
+  a brain that had consolidated this benchmark's own answers.
+- **Blind grading** — `grading-sheet.csv` and `grading-key.csv` are written separately, answers
+  reshuffled, condition stripped. Nobody grades a column labelled `warm` the way they grade one
+  labelled `bare`, and the failure this exists to catch — a warm session answering confidently from
+  a stale memory and stopping early — *wins* on tokens.
+
+### ✅ A9 · A human checkpoint — shipped for merges, still open at ingest
+
+`--apply` approved a whole run: reading thirteen proposals and agreeing with eleven meant writing
+all thirteen or none. `merge_candidates` has named that gap in its own doc comment since it was
+written.
+
+`brain revise --review-sheet <path>` writes the proposals as JSON, one item each, with a `decision`
+field. `brain revise --apply-reviewed <path>` writes only what a human marked `approve`. Three
+properties, and it is worthless without any one:
+
+| Property | Why |
+|---|---|
+| **No provider call at apply time** | `apply_reviewed` is not passed one, so there is no path by which a second draft reaches the ledger. What was reviewed is what is written |
+| **An edit is re-checked, not trusted** | A reviewer may rewrite the claim — that is the point — but the text goes back through `validate_merge` against the live pair. A human may fix a sentence; a human may not cite evidence the pair does not carry |
+| **A stale sheet is refused per item** | Review is asynchronous *by design*, so consolidation may supersede one side while the sheet sits unread. Applying then would revive a retired claim as half of a current one |
+
+**The third did not work when first written**, and the reason is worth keeping: `current_memory`
+returns the memory's latest *version* and nothing more — a `Superseded` version just as readily as a
+current one. That is exactly the half-predicate `CURRENT_CLAIM` warns about, sitting behind a
+function called `current_memory`. The status check is the other half, and the test fails without it.
+
+**Still open: decision-grade memories at ingest.** Consolidation still writes them unattended. This
+half gates the *rewrite* path, which is where A8b's false merges came from; it does not gate the
+200-event batches that produce the claims in the first place.
+
+### ⚠️ A9's original framing — *the argument, kept*
 
 Karpathy stays involved on every ingest. We batch 200 events to a provider unattended, and the three
 dead-lettered jobs are that gap showing. Reviewing all of it is not realistic; reviewing **decisions**
