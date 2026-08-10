@@ -215,6 +215,24 @@ enum Command {
     /// Karpathy's Ingest operation — "a single source might touch 10–15 wiki pages" — is the one
     /// this system does not perform. Detection is derived; the rewrite is a judgement and stays
     /// yours. Reports and stops.
+    /// Rule on memories consolidation wrote but nothing has read yet — A9's ingest checkpoint.
+    ///
+    /// Only populated for kinds listed in the service config's `review.gated_kinds`. Gated
+    /// memories land as `proposed`, which keeps them out of the orientation, out of `search` and
+    /// out of the projection until approved.
+    Review {
+        #[arg(long)]
+        project: String,
+        /// Make this memory current. It becomes visible to everything that reads the brain.
+        #[arg(long)]
+        approve: Option<uuid::Uuid>,
+        /// Mark this memory invalid. It is kept, not deleted — the ledger records that someone
+        /// looked and said no.
+        #[arg(long)]
+        reject: Option<uuid::Uuid>,
+        #[arg(long)]
+        json: bool,
+    },
     Revise {
         #[arg(long)]
         project: String,
@@ -1377,6 +1395,47 @@ fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {
                     print!("{}", brain_cli::render_reconcile(&report));
+                }
+            }
+        }
+        Command::Review {
+            project,
+            approve,
+            reject,
+            json,
+        } => {
+            anyhow::ensure!(
+                !(approve.is_some() && reject.is_some()),
+                "--approve and --reject are opposite rulings; pass one"
+            );
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project_config = config.project(Some(project_id))?;
+            let mut ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+            let now = time::OffsetDateTime::now_utc();
+            let mut report = brain_cli::ReviewReport::default();
+            if let Some(id) = approve {
+                brain_cli::rule_on_memory(&mut ledger, id, true, now)?;
+                report.approved = 1;
+            }
+            if let Some(id) = reject {
+                brain_cli::rule_on_memory(&mut ledger, id, false, now)?;
+                report.rejected = 1;
+            }
+            report.pending = brain_cli::pending_reviews(&ledger)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", brain_cli::render_review(&report));
+                // Silence here would read as "nothing to review" when the truth is "nothing is
+                // gated", and those are opposite states: the first means the queue is drained, the
+                // second means no queue exists.
+                if config.review.gated_kinds.is_empty() {
+                    println!(
+                        "\n  No kinds are gated, so nothing will ever appear here. Set\n  \
+                         review.gated_kinds in {} — \"decision\" is the kind worth the friction.",
+                        ServiceLaunchConfig::default_path(&brain_home).display()
+                    );
                 }
             }
         }

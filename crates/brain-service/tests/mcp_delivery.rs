@@ -34,6 +34,7 @@ fn service_with_project() -> (
         schema_version: 2,
         pipe_name: "test-pipe".to_owned(),
         consolidation: None,
+        review: brain_service::ReviewGateConfig::default(),
         projects: vec![ServiceProjectConfig {
             project_root: identity.root.clone(),
             project_id: identity.project_id,

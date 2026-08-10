@@ -83,6 +83,7 @@ fn provider_unavailable(error: &anyhow::Error) -> bool {
 pub struct ConsolidationWorker {
     worker_id: String,
     lease_duration: time::Duration,
+    review: crate::ReviewGateConfig,
 }
 
 impl ConsolidationWorker {
@@ -90,7 +91,18 @@ impl ConsolidationWorker {
         Self {
             worker_id: worker_id.into(),
             lease_duration,
+            review: crate::ReviewGateConfig::default(),
         }
+    }
+
+    /// Hold the configured memory kinds at `Proposed` until a person approves them.
+    ///
+    /// A builder rather than a `new` parameter so the ungated worker stays the one-liner it is in
+    /// every test — the gate is the exception, and a constructor that forced every caller to say
+    /// "no gate" would spread A9 across files that have nothing to do with it.
+    pub fn with_review_gate(mut self, review: crate::ReviewGateConfig) -> Self {
+        self.review = review;
+        self
     }
 
     pub async fn run_once(
@@ -139,7 +151,30 @@ impl ConsolidationWorker {
                 "provider proposals rejected during validation"
             );
         }
-        let proposed = validated.accepted;
+        let mut proposed = validated.accepted;
+        // A9's ingest half. `validate_proposed_batch` stamps everything `Current`, because its job
+        // is form and it has no opinion about who should see the result. A gated kind is written
+        // `Proposed` instead, which fails `CURRENT_CLAIM` — so the orientation, `search` and the
+        // markdown projection all skip it until `brain review --approve` appends a current version.
+        //
+        // Deliberately *after* validation, not instead of it: a proposal that cannot be derived
+        // from its evidence is still a failure, and putting it in front of a person as though the
+        // only open question were whether to agree with it would be the wrong question.
+        let mut gated = 0_usize;
+        for memory in &mut proposed {
+            if self.review.gates(&memory.kind) {
+                memory.status = brain_domain::MemoryStatus::Proposed;
+                gated += 1;
+            }
+        }
+        if gated > 0 {
+            tracing::info!(
+                job = %job.id,
+                gated,
+                total = proposed.len(),
+                "memories held for review; they are invisible to retrieval until approved"
+            );
+        }
         for memory in &proposed {
             if let Err(error) = ledger.append_memory(memory) {
                 return self.fail(ledger, &job, &format!("{error:#}"), now);
@@ -208,10 +243,19 @@ pub async fn run_configured_consolidation_with_pressure(
             max_retries,
         })?),
     };
-    let worker = std::sync::Arc::new(ConsolidationWorker::new(
-        format!("service-{}", std::process::id()),
-        time::Duration::minutes(2),
-    ));
+    let worker = std::sync::Arc::new(
+        ConsolidationWorker::new(
+            format!("service-{}", std::process::id()),
+            time::Duration::minutes(2),
+        )
+        .with_review_gate(config.review.clone()),
+    );
+    if !config.review.gated_kinds.is_empty() {
+        tracing::info!(
+            gated = ?config.review.gated_kinds,
+            "review gate active; these kinds land as proposed and stay out of retrieval until approved"
+        );
+    }
     // Held across ticks, not rebuilt per tick: the cap is on calls in flight, and a per-tick
     // semaphore would reset it every two seconds.
     let permits = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_CONSOLIDATION));

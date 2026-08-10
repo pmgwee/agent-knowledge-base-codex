@@ -101,6 +101,25 @@ pub enum MemoryStatus {
 }
 
 impl MemoryStatus {
+    /// Whether a claim in this state may be served to anything that reads the brain.
+    ///
+    /// **An allowlist, deliberately.** Three read paths carried the same denylist — "not `invalid`
+    /// and not `superseded`" — in `current_project_memories`, `current_preferences` and
+    /// `resolve_memory_set`. That is fine only while every status is one of three, and it fails
+    /// open the moment a fourth appears: A9 began writing `Proposed`, and all three promptly served
+    /// memories no human had approved, including into the session-start orientation. The gate would
+    /// have been a gate in name only, and nothing about it would have looked wrong.
+    ///
+    /// This is the same lesson as `CURRENT_CLAIM` — a predicate with a missing half reads as
+    /// working code — so the definition lives here once rather than in each caller.
+    ///
+    /// `Conflict` is readable on purpose. It marks a claim that disagrees with another, not one
+    /// that is wrong, and the retrieval layer already weights it below a clean claim rather than
+    /// hiding it. Suppressing a contradiction would leave a reader confidently holding one side.
+    pub const fn is_readable(&self) -> bool {
+        matches!(self, Self::Current | Self::Conflict)
+    }
+
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Proposed => "proposed",

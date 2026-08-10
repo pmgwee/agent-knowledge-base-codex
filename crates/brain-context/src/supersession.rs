@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
-use brain_domain::{MemoryRecord, MemoryScope, MemoryStatus, ProjectId};
+use brain_domain::{MemoryRecord, MemoryScope, ProjectId};
 
 use crate::authority_rank;
 
@@ -58,10 +58,7 @@ pub fn resolve_candidates(
         .filter_map(|record| {
             let valid = record.valid_from <= as_of
                 && record.valid_to.is_none_or(|valid_to| as_of < valid_to)
-                && !matches!(
-                    record.status,
-                    MemoryStatus::Invalid | MemoryStatus::Superseded
-                );
+                && record.status.is_readable();
             if valid {
                 Some(record)
             } else {

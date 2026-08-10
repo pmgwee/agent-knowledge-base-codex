@@ -23,7 +23,8 @@ pub use brain_context::{
 };
 pub use capture::{CaptureBinding, CaptureSupervisor};
 pub use config::{
-    CaptureServiceConfig, ConsolidationProviderConfig, ServiceLaunchConfig, ServiceProjectConfig,
+    CaptureServiceConfig, ConsolidationProviderConfig, ReviewGateConfig, ServiceLaunchConfig,
+    ServiceProjectConfig,
 };
 pub use consolidation::{ConsolidationCrashPoint, ConsolidationWorker, WorkerOutcome};
 pub use consolidation::{run_configured_consolidation, run_configured_consolidation_with_pressure};

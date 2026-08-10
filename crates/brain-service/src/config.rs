@@ -42,7 +42,37 @@ pub struct ServiceLaunchConfig {
     pub pipe_name: String,
     #[serde(default)]
     pub consolidation: Option<ConsolidationProviderConfig>,
+    #[serde(default)]
+    pub review: ReviewGateConfig,
     pub projects: Vec<ServiceProjectConfig>,
+}
+
+/// Which consolidated memory kinds a person must approve before anything reads them.
+///
+/// **A9's ingest half.** A memory written `Proposed` fails `CURRENT_CLAIM`, so it is invisible to
+/// the orientation, to `search`, and to the markdown projection until somebody approves it. The
+/// mechanism already existed in the model and nothing had ever written it.
+///
+/// **Empty by default, and that default is a position rather than caution.** Gating a kind means
+/// the brain stops telling agents about it until a human gets to it, and a review queue nobody
+/// drains is a brain that forgets on purpose. `decision` is the kind worth the friction — 22% of
+/// memories, the ones an orientation leans on hardest, and the ones whose falsehood is most
+/// expensive — but turning it on is a commitment to actually reviewing, so it is the operator's
+/// call and not a default.
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct ReviewGateConfig {
+    /// Memory kinds held at `Proposed` until reviewed, by their serialized name (`"decision"`).
+    #[serde(default)]
+    pub gated_kinds: Vec<String>,
+}
+
+impl ReviewGateConfig {
+    pub fn gates(&self, kind: &brain_domain::MemoryKind) -> bool {
+        let name = kind.as_str();
+        self.gated_kinds
+            .iter()
+            .any(|gated| gated.eq_ignore_ascii_case(name))
+    }
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -80,6 +110,7 @@ impl ServiceLaunchConfig {
             schema_version: SERVICE_CONFIG_SCHEMA_VERSION,
             pipe_name: pipe_name.into(),
             consolidation: None,
+            review: ReviewGateConfig::default(),
             projects: Vec::new(),
         }
     }
@@ -105,6 +136,7 @@ impl ServiceLaunchConfig {
                 schema_version: SERVICE_CONFIG_SCHEMA_VERSION,
                 pipe_name: legacy.pipe_name,
                 consolidation: None,
+                review: ReviewGateConfig::default(),
                 projects: vec![ServiceProjectConfig {
                     project_root: legacy.project_root,
                     project_id: legacy.project_id,

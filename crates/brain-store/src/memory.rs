@@ -348,6 +348,42 @@ impl EventLedger {
     /// status filter, the tombstone filter and the `projection_path` ordering are exactly as they
     /// were — a memory whose newest version is `Superseded` or `Invalid` is still excluded, which is
     /// deliberately *not* the same predicate as [`crate::CURRENT_CLAIM`].
+    /// Memories whose latest version is `proposed` — A9's review queue.
+    ///
+    /// Ids only, deliberately. The caller hydrates each through `current_memory`, which is the same
+    /// path `revise` and `forget` use and is already tested; a second full-hydration query would be
+    /// a second place for "latest version" to drift from what every other read means by it.
+    ///
+    /// Withdrawn memories are excluded here rather than at the caller, for the reason
+    /// `current_project_memories` gives at length: a read path that forgets is a read path that
+    /// resurrects something its author removed.
+    pub fn proposed_memory_ids(&self) -> Result<Vec<uuid::Uuid>> {
+        let withdrawn = self.tombstoned_ids()?;
+        let project = self.project_scope.0.to_string();
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT v.memory_id
+            FROM memory_versions v
+            JOIN memory_records r ON r.memory_id = v.memory_id
+            WHERE r.project_id = ?1
+              AND v.status = 'proposed'
+              AND v.version_number = (
+                SELECT MAX(w.version_number) FROM memory_versions w WHERE w.memory_id = v.memory_id
+              )
+            ORDER BY v.recorded_at_ns
+            "#,
+        )?;
+        let rows = statement.query_map([&project], |row| row.get::<_, String>(0))?;
+        let mut ids = Vec::new();
+        for row in rows {
+            let id = uuid::Uuid::parse_str(&row?)?;
+            if !withdrawn.contains(&id) {
+                ids.push(id);
+            }
+        }
+        Ok(ids)
+    }
+
     pub fn current_project_memories(&self) -> Result<Vec<MemoryRecord>> {
         // Withdrawn memories are filtered here rather than at each caller, because this is the
         // one query the projection and the export both go through. A read path that forgot would
@@ -436,10 +472,7 @@ impl EventLedger {
                 continue;
             }
             let mut memory = raw.parse_without_edges(memory_id, self.project_scope)?;
-            if matches!(
-                memory.status,
-                MemoryStatus::Invalid | MemoryStatus::Superseded
-            ) {
+            if !memory.status.is_readable() {
                 continue;
             }
             memory.evidence_ids = evidence
@@ -603,10 +636,7 @@ impl GlobalPreferenceStore {
         let mut preferences = Vec::with_capacity(ids.len());
         for id in ids {
             if let Some(preference) = self.versions(id)?.pop()
-                && !matches!(
-                    preference.status,
-                    MemoryStatus::Invalid | MemoryStatus::Superseded
-                )
+                && preference.status.is_readable()
             {
                 preferences.push(preference);
             }

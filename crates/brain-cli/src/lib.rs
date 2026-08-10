@@ -20,6 +20,7 @@ mod reconcile;
 mod register;
 mod remember;
 mod replay;
+mod review;
 mod revise;
 mod service;
 mod status;
@@ -79,6 +80,10 @@ pub use replay::{
     DEFAULT_PAGE as REPLAY_DEFAULT_PAGE, ReplayEvent, ReplayPage, ReplaySession, ReplayTurn,
     event as replay_event, page as replay_page, render_page as render_replay_page,
     sessions as replay_sessions,
+};
+pub use review::{
+    PendingMemory, ReviewReport, pending as pending_reviews, render as render_review,
+    rule as rule_on_memory,
 };
 pub use revise::{
     MergeOutcome, MergeReport, ReviewItem, ReviewSheet, RevisionCandidate, RevisionReport,
