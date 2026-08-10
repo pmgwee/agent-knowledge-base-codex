@@ -32,6 +32,7 @@ check whether the reasoning held.
 | **A9** | Human checkpoint on consolidation | ⚠️ open, unscheduled | Recorded as a deliberate choice, not forgotten. A8b's false merges are now the evidence for it |
 | **A10** | Does Codex fire hooks? | ✅ settled | **Yes — all three.** The fork in the road, resolved |
 | **A11** | Orientation compile too slow for the hook budget | ✅ closed | `35ef05f`. One absent index: 42,001 ms → 34.1 ms |
+| **A12** | One slow hook starved every hook behind it | ✅ shipped | `fc4e897`. The accept loop awaited the handler, so a 6,571 ms cold-cache compile cost three sessions their orientation, not one |
 
 ### The Codex work, which was the fork in the road
 
@@ -120,7 +121,7 @@ trust.
 | ~~A8b's generation call~~ | ✅ **run 10 August** | Both rules caught refusing real output: `LostNewEvidence` and `ForeignCitation` |
 | ~~3 dead-lettered jobs~~ | ✅ **requeued** | Through `brain jobs --retry-dead`, which did not exist — the digest reported the count and nothing could act on it |
 | ~~3.2b subject-page prose~~ | ✅ **shipped** | `brain synthesize`. 63 pages carry cited prose, ⚠️ 93 remain |
-| Consolidation backlog | ⚠️ **draining** | 2,191 → ~2,100. Measured ~62 jobs/hour, ETA ~34 h. Unattended |
+| Consolidation backlog | ⚠️ **draining, and the ETA was wrong** | 2,191 → 1,980. ~60 jobs/hour holds, but that is 34 h of *quota-available uptime*, quoted as wall-clock — see below |
 | Token-saving A/B | ⚠️ **not run, by decision** | Never blocked on a second quota — `claude -p` reports `glm-5.2`. Blocked on its own precondition: a half-consolidated brain understates the warm condition |
 
 ### Against Karpathy's pattern — the two skips that were wrong
@@ -395,6 +396,44 @@ The regression is pinned by **plan, not duration** — `crates/brain-store/tests
 asserts the filter reaches `idx_memory_supersession_superseded` and never sweeps `memory_versions`.
 A timing assertion would be flaky on a fixture and silent on the only shape that matters.
 
+### ✅ A12 · Closed — one slow hook was costing every hook behind it
+
+A11 made the compile fast. It did not make a *slow* compile harmless, and on 10 August the service
+restarted into an empty OS file cache and produced one:
+
+```
+00:50:35 orientation compiled  open_ms=2172  live_state_ms=840  load_ms=3471  total_ms=6571
+00:50:35 WARN hook pipe request failed  error="write hook reply"   ×3
+```
+
+**Three failures, one slow request.** `pipe.rs` created the next pipe instance before serving the
+current one — so a second client could *connect* — and then `await`ed the handler in the accept
+loop, so nobody read that client's request until the first finished. Connected and served are
+different things, and from the far side of the pipe they are indistinguishable right up until
+`HOOK_HARD_TIMEOUT` expires. The queued hooks timed out having done nothing wrong; their replies
+were then written to pipes whose clients had gone, which is what `write hook reply` means.
+
+Two changes, `fc4e897`:
+
+- **Each request runs on its own task**, and the accept loop returns immediately to waiting.
+  `max_instances` goes 2 → 16, since a queue of one only ever sufficed while every request was fast.
+- **`ProjectHookHandler::warm`** makes the same two reads `from_ledger` makes — `recent_events` at
+  `ORIENTATION_EVENT_LIMIT`, then `current_project_memories` — once at startup on the blocking pool,
+  so the cold-cache cost lands on nobody's session. It deliberately does not block the pipe coming
+  up: a hook that finds no pipe gets nothing *immediately*, which is worse than one that finds a
+  slow pipe.
+
+**The test is the reason to believe the first half.** `a_slow_request_does_not_starve_the_one_behind_it`
+holds a 1,500 ms request open and gives a second one a 700 ms budget. Against the old loop it fails
+with the production error verbatim — `hook request exceeded hard timeout`. A concurrency test that
+passes both before and after pins nothing.
+
+**The second half is reasoned, not yet measured.** Post-deploy the warm-up ran in 255 / 538 / 615 ms
+and a probe compiled in 333 ms (`open_ms` 2, `load_ms` 212, against 2,172 and 3,471 cold) — but the
+OS cache was already warm from the previous process, so that probe does not isolate the warm-up's
+contribution. Only a genuine cold boot can, and the honest claim until then is that the warm-up runs
+and touches exactly the pages the hook path needs.
+
 ---
 
 ## How this round is verified — and the one thing that cannot be
@@ -578,11 +617,44 @@ drain, then run 5 × 3 × 3.
 | Item | Blocker |
 |---|---|
 | ~~A8b's generation call~~ | ✅ **Run 10 August.** Both validator rules observed refusing real provider output |
-| Token-saving A/B | **Its own precondition, not quota.** `claude -p` authenticates and reports `glm-5.2`. 2,104 consolidation jobs are still queued and a half-consolidated brain understates the warm condition; measured drain ~62/hour, ETA ~34 h |
+| Token-saving A/B | **Its own precondition, not quota.** `claude -p` authenticates and reports `glm-5.2`. 1,980 jobs still queued and a half-consolidated brain understates the warm condition. **The ETA was wrong** — see below |
 | ~~3 dead-lettered jobs~~ | ✅ **Requeued 10 August** via `brain jobs --retry-dead`, which did not exist — the digest reported the count and nothing could act on it |
 | ~~3.2b synthesis prose~~ | ✅ **Shipped 10 August.** `brain synthesize`; 63 subject pages carry prose, 93 remain |
 | ~~Codex mid-session parity~~ | ✅ **Resolved.** It was never structural: `UserPromptSubmit` is registered and observed firing four times across two Codex prompts. Nothing is invoked voluntarily any more |
 | Rendered-UI verification | The Browser pane never paints. Split above |
+
+### The backlog ETA was a rate quoted as a duration
+
+"~62 jobs/hour, so ~34 hours, unattended" was checked seven hours later and found 95 jobs drained.
+The rate was right; the sentence was wrong. **62/hour is the rate while the provider answers and the
+machine is awake**, and neither holds most of the time.
+
+| Day (UTC) | Consolidated |
+|---|---|
+| 6 Aug | 789 |
+| 7 Aug | 2,020 |
+| 8 Aug | 75 |
+| 9 Aug | 295 |
+
+9 August logged **4,554 HTTP 429s**, 300–390 per hour from 00:00 to 14:00, and the drain did almost
+nothing until quota returned; it then ran at ~60/hour for five hours until the machine slept at 18:51
+and did not resume until 00:49. So 34 h of *productive uptime* was somewhere between one day and a
+week of calendar, depending entirely on a quota nobody here can predict.
+
+Two things are worth knowing before quoting any figure like this again:
+
+- **The service only drains while the machine is on.** It is a logon-triggered task, so an overnight
+  is simply not counted, and an ETA in wall-clock hours silently assumes 24-hour uptime.
+- **The whole system makes one provider call at a time.** In `consolidation.rs` the
+  `for project in &config.projects` loop awaits each project in turn, and the inner `for _ in 0..8`
+  awaits each job in turn — so three projects and eight slots do not add up to any concurrency at
+  all. At ~40 s per call that caps the service at ~90 jobs/hour, which is exactly the ceiling the
+  measurements keep landing under. Making the projects concurrent is the available lever, and it
+  would also stop this project's 672 jobs queueing behind `subscription-agent`'s 1,255.
+
+**And the backlog is not old backfill.** The pending jobs for `agent-knowledge-base-codex` cover
+7 August through this morning — the project is 43% consolidated, the lowest of the three, and the
+unconsolidated part is the recent work an A/B question here would actually be about.
 
 ---
 
