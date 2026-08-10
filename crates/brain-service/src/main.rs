@@ -88,6 +88,15 @@ async fn main() -> anyhow::Result<()> {
     // orientation is ~130 ms of synchronous SQLite, and running it on a reactor worker would
     // let one slow session block the accept loop the decoupling just freed. The blocking pool
     // exists for exactly this.
+    // Warm the ledgers off the hook path, and do not wait for it.
+    //
+    // Blocking startup on this would trade one slow session start for a window where the pipe does
+    // not exist at all, which is worse: a hook that finds no pipe gets nothing, immediately. The
+    // pipe comes up first and the cache fills behind it, so the race is only ever lost by a session
+    // that started in the same breath as the service — and that one is no slower than it is today.
+    let warm_handler = Arc::clone(&handler);
+    tokio::task::spawn_blocking(move || warm_handler.warm());
+
     let pipe_task = tokio::spawn(async move {
         pipe.run(pipe_shutdown, move |envelope| {
             let handler = Arc::clone(&pipe_handler);

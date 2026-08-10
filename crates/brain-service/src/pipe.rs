@@ -10,6 +10,18 @@ use crate::hook_handler::HookOutcome;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 
+/// How many pipe instances may exist at once.
+///
+/// This is the number of hooks that can be *in flight* together, and it used to be 2 — one being
+/// served, one queued. That is enough only while every request is fast. It is not: the first
+/// orientation after a service restart was measured at 6,571 ms against a cold cache, and with a
+/// queue of one every other session start in that window failed too.
+///
+/// 16 is chosen against the burst this actually sees — a handful of harness windows resuming at
+/// once, each firing `SessionStart` plus `UserPromptSubmit` — not against a load figure. Instances
+/// are cheap; the cost of being one short is a session with no orientation.
+const MAX_PIPE_INSTANCES: usize = 16;
+
 pub struct HookPipeServer {
     pipe_name: String,
 }
@@ -42,8 +54,8 @@ impl HookPipeServer {
         handler: F,
     ) -> Result<()>
     where
-        F: Fn(HookEnvelope) -> Fut,
-        Fut: Future<Output = Result<HookOutcome>>,
+        F: Fn(HookEnvelope) -> Fut + Clone + Send + 'static,
+        Fut: Future<Output = Result<HookOutcome>> + Send + 'static,
     {
         if *shutdown.borrow() {
             return Ok(());
@@ -52,7 +64,7 @@ impl HookPipeServer {
         options
             .first_pipe_instance(true)
             .reject_remote_clients(true)
-            .max_instances(2);
+            .max_instances(MAX_PIPE_INSTANCES);
         let mut server = options
             .create(&self.pipe_name)
             .with_context(|| format!("create first named pipe {}", self.pipe_name))?;
@@ -74,13 +86,27 @@ impl HookPipeServer {
                     if let Err(error) = connected {
                         tracing::warn!(%error, "accept hook pipe client failed");
                     } else {
-                        // The next instance is created before serving this one, so a second
-                        // client arriving mid-request is queued rather than refused.
+                        // Each request is served on its own task, and the accept loop goes
+                        // straight back to waiting.
+                        //
+                        // Creating the next instance up front was already here, so a second client
+                        // could *connect* mid-request — but this loop then awaited the handler, so
+                        // nobody read that client's request until the first one finished. A queued
+                        // client and an unserved one are the same thing from the far side of the
+                        // pipe, and the client gives up after `HOOK_HARD_TIMEOUT`.
+                        //
+                        // That is how one slow request became three failures on 10 August: a
+                        // cold-cache `SessionStart` took 6,571 ms, and the two hooks behind it
+                        // timed out having done nothing wrong. Their replies were then written to
+                        // pipes whose clients had already gone — the `write hook reply` warnings.
                         let next = create_listener(&options, &self.pipe_name).await;
-                        if let Err(error) = handle_connected(&mut server, &handler).await {
-                            tracing::warn!(%error, "hook pipe request failed");
-                        }
-                        server = next;
+                        let mut serving = std::mem::replace(&mut server, next);
+                        let handler = handler.clone();
+                        tokio::spawn(async move {
+                            if let Err(error) = handle_connected(&mut serving, handler).await {
+                                tracing::warn!(%error, "hook pipe request failed");
+                            }
+                        });
                         continue;
                     }
                     // The accept failed, so this instance is in an unknown state. Replace it

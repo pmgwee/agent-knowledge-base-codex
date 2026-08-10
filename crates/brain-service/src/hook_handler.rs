@@ -11,6 +11,13 @@ use brain_domain::{Harness, HookEnvelope, HookReply, ProjectId, WorktreeId};
 use brain_store::{EventLedger, ProviderCacheStore};
 use sha2::Digest;
 
+/// How many recent events an orientation is compiled from.
+///
+/// Named because two places must agree on it: the compile itself, and [`ProjectHookHandler::warm`],
+/// which exists to pull exactly these pages into cache before a session start needs them. Warming a
+/// different number would warm the wrong pages and still look like it worked.
+const ORIENTATION_EVENT_LIMIT: usize = 500;
+
 #[derive(Clone, Debug)]
 pub struct HookProjectBinding {
     pub project_root: PathBuf,
@@ -136,6 +143,47 @@ impl ProjectHookHandler {
         Ok(Self { bindings: resolved })
     }
 
+    /// Read every project's ledger once, so the first session start does not pay for a cold cache.
+    ///
+    /// A restart empties the OS file cache for these databases and leaves a WAL to recover, and the
+    /// first orientation absorbs both: measured 10 August, `open` 2,172 ms and `load` 3,471 ms for
+    /// a total of 6,571 ms against a 3 s hook budget. The session that triggered it got nothing —
+    /// which is the worst possible moment to be slow, because a service restart is usually followed
+    /// within seconds by the session starts that restarted it.
+    ///
+    /// The same reads, run here, cost the same time against nobody's session. The connection is
+    /// closed straight after; what survives is the OS page cache and the recovered WAL, which is
+    /// the part that was expensive.
+    ///
+    /// Fail-open and advisory: a project that cannot be warmed is a project whose first session
+    /// start is merely as slow as it is today, so this warns and moves to the next one.
+    pub fn warm(&self) {
+        for resolved in &self.bindings {
+            let binding = &resolved.binding;
+            let started = std::time::Instant::now();
+            let warmed =
+                EventLedger::open(&binding.ledger_path, binding.project_id).and_then(|ledger| {
+                    // The same two reads `ContextCompiler::from_ledger` makes, at the same limit —
+                    // warming anything else would be warming pages the hook path does not touch.
+                    ledger.recent_events(binding.project_id, ORIENTATION_EVENT_LIMIT)?;
+                    ledger.current_project_memories()?;
+                    Ok(())
+                });
+            match warmed {
+                Ok(()) => tracing::info!(
+                    project = %binding.project_id.0,
+                    warm_ms = started.elapsed().as_millis(),
+                    "ledger warmed"
+                ),
+                Err(error) => tracing::warn!(
+                    %error,
+                    project = %binding.project_id.0,
+                    "ledger warm-up failed; the first session start pays the cold cost"
+                ),
+            }
+        }
+    }
+
     /// Compile a reply, and stage the delivery metric without recording it.
     ///
     /// The split exists because the two things are not the same event. An orientation that was
@@ -236,8 +284,9 @@ impl ProjectHookHandler {
         let opened_ms = started.elapsed().as_millis();
         let live_state = LiveState::inspect(&binding.project_root, binding.worktree_id);
         let live_ms = started.elapsed().as_millis() - opened_ms;
-        let mut compiler = ContextCompiler::from_ledger(&ledger, binding.project_id, 500)?
-            .with_live_state(live_state);
+        let mut compiler =
+            ContextCompiler::from_ledger(&ledger, binding.project_id, ORIENTATION_EVENT_LIMIT)?
+                .with_live_state(live_state);
         let loaded_ms = started.elapsed().as_millis() - opened_ms - live_ms;
         if let Some(path) = binding
             .global_preferences_path
