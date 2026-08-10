@@ -251,6 +251,237 @@ pub struct MergeReport {
     pub outcomes: Vec<MergeOutcome>,
 }
 
+/// Append the merged claim and retire both sides.
+///
+/// Shared by the per-run `--apply` path and the reviewed path, deliberately: two copies of this
+/// would be two chances to get supersession half-right, and a merge that appends the new claim
+/// without retiring the old pair leaves three claims where there were two — a defect that reads
+/// as working code until something counts them.
+fn write_merge(
+    ledger: &mut EventLedger,
+    project_id: ProjectId,
+    older: &MemoryRecord,
+    newer: &MemoryRecord,
+    validated: &brain_context::ValidatedMerge,
+    now: time::OffsetDateTime,
+) -> Result<()> {
+    // Supersede *both* sides. The merged claim replaces the pair; leaving either current would put
+    // three claims where there had been two.
+    let record = MemoryRecord {
+        id: uuid::Uuid::now_v7(),
+        version_id: uuid::Uuid::now_v7(),
+        scope: MemoryScope::Project(project_id),
+        worktree_id: newer.worktree_id,
+        task_id: None,
+        kind: newer.kind.clone(),
+        title: validated.title.clone(),
+        content: validated.content.clone(),
+        valid_from: newer.valid_from,
+        valid_to: None,
+        recorded_at: now,
+        confidence: newer.confidence.min(older.confidence),
+        // The higher of the two. A merge of a human correction and a derived claim is still a
+        // corrected claim, and demoting it would let the next derived memory on the subject
+        // outrank it.
+        authority: if authority_rank(&older.authority) >= authority_rank(&newer.authority) {
+            older.authority.clone()
+        } else {
+            newer.authority.clone()
+        },
+        evidence_ids: validated.evidence_ids.clone(),
+        supersedes: vec![older.version_id, newer.version_id],
+        status: MemoryStatus::Current,
+    };
+    ledger.append_memory(&record)?;
+    for retired in [older, newer] {
+        let mut version = retired.clone();
+        version.version_id = uuid::Uuid::now_v7();
+        version.recorded_at = now;
+        version.status = MemoryStatus::Superseded;
+        version.supersedes = Vec::new();
+        ledger.append_memory(&version)?;
+    }
+    Ok(())
+}
+
+/// One proposed merge, as a human is asked to rule on it. **A9's unit of approval.**
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ReviewItem {
+    /// Short, stable, and the only thing a reviewer has to type.
+    pub id: String,
+    pub older_id: uuid::Uuid,
+    pub newer_id: uuid::Uuid,
+    pub older_title: String,
+    pub newer_title: String,
+    /// The merged claim exactly as it will be written — editable, and re-checked if edited.
+    pub merged_title: String,
+    pub merged_content: String,
+    /// `approve`, `reject`, or empty. Anything not `approve` writes nothing.
+    #[serde(default)]
+    pub decision: String,
+    /// Free text for the reviewer. Never read by the code; it is here because a rejection whose
+    /// reason is not written down gets re-proposed next run and rejected again.
+    #[serde(default)]
+    pub note: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ReviewSheet {
+    pub project_id: uuid::Uuid,
+    pub written_at: String,
+    pub items: Vec<ReviewItem>,
+}
+
+/// Turn a `--propose` run into a sheet a human rules on, one pair at a time.
+///
+/// This is the gap the comment on [`merge_candidates`] named: approval was per-*run*, so reading
+/// thirteen proposals and agreeing with eleven meant either writing all thirteen or none. That is
+/// not a checkpoint, it is a coin toss with extra steps — and on 10 August a real GLM run produced
+/// merges that passed every mechanical rule and asserted a falsehood, because the claims they
+/// merged asserted it. No validator catches that; the rules are about form and this is about truth.
+pub fn review_sheet(
+    project_id: ProjectId,
+    report: &MergeReport,
+    now: time::OffsetDateTime,
+) -> ReviewSheet {
+    let mut items = Vec::new();
+    for outcome in &report.outcomes {
+        // Only proposals that already passed every rule. A refused one has nothing to approve, and
+        // putting it on the sheet would invite a reviewer to approve text the code will not write.
+        let (Some(title), Some(content)) = (&outcome.merged_title, &outcome.merged_content) else {
+            continue;
+        };
+        items.push(ReviewItem {
+            id: format!("M{:03}", items.len() + 1),
+            older_id: outcome.older_id,
+            newer_id: outcome.newer_id,
+            older_title: outcome.older_title.clone(),
+            newer_title: outcome.newer_title.clone(),
+            merged_title: title.clone(),
+            merged_content: content.clone(),
+            decision: String::new(),
+            note: String::new(),
+        });
+    }
+    ReviewSheet {
+        project_id: project_id.0,
+        written_at: now
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_default(),
+        items,
+    }
+}
+
+/// Apply only what a human approved, using the text they actually read.
+///
+/// Three properties, and the command is worthless without any one of them:
+///
+/// * **No provider call.** What was reviewed is what is written. Re-drafting at apply time would
+///   mean approving one paragraph and shipping another, which is the failure this exists to stop.
+/// * **An edit is re-checked, not trusted.** A reviewer may rewrite the merged claim — that is the
+///   point of a human checkpoint — but derivation still has to hold, so the edited text goes back
+///   through `validate_merge` against the live pair. A human may fix a sentence; a human may not
+///   cite evidence the pair does not carry.
+/// * **A stale sheet is refused, per item.** If either side has been superseded since the sheet was
+///   written, applying would resurrect a retired claim as one half of a current one. Evidence is
+///   append-only; that is exactly the shape of write this codebase does not allow.
+pub fn apply_reviewed(
+    ledger: &mut EventLedger,
+    project_id: ProjectId,
+    sheet: &ReviewSheet,
+    now: time::OffsetDateTime,
+) -> Result<MergeReport> {
+    let mut report = MergeReport::default();
+    for item in &sheet.items {
+        let decision = item.decision.trim().to_lowercase();
+        if decision != "approve" {
+            continue;
+        }
+        report.proposed += 1;
+        // `current_memory` is the memory's *latest version*, and nothing more — it returns a
+        // version whose status is `Superseded` just as readily as a current one. That is the exact
+        // half-predicate `CURRENT_CLAIM` exists to warn about, and here it is behind a function
+        // named `current_memory`. The status check is the other half, and without it this whole
+        // staleness guard is a comment.
+        let live = |record: Option<MemoryRecord>| {
+            record.filter(|memory| memory.status == MemoryStatus::Current)
+        };
+        let (Some(older), Some(newer)) = (
+            live(ledger.current_memory(item.older_id)?),
+            live(ledger.current_memory(item.newer_id)?),
+        ) else {
+            report.refused += 1;
+            report.outcomes.push(MergeOutcome {
+                older_id: item.older_id,
+                newer_id: item.newer_id,
+                older_title: item.older_title.clone(),
+                newer_title: item.newer_title.clone(),
+                merged_title: None,
+                merged_content: None,
+                rejected: Some(
+                    "one side is no longer current — the sheet was written before something \
+                     superseded it, and applying now would revive a retired claim"
+                        .to_owned(),
+                ),
+                applied: false,
+            });
+            continue;
+        };
+        let mut allowed: Vec<uuid::Uuid> = older
+            .evidence_ids
+            .iter()
+            .chain(newer.evidence_ids.iter())
+            .copied()
+            .collect();
+        allowed.sort_unstable();
+        allowed.dedup();
+        let proposed = brain_context::ProposedMerge {
+            title: item.merged_title.clone(),
+            content: item.merged_content.clone(),
+            evidence_ids: allowed.clone(),
+        };
+        let validated = match brain_context::validate_merge(
+            &proposed,
+            &brain_context::MergeInputs {
+                older_content: &older.content,
+                newer_content: &newer.content,
+                allowed_evidence: &allowed,
+                // Nothing is unseen at this point: the reviewer saw both sides.
+                unseen_evidence: &[],
+            },
+        ) {
+            Ok(validated) => validated,
+            Err(rejection) => {
+                report.refused += 1;
+                report.outcomes.push(MergeOutcome {
+                    older_id: item.older_id,
+                    newer_id: item.newer_id,
+                    older_title: older.title.clone(),
+                    newer_title: newer.title.clone(),
+                    merged_title: None,
+                    merged_content: None,
+                    rejected: Some(format!("approved text still fails derivation: {rejection}")),
+                    applied: false,
+                });
+                continue;
+            }
+        };
+        write_merge(ledger, project_id, &older, &newer, &validated, now)?;
+        report.applied += 1;
+        report.outcomes.push(MergeOutcome {
+            older_id: item.older_id,
+            newer_id: item.newer_id,
+            older_title: older.title.clone(),
+            newer_title: newer.title.clone(),
+            merged_title: Some(validated.title.clone()),
+            merged_content: Some(validated.content.clone()),
+            rejected: None,
+            applied: true,
+        });
+    }
+    Ok(report)
+}
+
 /// Ask a provider to merge each candidate, and let derivation decide what may be written.
 ///
 /// **`apply` is the approval, and it is per-run rather than per-pair.** A deliberate limitation
@@ -336,44 +567,7 @@ pub async fn merge_candidates(
             Ok(validated) => {
                 let mut applied = false;
                 if apply {
-                    // Supersede *both* sides. The merged claim replaces the pair; leaving either
-                    // current would put three claims where there had been two.
-                    let record = MemoryRecord {
-                        id: uuid::Uuid::now_v7(),
-                        version_id: uuid::Uuid::now_v7(),
-                        scope: MemoryScope::Project(project_id),
-                        worktree_id: newer.worktree_id,
-                        task_id: None,
-                        kind: newer.kind.clone(),
-                        title: validated.title.clone(),
-                        content: validated.content.clone(),
-                        valid_from: newer.valid_from,
-                        valid_to: None,
-                        recorded_at: now,
-                        confidence: newer.confidence.min(older.confidence),
-                        // The higher of the two. A merge of a human correction and a derived claim
-                        // is still a corrected claim, and demoting it would let the next derived
-                        // memory on the subject outrank it.
-                        authority: if authority_rank(&older.authority)
-                            >= authority_rank(&newer.authority)
-                        {
-                            older.authority.clone()
-                        } else {
-                            newer.authority.clone()
-                        },
-                        evidence_ids: validated.evidence_ids.clone(),
-                        supersedes: vec![older.version_id, newer.version_id],
-                        status: MemoryStatus::Current,
-                    };
-                    ledger.append_memory(&record)?;
-                    for retired in [&older, &newer] {
-                        let mut version = retired.clone();
-                        version.version_id = uuid::Uuid::now_v7();
-                        version.recorded_at = now;
-                        version.status = MemoryStatus::Superseded;
-                        version.supersedes = Vec::new();
-                        ledger.append_memory(&version)?;
-                    }
+                    write_merge(ledger, project_id, &older, &newer, &validated, now)?;
                     applied = true;
                     report.applied += 1;
                 }

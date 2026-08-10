@@ -81,8 +81,9 @@ pub use replay::{
     sessions as replay_sessions,
 };
 pub use revise::{
-    MergeOutcome, MergeReport, RevisionCandidate, RevisionReport, merge_candidates,
-    propose_revisions, render as render_revisions, render_merges,
+    MergeOutcome, MergeReport, ReviewItem, ReviewSheet, RevisionCandidate, RevisionReport,
+    apply_reviewed, merge_candidates, propose_revisions, render as render_revisions, render_merges,
+    review_sheet,
 };
 pub use service::{
     ServiceInstallOptions, ServiceInstallReport, ServiceStatusReport, ServiceTaskStatus,

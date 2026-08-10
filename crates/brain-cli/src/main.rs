@@ -223,8 +223,20 @@ enum Command {
         #[arg(long)]
         propose: bool,
         /// Write the proposals that pass every rule, superseding both sides. Requires --propose.
+        ///
+        /// Approval here is per *run*, not per pair — agreeing with eleven of thirteen still writes
+        /// all thirteen. Prefer --review-sheet.
         #[arg(long)]
         apply: bool,
+        /// Write the proposals to a JSON sheet for per-pair human approval, instead of applying
+        /// them. Requires --propose. Mark each item's `decision` as approve or reject, then pass
+        /// the file back with --apply-reviewed.
+        #[arg(long)]
+        review_sheet: Option<std::path::PathBuf>,
+        /// Apply only the items a human marked `approve` in a sheet, using the text they read.
+        /// Calls no provider, so nothing is re-drafted between review and write.
+        #[arg(long)]
+        apply_reviewed: Option<std::path::PathBuf>,
         /// How many candidates to draft in one run. Small on purpose — these cost a provider call
         /// each, and thirteen proposals is more than anyone reviews carefully in one sitting.
         #[arg(long, default_value = "5")]
@@ -1373,6 +1385,8 @@ fn main() -> Result<()> {
             all,
             propose,
             apply,
+            review_sheet,
+            apply_reviewed,
             limit,
             json,
         } => {
@@ -1380,6 +1394,38 @@ fn main() -> Result<()> {
             let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
             let project_config = config.project(Some(project_id))?;
             let mut ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
+
+            // The reviewed path writes without proposing anything: the proposals already exist, a
+            // human has ruled on them, and re-drafting would mean applying text nobody approved.
+            if let Some(path) = apply_reviewed {
+                anyhow::ensure!(
+                    !apply && review_sheet.is_none(),
+                    "--apply-reviewed is the approval; combining it with --apply or --review-sheet \
+                     asks for two different write paths in one run"
+                );
+                let sheet: brain_cli::ReviewSheet =
+                    serde_json::from_str(&std::fs::read_to_string(&path)?)
+                        .with_context(|| format!("read review sheet {}", path.display()))?;
+                anyhow::ensure!(
+                    sheet.project_id == project_id.0,
+                    "this sheet was written for project {}, not {}",
+                    sheet.project_id,
+                    project_id.0
+                );
+                let applied = brain_cli::apply_reviewed(
+                    &mut ledger,
+                    project_id,
+                    &sheet,
+                    time::OffsetDateTime::now_utc(),
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&applied)?);
+                } else {
+                    print!("{}", brain_cli::render_merges(&applied));
+                }
+                return Ok(());
+            }
+
             let report = brain_cli::propose_revisions(&ledger, project_id, all.then_some(0.0))?;
             if !propose {
                 anyhow::ensure!(
@@ -1428,6 +1474,21 @@ fn main() -> Result<()> {
                     apply,
                     time::OffsetDateTime::now_utc(),
                 ))?;
+            if let Some(path) = review_sheet {
+                let now = time::OffsetDateTime::now_utc();
+                let sheet = brain_cli::review_sheet(project_id, &merged, now);
+                let items = sheet.items.len();
+                std::fs::write(&path, serde_json::to_string_pretty(&sheet)?)
+                    .with_context(|| format!("write review sheet {}", path.display()))?;
+                println!(
+                    "  {items} proposal(s) written to {}\n\n  \
+                     Set each item's \"decision\" to approve or reject, then:\n    \
+                     brain revise --project {project} --apply-reviewed {}\n",
+                    path.display(),
+                    path.display()
+                );
+                return Ok(());
+            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&merged)?);
             } else {

@@ -413,3 +413,142 @@ async fn an_unsound_proposal_is_refused_with_its_reason_and_writes_nothing() {
         "a refused merge leaves the pair untouched"
     );
 }
+
+// --- A9: the human checkpoint -------------------------------------------------------------------
+//
+// `--apply` approves a whole run. Agreeing with eleven proposals out of thirteen still writes all
+// thirteen, which is not a checkpoint. These pin the per-pair path, and specifically the three ways
+// it could be a checkpoint in name only: applying text nobody read, trusting an edit, and writing
+// against a pair that has moved on since the sheet was written.
+
+/// A sheet built from a proposal run, with every item approved.
+async fn approved_sheet(
+    ledger: &mut EventLedger,
+    project: ProjectId,
+    title: &str,
+) -> brain_cli::ReviewSheet {
+    let found = candidates(ledger, project);
+    let evidence: Vec<String> = ledger
+        .current_memory(found[0].newer_id)
+        .expect("newer")
+        .expect("present")
+        .evidence_ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect();
+    let body = format!(
+        r#"{{"title":"{title}","content":"Short.","evidence_ids":{}}}"#,
+        serde_json::to_string(&evidence).expect("json")
+    );
+    let proposed =
+        brain_cli::merge_candidates(ledger, project, &Stub(body), &found, 10, false, day(20))
+            .await
+            .expect("propose");
+    assert_eq!(proposed.applied, 0, "proposing must write nothing");
+    let mut sheet = brain_cli::review_sheet(project, &proposed, day(20));
+    for item in &mut sheet.items {
+        item.decision = "approve".to_owned();
+    }
+    sheet
+}
+
+#[tokio::test]
+async fn only_the_items_a_human_approved_are_written() {
+    let (mut ledger, project) = fixture();
+    let mut sheet = approved_sheet(&mut ledger, project, "Hooks fire on the CLI only").await;
+    assert_eq!(sheet.items.len(), 1);
+    sheet.items[0].decision = "reject".to_owned();
+
+    let report = brain_cli::apply_reviewed(&mut ledger, project, &sheet, day(21)).expect("apply");
+    assert_eq!(report.applied, 0);
+    assert_eq!(
+        ledger.current_project_memories().expect("after").len(),
+        2,
+        "a rejected merge leaves both claims exactly where they were"
+    );
+
+    sheet.items[0].decision = "approve".to_owned();
+    let report = brain_cli::apply_reviewed(&mut ledger, project, &sheet, day(21)).expect("apply");
+    assert_eq!(report.applied, 1);
+    let current = ledger.current_project_memories().expect("after");
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0].title, "Hooks fire on the CLI only");
+}
+
+#[tokio::test]
+async fn the_text_written_is_the_text_that_was_reviewed() {
+    // No provider is passed to `apply_reviewed` at all, which is the guarantee: there is no code
+    // path by which a second draft could reach the ledger. A reviewer may also edit the claim —
+    // that is the point of a human checkpoint — and the edit is what lands.
+    let (mut ledger, project) = fixture();
+    let mut sheet = approved_sheet(&mut ledger, project, "Draft the reviewer disliked").await;
+    sheet.items[0].merged_title = "What the human actually wrote".to_owned();
+    sheet.items[0].merged_content = "Corrected by hand.".to_owned();
+
+    let report = brain_cli::apply_reviewed(&mut ledger, project, &sheet, day(21)).expect("apply");
+    assert_eq!(report.applied, 1);
+    let current = ledger.current_project_memories().expect("after");
+    assert_eq!(current[0].title, "What the human actually wrote");
+    assert_eq!(current[0].content, "Corrected by hand.");
+}
+
+#[tokio::test]
+async fn an_edit_still_has_to_survive_derivation() {
+    // A human may fix a sentence. A human may not cite evidence the pair does not carry — that
+    // would let the checkpoint launder an unsupported claim, which is worse than no checkpoint,
+    // because everything downstream treats a merged memory as derived and checked.
+    let (mut ledger, project) = fixture();
+    let mut sheet = approved_sheet(&mut ledger, project, "Fine").await;
+    sheet.items[0].merged_content = String::new();
+
+    let report = brain_cli::apply_reviewed(&mut ledger, project, &sheet, day(21)).expect("apply");
+    assert_eq!(report.applied, 0);
+    assert_eq!(report.refused, 1);
+    assert!(
+        report.outcomes[0]
+            .rejected
+            .as_deref()
+            .unwrap_or_default()
+            .contains("still fails derivation"),
+        "the refusal must say the approved text was the problem, not the proposal"
+    );
+    assert_eq!(
+        ledger.current_project_memories().expect("after").len(),
+        2,
+        "a refused edit writes nothing"
+    );
+}
+
+#[tokio::test]
+async fn a_sheet_written_before_a_supersession_is_refused() {
+    // The stale-sheet case. Review is asynchronous by design — that is the whole feature — so
+    // between writing a sheet and approving it, consolidation may have superseded one side.
+    // Applying then would resurrect a retired claim as half of a current one, against an
+    // append-only ledger whose entire contract is that supersession is the only way back.
+    let (mut ledger, project) = fixture();
+    let sheet = approved_sheet(&mut ledger, project, "Hooks fire on the CLI only").await;
+
+    // Something else retires the newer side while the sheet sits unreviewed.
+    let newer = ledger
+        .current_memory(sheet.items[0].newer_id)
+        .expect("newer")
+        .expect("present");
+    let mut retired = newer.clone();
+    retired.version_id = uuid::Uuid::now_v7();
+    retired.recorded_at = day(20);
+    retired.status = MemoryStatus::Superseded;
+    retired.supersedes = Vec::new();
+    ledger.append_memory(&retired).expect("retire");
+
+    let report = brain_cli::apply_reviewed(&mut ledger, project, &sheet, day(21)).expect("apply");
+    assert_eq!(report.applied, 0);
+    assert_eq!(report.refused, 1);
+    assert!(
+        report.outcomes[0]
+            .rejected
+            .as_deref()
+            .unwrap_or_default()
+            .contains("no longer current"),
+        "the refusal must name staleness, so the reviewer knows to re-propose rather than retry"
+    );
+}
