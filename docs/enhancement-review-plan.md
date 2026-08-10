@@ -16,7 +16,7 @@ check whether the reasoning held.
 **✅ shipped · ⚠️ open · ~~struck through~~ = the item is resolved and no longer applies.**
 
 **Everything still open is gated on one thing:** this project's consolidation queue reaching zero,
-~7 hours of uptime away. Nothing that can be built without spending quota is waiting on it — see
+~10 hours of uptime away. Nothing that can be built without spending quota is waiting on it — see
 [What is left, in the order it has to happen](#what-is-left-in-the-order-it-has-to-happen).
 
 ### The original seven, plus what the round added
@@ -574,8 +574,19 @@ it is now ~7 hours of uptime, and `subscription-agent`'s much larger queue no lo
 number at all. Zero dead letters throughout.
 
 **Uptime, not wall-clock.** The service is a logon-triggered task and does not run while the machine
-sleeps — on 9 August that cost six hours. Seven hours of drain is today if the machine stays on and
-tomorrow if it does not.
+sleeps — on 9 August that cost six hours. The drain is today if the machine stays on and tomorrow if
+it does not.
+
+**And `pending` is not the remaining work.** Jobs are chunked from uncovered evidence one per tick
+per project (`enqueue_event_threshold_job(1)`), so the queue is topped up as it drains. Measured at
+03:04 UTC, this project had **633 pending *plus* 17,447 uncovered events** — about 88 jobs not yet
+created — so ~721 in truth, or **~10 hours** rather than the ~7 the pending count alone suggests.
+`subscription-agent` has 1,181 pending and nothing uncovered; `Ai-community-channel` is at zero on
+both and is the first project fully consolidated.
+
+The corollary is worth planning around: **working in a project extends its own backlog.** A long
+session here adds events, which become jobs, which the drain then has to consume. The queue empties
+fastest when the machine is on and nobody is using it.
 
 Note that when a project reaches zero its permit frees but nothing speeds up, because the binding
 constraint is the per-project sequential drain rather than the cap of three. That is the design, not
