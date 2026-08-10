@@ -15,7 +15,11 @@ check whether the reasoning held.
 
 **✅ shipped · ⚠️ open · ~~struck through~~ = the item is resolved and no longer applies.**
 
-### The seven from the original plan, plus what the round added
+**Everything still open is gated on one thing:** this project's consolidation queue reaching zero,
+~7 hours of uptime away. Nothing that can be built without spending quota is waiting on it — see
+[What is left, in the order it has to happen](#what-is-left-in-the-order-it-has-to-happen).
+
+### The original seven, plus what the round added
 
 | # | Item | Status | Where it stands |
 |---|---|---|---|
@@ -28,7 +32,7 @@ check whether the reasoning held.
 | **A6** | Search on the Retrieval panel | ✅ shipped | Route verified end to end; **⚠️ rendered pixels are yours to confirm** — see the verification split |
 | **A7** | Session replay UI + inline citations | ✅ shipped | `fbb76d0`. Could not be built as designed: a session is 100 MB whole, so it pages |
 | **A8a** | Cross-claim revision — detection | ✅ shipped | `5bd4c49`. Grouping by shared evidence after two groupings failed |
-| **A8b** | Cross-claim revision — the rewrite | ✅ shipped, generation run | Both validator rules observed refusing real provider output. **⚠️ `--apply` deliberately not run** — see below |
+| **A8b** | Cross-claim revision — the rewrite | ✅ shipped, generation run | Both validator rules observed refusing real provider output. **⚠️ blanket `--apply` still not run** — and no longer the only option, since A9 makes it per-pair |
 | **A9** | Human checkpoint on consolidation | ✅ shipped for merges | `2750c29`. `--review-sheet` / `--apply-reviewed`: per-pair approval, the reviewed text written verbatim, edits re-checked, stale sheets refused. **⚠️ decision-grade memories at ingest remain ungated** |
 | **A10** | Does Codex fire hooks? | ✅ settled | **Yes — all three.** The fork in the road, resolved |
 | **A11** | Orientation compile too slow for the hook budget | ✅ closed | `35ef05f`. One absent index: 42,001 ms → 34.1 ms |
@@ -122,8 +126,8 @@ trust.
 |---|---|---|
 | ~~A8b's generation call~~ | ✅ **run 10 August** | Both rules caught refusing real output: `LostNewEvidence` and `ForeignCitation` |
 | ~~3 dead-lettered jobs~~ | ✅ **requeued** | Through `brain jobs --retry-dead`, which did not exist — the digest reported the count and nothing could act on it |
-| ~~3.2b subject-page prose~~ | ✅ **shipped** | `brain synthesize`. 63 pages carry cited prose, ⚠️ 93 remain |
-| Consolidation backlog | ⚠️ **draining, and the ETA was wrong** | 2,191 → 1,980. ~60 jobs/hour holds, but that is 34 h of *quota-available uptime*, quoted as wall-clock — see below |
+| ~~3.2b subject-page prose~~ | ✅ **shipped** | `brain synthesize`. 63 pages carry cited prose, ⚠️ 93 held back until the drain finishes — their prose is keyed to an exact memory set that consolidation is still changing |
+| Consolidation backlog | ⚠️ **draining, ~3x faster since A13** | 2,191 → 1,834. `Ai-community-channel` is done; this project is 48% consolidated with ~7 h of uptime left, independent of `subscription-agent`'s 1,199 |
 | Token-saving A/B | ⚠️ **not run, by decision** | Never blocked on a second quota — `claude -p` reports `glm-5.2`. Blocked on its own precondition: a half-consolidated brain understates the warm condition |
 
 ### Against Karpathy's pattern — the two skips that were wrong
@@ -491,10 +495,15 @@ The detection output currently ends with *"read the unseen evidence, then file w
 there.
 
 ```
-brain revise --project X                     # detect only            ← shipped
-brain revise --project X --propose           # write the merged claim, change nothing
-brain revise --project X --propose --apply   # write it, supersede both sides
+brain revise --project X                                      # detect only
+brain revise --project X --propose                            # draft, change nothing
+brain revise --project X --propose --review-sheet merges.json # draft for human approval  ← prefer this
+brain revise --project X --apply-reviewed merges.json         # write only what was approved
+brain revise --project X --propose --apply                    # write all of them, unreviewed
 ```
+
+The last line is the original design and it approves a whole *run*. A9 added the two above it after
+this command's own output proved why — see **A9** below.
 
 **What the model is allowed to do.** One narrow job: given two claims and the union of their
 evidence, write the one claim that is true now. Not summarise, not expand — merge. The prompt
@@ -531,7 +540,7 @@ position. Only the renderer is missing.
 **Shape:** a `/api/search` route shelling to `brain explain --json`, and a results view under the
 existing channel cards. Verified here: the route's values. Verified by you: that it renders.
 
-### ✅ A13 · Consolidation made one provider call at a time — measured 60 → ~190 jobs/hour
+### ✅ A13 · Consolidation made one provider call at a time — measured 60 → ~215 jobs/hour
 
 `for project in &config.projects` awaited each project, and the inner `for _ in 0..8` awaited each
 job, so three projects and eight slots produced exactly one call in flight. At ~40 s per call that
@@ -655,10 +664,27 @@ the original argument stated it.
 
 ## Order of work
 
-1. **A8b's validator and apply path** — ✅ built and verified. The generation call waits on quota.
+1. **A8b's validator and apply path** — ✅ built and verified. The generation call ran on 10 August.
 2. **A6** — ✅ shipped, rendering confirmed.
 3. **A7** — ✅ shipped. Route verified against the live ledger; the rendered panel is yours to confirm.
 4. **A3b** — ✅ shipped, and it found four dead channels on its first run.
+
+### What is left, in the order it has to happen
+
+Everything below the line is gated on the drain, and the gate is *this project's* queue, not the
+global one.
+
+| | Step | Gate |
+|---|---|---|
+| 1 | ✅ **A13** — make consolidation concurrent | done first, because it moved every estimate after it |
+| 2 | ✅ **A14** — fix the A/B harness · ✅ **A9** — the merge checkpoint | done *while* the queue drains; neither spends quota |
+| 3 | ⚠️ Generate the remaining 93 subject pages | this project reaches **0 pending** — their prose is keyed to an exact memory set, and consolidation is still changing it |
+| 4 | ⚠️ Confirm 0 dead letters, embeddings caught up | after 3 |
+| 5 | ⚠️ Run the interleaved 45-session A/B | after 4 |
+| 6 | ⚠️ Grade blind against the rubrics, *then* quote a percentage | after 5, and it is not optional — the token column cannot see a confidently wrong answer |
+
+Steps 3 and 5 are the only ones that spend quota, which is why they are last and why nothing above
+them had to wait for the queue.
 
 ---
 
@@ -683,6 +709,10 @@ provider is the point"* — and both substantive rules were caught doing it:
 produced well-formed, well-cited, correctly-shortened prose asserting *"Codex Desktop does not fire
 SessionStart hooks"* — because the claims it was merging said so. **Every guarantee A8b makes is
 mechanical, and none of them is truth.** `--apply` was not run.
+
+**This is the evidence A9 was built from, and A9 now gives it somewhere to go.** A blanket `--apply`
+was the only way to write these, so the choice was thirteen or none. `--review-sheet` makes it a
+per-pair decision by a person, which is the only check that operates on truth rather than form.
 
 ### What that exposed: 26 current claims asserting a known falsehood
 
@@ -713,10 +743,18 @@ with the same rule from the start.
 
 ### The A/B is unblocked and deliberately not run
 
-Its precondition is not met: **2,104 consolidation jobs are still queued**, and a half-consolidated
-brain understates the warm condition, so the figure would have to be re-run. Measured drain from
-completion timestamps: **~62 jobs/hour, ETA ~34 hours.** Operator's decision, taken: wait for the
-drain, then run 5 × 3 × 3.
+Its precondition is not met: this project is **48% consolidated, 632 jobs still queued**, and a
+half-consolidated brain understates the warm condition, so the figure would have to be re-run.
+Operator's decision, taken: wait for the drain, then run 5 × 3 × 3.
+
+At the post-A13 rate that is **~7 hours of uptime** for this project — not for the whole backlog,
+which is a distinction worth keeping when the number is finally quoted. `subscription-agent` will
+still hold ~1,000 jobs at that point. The benchmark asks five questions about *this* repository, so
+that is fine; it does mean "the backlog has drained" will be true of the thing being measured and
+false globally.
+
+The waiting time was also spent, not merely passed: **A14** found that the harness's second and
+third conditions were both measuring the first, which would have made the run worthless.
 
 ---
 
@@ -725,9 +763,9 @@ drain, then run 5 × 3 × 3.
 | Item | Blocker |
 |---|---|
 | ~~A8b's generation call~~ | ✅ **Run 10 August.** Both validator rules observed refusing real provider output |
-| Token-saving A/B | **Its own precondition, not quota.** `claude -p` authenticates and reports `glm-5.2`. 1,980 jobs still queued and a half-consolidated brain understates the warm condition. **The ETA was wrong** — see below |
+| Token-saving A/B | **Its own precondition, not quota.** `claude -p` authenticates and reports `glm-5.2`. This project is 48% consolidated with 632 jobs queued, and a half-consolidated brain understates the warm condition. ~7 h of uptime left — see below |
 | ~~3 dead-lettered jobs~~ | ✅ **Requeued 10 August** via `brain jobs --retry-dead`, which did not exist — the digest reported the count and nothing could act on it |
-| ~~3.2b synthesis prose~~ | ✅ **Shipped 10 August.** `brain synthesize`; 63 subject pages carry prose, 93 remain |
+| ~~3.2b synthesis prose~~ | ✅ **Shipped 10 August.** `brain synthesize`; 63 subject pages carry prose. The other 93 are **held back on purpose**, not outstanding work: their prose is keyed to an exact memory set, and generating now would be regenerating after the drain |
 | ~~Codex mid-session parity~~ | ✅ **Resolved.** It was never structural: `UserPromptSubmit` is registered and observed firing four times across two Codex prompts. Nothing is invoked voluntarily any more |
 | Rendered-UI verification | The Browser pane never paints. Split above |
 
@@ -749,20 +787,30 @@ nothing until quota returned; it then ran at ~60/hour for five hours until the m
 and did not resume until 00:49. So 34 h of *productive uptime* was somewhere between one day and a
 week of calendar, depending entirely on a quota nobody here can predict.
 
-Two things are worth knowing before quoting any figure like this again:
+Two things came out of that, one still true and one since fixed:
 
-- **The service only drains while the machine is on.** It is a logon-triggered task, so an overnight
-  is simply not counted, and an ETA in wall-clock hours silently assumes 24-hour uptime.
-- **The whole system makes one provider call at a time.** In `consolidation.rs` the
-  `for project in &config.projects` loop awaits each project in turn, and the inner `for _ in 0..8`
-  awaits each job in turn — so three projects and eight slots do not add up to any concurrency at
-  all. At ~40 s per call that caps the service at ~90 jobs/hour, which is exactly the ceiling the
-  measurements keep landing under. Making the projects concurrent is the available lever, and it
-  would also stop this project's 672 jobs queueing behind `subscription-agent`'s 1,255.
+- **The service only drains while the machine is on.** Still true, and unfixable from here: it is a
+  logon-triggered task, so an overnight is simply not counted, and an ETA in wall-clock hours
+  silently assumes 24-hour uptime. Every figure below is *uptime*.
+- **The whole system made one provider call at a time.** ✅ **Fixed — A13.** The
+  `for project in &config.projects` loop awaited each project and the inner `for _ in 0..8` awaited
+  each job, so three projects and eight slots added up to no concurrency at all, capping the service
+  near 90 jobs/hour. That is why every measurement kept landing under it. Idle rate is now
+  **~215 jobs/hour**, and — the part that mattered more — the three ledgers drain independently, so
+  this project no longer queues behind `subscription-agent`.
 
 **And the backlog is not old backfill.** The pending jobs for `agent-knowledge-base-codex` cover
-7 August through this morning — the project is 43% consolidated, the lowest of the three, and the
-unconsolidated part is the recent work an A/B question here would actually be about.
+7 August through 10 August — the project is 48% consolidated, the lowest of the three, and the
+unconsolidated part is the recent work an A/B question here would actually be about. That is the
+whole reason the A/B waits, and it is a measurement-validity reason rather than a cost one.
+
+**On cost, for the record.** With GLM quota no longer scarce, the ranking of reasons to wait is:
+the number would not be quotable (validity); the run competes with the drain for the same quota
+(throughput); the money (smallest, and recorded per run as `total_cost_usd`). An earlier version of
+this section led with cost and also claimed the run would meaningfully grow the backlog — measured,
+a session's median is ~15 events, so 45 of them is roughly **three** consolidation jobs. That claim
+was wrong by two orders of magnitude. The real reason to keep those sessions identifiable is
+self-contamination on a re-run, which is why they now carry explicit `--session-id`s.
 
 ---
 
