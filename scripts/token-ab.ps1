@@ -9,8 +9,13 @@
     percentage to quote.
 
     This runs it. Five tasks from this repository's own history, each with an answer that lives in
-    the brain and is expensive to re-derive from code; two conditions; three repeats; thirty
+    the brain and is expensive to re-derive from code; three conditions; three repeats; forty-five
     headless sessions.
+
+    This line said "two conditions; thirty sessions" for as long as the third condition below has
+    existed, which understated the cost by a third — in a script whose whole posture is that
+    spending money is the operator's deliberate call. The count is computed at the matrix line;
+    trust that over any prose here, including this.
 
     THE CONFOUND THIS CONTROLS FOR, WHICH THE ORIGINAL DESIGN DID NOT
     ------------------------------------------------------------------
@@ -30,17 +35,37 @@
     brain's saving would be the same error as quoting our 90.0% on one category against someone
     else's pooled 95.2%.
 
-    WHAT THIS COSTS
-    ---------------
-    Thirty headless agent sessions against a real repository. That is real money and it is the
-    operator's call, which is why nothing here runs on a schedule and why -WhatIf is the default
-    posture: run it once, deliberately, when you mean to.
+    WHAT THIS COSTS — AND THE THREE COSTS THAT ARE NOT MONEY
+    --------------------------------------------------------
+    Forty-five headless agent sessions against a real repository. That is real money and it is the
+    operator's call, which is why nothing here runs on a schedule and why the dry run is the default
+    posture: run it once, deliberately, when you mean to. Every run records `total_cost_usd`, so
+    after the first execution this stops being an estimate.
+
+    The money is the smallest of it:
+
+      * These sessions are captured. Capture is transcript-based and watches ~/.claude/projects, so
+        forty-five sessions become events, which become consolidation jobs. Running this while a
+        backlog drains lengthens that backlog.
+      * `claude -p` draws on the same provider quota as the consolidation worker. Measured
+        precedent: a synthesis batch pushed the drain from 75 jobs/hour to 39 while it ran.
+      * The token number alone means nothing without the blind grading described at the foot of this
+        script. A warm session that answers badly and stops early wins on tokens and loses on the
+        only thing being claimed. Budget that grading before spending the sessions.
 
     PRECONDITION THE DESIGN STATES
     ------------------------------
     A half-consolidated brain understates the warm condition. Check `brain digest` first; with
     thousands of jobs still queued behind provider quota, the warm side is measuring a brain that
     has not finished thinking about its own evidence.
+
+    KNOWN CONFOUND, NOT YET FIXED
+    -----------------------------
+    Conditions run in a fixed order — every `bare` run, then every `code`, then every `warm`. Any
+    drift across the run (quota throttling, machine load, cache state) is therefore confounded with
+    condition, and `warm` always runs last. Interleaving the matrix would cost nothing and remove
+    it; it is called out here rather than silently fixed because doing so changes what a comparison
+    against an earlier run means.
 
 .PARAMETER Repeats
     Runs per task per condition. The design says 3; fewer is a smoke test, not a measurement.
