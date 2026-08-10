@@ -15,8 +15,8 @@ check whether the reasoning held.
 
 **✅ shipped · ⚠️ open · ~~struck through~~ = the item is resolved and no longer applies.**
 
-**Everything still open is gated on one thing:** this project's consolidation queue reaching zero,
-~10 hours of uptime away. Nothing that can be built without spending quota is waiting on it — see
+**Everything still open is gated on one thing:** this project's consolidation queue reaching zero.
+Nothing that can be built without spending quota is waiting on it — see
 [What is left, in the order it has to happen](#what-is-left-in-the-order-it-has-to-happen).
 
 ### The original seven, plus what the round added
@@ -29,11 +29,11 @@ check whether the reasoning held.
 | **A3b** | Harness split in the dashboard JSON | ✅ shipped | `ee357eb`. Six harness/hook channels including the zeros — and it found four channels that recorded nothing |
 | **A4** | Capture-staleness detection | ✅ shipped | `4c213f3`. A 100-minute stall with every panel green |
 | **A5** | The file-back loop | ✅ shipped | `4c213f3`. `--evidence` optional, citations derived. **7+ human claims filed since**, against 0 in the two months before |
-| **A6** | Search on the Retrieval panel | ✅ shipped | Route verified end to end; **⚠️ rendered pixels are yours to confirm** — see the verification split |
+| **A6** | Search on the Retrieval panel | ✅ shipped **and rendered** | Verified in a real browser 10 Aug: live query, three memories above every event, per-result fusion explanations |
 | **A7** | Session replay UI + inline citations | ✅ shipped | `fbb76d0`. Could not be built as designed: a session is 100 MB whole, so it pages |
 | **A8a** | Cross-claim revision — detection | ✅ shipped | `5bd4c49`. Grouping by shared evidence after two groupings failed |
 | **A8b** | Cross-claim revision — the rewrite | ✅ shipped, generation run | Both validator rules observed refusing real provider output. **⚠️ blanket `--apply` still not run** — and no longer the only option, since A9 makes it per-pair |
-| **A9** | Human checkpoint on consolidation | ✅ shipped for merges | `2750c29`. `--review-sheet` / `--apply-reviewed`: per-pair approval, the reviewed text written verbatim, edits re-checked, stale sheets refused. **⚠️ decision-grade memories at ingest remain ungated** |
+| **A9** | Human checkpoint on consolidation | ✅ **shipped, both halves** | `2750c29` gates the rewrite path per-pair; `8ddb828` gates ingest via `MemoryStatus::Proposed` + `brain review`. Off by default — gating a kind is a commitment to draining the queue |
 | **A10** | Does Codex fire hooks? | ✅ settled | **Yes — all three.** The fork in the road, resolved |
 | **A11** | Orientation compile too slow for the hook budget | ✅ closed | `35ef05f`. One absent index: 42,001 ms → 34.1 ms |
 | **A12** | One slow hook starved every hook behind it | ✅ shipped | `fc4e897`. The accept loop awaited the handler, so a 6,571 ms cold-cache compile cost three sessions their orientation, not one |
@@ -444,6 +444,22 @@ and touches exactly the pages the hook path needs.
 
 ## How this round is verified — and the one thing that cannot be
 
+**Falsified 10 August — and the cause was never what the elimination concluded.** The claim below
+was that rendered UI cannot be checked from this session; the Retrieval panel has now been verified
+in a real browser via the Playwright MCP, with a live query returning three on-topic memories above
+every event and a fusion explanation on each result.
+
+What is true is narrower: **the Browser *pane* cannot composite**, so `computer{action:"screenshot"}`
+against it times out. Everything downstream of that was misattributed. In the pane React never
+hydrates — no fiber keys, 59 server-rendered skeletons — so no client component ever fetches, and
+`Reveal`'s `whileInView` never fires, leaving every panel at `opacity: 0`. Three separate symptoms,
+one cause, and none of them means the app does not render.
+
+The lesson is the same one the hook investigation produced: *"cannot be verified"* is a claim about
+the instrument, and reaching for a second instrument is cheaper than three rounds of elimination.
+
+The original reasoning, kept:
+
 Established by elimination, three times over: **rendered UI cannot be checked from this session.**
 
 The Browser pane is never displayed, so `document.hidden` is `true`, nothing paints, and the
@@ -657,6 +673,54 @@ function called `current_memory`. The status check is the other half, and the te
 half gates the *rewrite* path, which is where A8b's false merges came from; it does not gate the
 200-event batches that produce the claims in the first place.
 
+### ✅ A9's ingest half — `8ddb828`
+
+The rewrite path was the smaller half. Consolidation batches 200 events to a provider and appends
+whatever survives validation, unattended — and validation is about *form*. The 10 August merges
+passed every mechanical rule and asserted a falsehood.
+
+**The gate is a status, not a queue table.** `MemoryStatus::Proposed` was in the model from the
+beginning and nothing had ever written it. A memory in that state fails `CURRENT_CLAIM`, so
+retrieval skips it for free.
+
+```bash
+brain review --project .                 # what is waiting
+brain review --project . --approve <id>  # it becomes current
+brain review --project . --reject  <id>  # marked invalid, and kept
+```
+
+Both rulings *append*. A rejected claim is not deleted — the ledger records that a person looked and
+said no, which is what the next proposal of the same claim needs to know.
+
+**Off by default**, via `review.gated_kinds` in `service.json`, and that default is a position
+rather than caution: gating a kind means the brain stops telling agents about it until someone gets
+to it, and a review queue nobody drains is a brain that forgets on purpose.
+
+#### The part that was not the plan — three read paths would have leaked it
+
+Writing the test as *"the memory is invisible"* rather than *"the memory is marked proposed"* caught
+that it was neither. Three read paths carried the same **denylist** — not `invalid` and not
+`superseded`:
+
+| Path | Feeds |
+|---|---|
+| `current_project_memories` | the session-start orientation, the Markdown projection, `brain export` |
+| `current_preferences` | global preferences |
+| `resolve_memory_set` | the active set after supersession |
+
+That is correct only while there are exactly three statuses, and it **fails open** the moment a
+fourth appears. All three promptly served proposed memories. The gate would have been a gate in name
+only, and nothing about it would have looked wrong.
+
+Replaced with `MemoryStatus::is_readable` — an **allowlist**, defined once. `Conflict` stays
+readable on purpose: it marks a claim that disagrees with another, not one that is wrong, and
+retrieval already weights it down rather than hiding it.
+
+**This is the `CURRENT_CLAIM` lesson for the third time in two days** — after
+`current_project_memories` and the two retirement mechanisms, and after `current_memory` returning
+superseded versions in the reviewed-merge path. A predicate with a missing half reads as working
+code.
+
 ### ⚠️ A9's original framing — *the argument, kept*
 
 Karpathy stays involved on every ingest. We batch 200 events to a provider unattended, and the three
@@ -689,6 +753,7 @@ global one.
 |---|---|---|
 | 1 | ✅ **A13** — make consolidation concurrent | done first, because it moved every estimate after it |
 | 2 | ✅ **A14** — fix the A/B harness · ✅ **A9** — the merge checkpoint | done *while* the queue drains; neither spends quota |
+| 2b | ✅ **A6** verified in rendered pixels · ✅ **A9** ingest half | done; neither spends quota |
 | 3 | ⚠️ Generate the remaining 93 subject pages | this project reaches **0 pending** — their prose is keyed to an exact memory set, and consolidation is still changing it |
 | 4 | ⚠️ Confirm 0 dead letters, embeddings caught up | after 3 |
 | 5 | ⚠️ Run the interleaved 45-session A/B | after 4 |
