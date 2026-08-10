@@ -33,7 +33,7 @@ check whether the reasoning held.
 | **A10** | Does Codex fire hooks? | ✅ settled | **Yes — all three.** The fork in the road, resolved |
 | **A11** | Orientation compile too slow for the hook budget | ✅ closed | `35ef05f`. One absent index: 42,001 ms → 34.1 ms |
 | **A12** | One slow hook starved every hook behind it | ✅ shipped | `fc4e897`. The accept loop awaited the handler, so a 6,571 ms cold-cache compile cost three sessions their orientation, not one |
-| **A13** | Consolidation ran one provider call at a time | ✅ shipped | `3b33bcd`. Three ledgers now drain concurrently, one call each. Measured **~60 → ~171 jobs/hour** |
+| **A13** | Consolidation ran one provider call at a time | ✅ shipped | `3b33bcd`. Three ledgers now drain concurrently, one call each. Measured **~60 → ~215 jobs/hour** idle; this project's own queue goes ~30 h → ~7 h |
 | **A14** | The A/B's second and third conditions measured the first | ✅ shipped | `e9b7bb7`. `Set-Condition` read the file it had just stripped. Plus shuffled order, session-id manifest, blind grading sheet |
 
 ### The Codex work, which was the fork in the road
@@ -544,12 +544,33 @@ still be draining when the next tick spawned a second task against the same SQLi
 
 | | Before | After |
 |---|---|---|
-| Drain rate | ~60 jobs/hour | **~171 jobs/hour** |
+| Drain rate | ~60 jobs/hour | **~215 jobs/hour** |
 
-Measured 1,936 → 1,893 pending over 15 minutes, 10 August. Not a clean bench: the window included
-two `cargo build --release` runs, the full test suite, and a service restart from a deploy. It is
-therefore a *floor* on the improvement, and the honest way to read it is "roughly 3x", not "exactly
-2.85x".
+Two measurements, 10 August, and the difference between them is the point. Over a 15-minute window
+that included two `cargo build --release` runs, the test suite and a service restart, the rate was
+**171/hour**. Over a 10-minute window with the machine otherwise idle — 1,893 → 1,857 — it was
+**215/hour**. Quote the second as the rate and the first as what to expect while also building.
+
+**The second goal mattered more than the first.** Per project, ten minutes after the change:
+
+| Project | Pending | jobs/hour | Uptime hours left |
+|---|---|---|---|
+| `subscription-agent` | 1,210 | 78 | 15.5 |
+| **`agent-knowledge-base-codex`** | **632** | **90** | **7.0** |
+| `Ai-community-channel` | 11 | 72 | 0.2 |
+
+The three now drain *independently*, so this project no longer queues behind `subscription-agent`'s
+1,210. Serially at ~60/hour the combined 1,853 was ~30 hours before this project could reach zero;
+it is now ~7 hours of uptime, and `subscription-agent`'s much larger queue no longer figures in that
+number at all. Zero dead letters throughout.
+
+**Uptime, not wall-clock.** The service is a logon-triggered task and does not run while the machine
+sleeps — on 9 August that cost six hours. Seven hours of drain is today if the machine stays on and
+tomorrow if it does not.
+
+Note that when a project reaches zero its permit frees but nothing speeds up, because the binding
+constraint is the per-project sequential drain rather than the cap of three. That is the design, not
+a shortfall: concurrency inside one ledger would put two writers on one SQLite file.
 
 Three is the project count, and it is a *cap* rather than "one per project" so a fourth project
 widens the backlog instead of the request rate — a quota shared with `claude -p` is not one to find
