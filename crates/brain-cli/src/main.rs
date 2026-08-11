@@ -5,13 +5,13 @@ use brain_cli::{
     AgentSourceOptions, BenchmarkArtifacts, BenchmarkPreflightOptions, BenchmarkProfile,
     RegisterOptions, ServiceInstallOptions, TaskCommands, benchmark_corpus,
     build_report_from_artifacts, configure_codegraph, configure_llm_wiki, disable_provider,
-    export_grading_bundle, import_grades, index_codegraph, install_claude_hooks,
-    install_codex_hooks, install_windows_service, latest_summary, preflight_benchmark,
-    preview_benchmark_run, provider_status, read_dashboard, read_diagnostics, read_hermes_status,
-    read_status, rebuild_basic_memory, rebuild_markdown, register_project_with_sources,
-    remove_provider, source_fingerprint, start_windows_service, stop_windows_service,
-    uninstall_claude_hooks, uninstall_codex_hooks, uninstall_windows_service, verify_projections,
-    windows_service_status,
+    execute_benchmark_run, export_grading_bundle, import_grades, index_codegraph,
+    install_claude_hooks, install_codex_hooks, install_windows_service, latest_summary,
+    preflight_benchmark, preview_benchmark_run, provider_status, read_dashboard, read_diagnostics,
+    read_hermes_status, read_status, rebuild_basic_memory, rebuild_markdown,
+    register_project_with_sources, remove_provider, source_fingerprint, start_windows_service,
+    stop_windows_service, uninstall_claude_hooks, uninstall_codex_hooks, uninstall_windows_service,
+    verify_projections, windows_service_status,
 };
 use brain_coordination::{ClaimKind, PathClaimInput, SessionIdentity};
 use brain_domain::{BrainConfig, Harness, ProjectId, ProjectRegistry};
@@ -475,6 +475,9 @@ struct BenchmarkPreflightCommand {
     codex_control_config: PathBuf,
     #[arg(long)]
     codex_treatment_config: PathBuf,
+    /// Immutable native launcher profiles used by both conditions.
+    #[arg(long)]
+    execution_templates: PathBuf,
 }
 
 #[derive(Subcommand)]
@@ -1922,6 +1925,7 @@ retired {retired} memories as tombstones"
                     claude_treatment_config,
                     codex_control_config,
                     codex_treatment_config,
+                    execution_templates,
                 } = *arguments;
                 let report = preflight_benchmark(BenchmarkPreflightOptions {
                     brain_home: brain_home.clone(),
@@ -1937,6 +1941,7 @@ retired {retired} memories as tombstones"
                     claude_treatment_config,
                     codex_control_config,
                     codex_treatment_config,
+                    execution_templates,
                 })?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
                 if !report.valid {
@@ -1948,14 +1953,13 @@ retired {retired} memories as tombstones"
                 run,
                 execute,
             } => {
-                let preview =
-                    preview_benchmark_run(&brain_home, parse_project_id(&project)?, run, execute)?;
+                let project = parse_project_id(&project)?;
+                let preview = if execute {
+                    execute_benchmark_run(&brain_home, project, run)?
+                } else {
+                    preview_benchmark_run(&brain_home, project, run, false)?
+                };
                 println!("{}", serde_json::to_string_pretty(&preview)?);
-                if execute {
-                    anyhow::bail!(
-                        "no paid sessions were launched: materialized harness launch profiles are required before --execute"
-                    );
-                }
             }
             BenchmarkCommand::Grade { action } => match action {
                 BenchmarkGradeCommand::Export { project, run } => {

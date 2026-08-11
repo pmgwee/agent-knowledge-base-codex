@@ -13,6 +13,14 @@ check whether the reasoning held.
 
 ## Status board — every item, current as of 10 August 2026
 
+**11 August measurement update.** A14's repaired legacy script has been superseded by the audited
+cross-harness benchmark: exact Claude and Codex native counters, immutable adjacent matched pairs,
+frozen isolated brain endpoints, blind grading, confidence intervals, and quality-gated statements.
+The synthetic end-to-end case passes. No paid smoke or claimable matrix was launched during
+implementation, so the correct current result is still **no percentage to quote**. The remaining
+benchmark work is an explicit operator run and grading pass, not implementation hidden behind the
+old backlog decision.
+
 **✅ shipped · ⚠️ open · ~~struck through~~ = the item is resolved and no longer applies.**
 
 **Everything still open is gated on one thing:** this project's consolidation queue reaching zero.

@@ -10,6 +10,19 @@ silently rewrites its own predictions cannot be checked against reality later.
 
 ---
 
+## 11 August 2026 execution update — the instrument is shipped, the number is not
+
+The old five-question, Claude-only A/B is superseded by the approved
+[cross-harness benchmark specification](superpowers/specs/2026-08-11-cross-harness-token-savings-benchmark-design.md).
+`brain benchmark` now preflights, runs, resumes, grades and reports a balanced Claude Code + Codex
+matrix using exact provider counters and isolated frozen-brain endpoints. `scripts/token-ab.ps1` is
+only a compatibility wrapper and cannot rewrite live settings.
+
+Implementation and the zero-cost synthetic report are complete. The two-task live smoke and the
+claimable run remain deliberate operator actions because they launch paid model sessions. Until a
+blind-graded run reaches `Proven`, the roadmap still records the headline saving as **unmeasured**;
+delivery tokens and profile-page lifetime totals are not substitutes for the counterfactual.
+
 ## How to read this
 
 Four verdicts are used throughout, and the middle two carry most of the argument.

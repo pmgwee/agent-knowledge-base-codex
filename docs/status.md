@@ -12,6 +12,21 @@ research it rests on, and the comparisons that shaped it. This file answers one 
 
 ## Summary
 
+### 11 August 2026 — token-savings benchmark implementation
+
+The former Claude-only `scripts/token-ab.ps1` experiment is retired. The benchmark core is now a
+project-scoped `brain benchmark` workflow for **Claude Code and Codex**: immutable preflight,
+balanced adjacent matched pairs, exact native token parsers, resumable append-only attempts, blind
+grading, task-clustered confidence intervals, a quality non-inferiority gate, per-harness results,
+and a dashboard-safe summary. It never rewrites live Claude or Codex settings; frozen brain copies,
+fresh per-attempt checkouts and dedicated named-pipe endpoints isolate treatment sessions.
+
+The zero-cost synthetic end-to-end run passes and proves that a wrong but short answer remains in
+the token denominator and blocks the claim. **No live benchmark has been executed, so no savings
+percentage exists yet.** A percentage becomes official only when an explicit operator-run matrix is
+complete, blind-graded, and reaches `Proven`; every other state generates wording that refuses the
+claim. Production token history is shown separately and labelled observational.
+
 **All 500 LongMemEval-S instances are measured: 96.0% R@5, 98.2% R@10, 0.922 MRR.** For the first
 time this is a pooled number over the whole dataset rather than one category, so it can be set
 beside a published one — 95.2% / 98.6% / 88.2% — without the caveat that killed every earlier

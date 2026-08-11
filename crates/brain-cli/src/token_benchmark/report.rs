@@ -76,9 +76,16 @@ pub fn evaluate_benchmark(
             "This run cannot support a token-savings claim because matched per-harness coverage is incomplete or unbalanced.".to_owned(),
         )
     } else if !quality_passes {
+        let lower_usage_observed = overall
+            .as_ref()
+            .is_some_and(|estimate| estimate.savings_fraction > 0.0);
         (
             BenchmarkStatus::QualityBlocked,
-            "Lower token usage may have been observed, but the quality gate failed. No token-savings claim is valid for this run.".to_owned(),
+            if lower_usage_observed {
+                "Lower token usage was observed, but the quality gate failed. No token-savings claim is valid for this run.".to_owned()
+            } else {
+                "The quality gate failed. No token-savings claim is valid for this run.".to_owned()
+            },
         )
     } else if !token_passes {
         (

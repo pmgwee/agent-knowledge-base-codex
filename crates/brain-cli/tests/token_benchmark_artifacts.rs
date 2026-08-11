@@ -28,6 +28,14 @@ fn artifacts_are_project_scoped_append_only_and_resumable() {
             .to_string()
             .contains("conflicting")
     );
+    let mut retry = conflict;
+    retry.attempt = 2;
+    store.append_sample(&retry).unwrap();
+    assert_eq!(
+        store.samples().unwrap().len(),
+        2,
+        "a retry is append-only history, not a conflicting rewrite"
+    );
     assert!(
         BenchmarkArtifacts::new(temp.path(), other, run_id)
             .unwrap()

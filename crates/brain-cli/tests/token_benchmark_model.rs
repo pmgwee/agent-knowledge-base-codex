@@ -1,5 +1,9 @@
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
 use brain_cli::{
-    BenchmarkCondition, BenchmarkHarness, BenchmarkTask, BenchmarkTaskStratum, SuiteManifest,
+    BenchmarkCondition, BenchmarkHarness, BenchmarkSummary, BenchmarkTask, BenchmarkTaskStratum,
+    ExecutionTemplate, ExecutionTemplates, HarnessExecutionTemplates, SuiteManifest,
 };
 
 #[test]
@@ -70,4 +74,61 @@ fn harness_and_condition_names_are_stable() {
         serde_json::to_string(&BenchmarkCondition::BrainOn).unwrap(),
         "\"brain_on\""
     );
+}
+
+#[test]
+fn execution_profiles_select_the_exact_harness_and_condition() {
+    let common = ExecutionTemplate {
+        program: PathBuf::from("launcher.exe"),
+        args: vec!["{{prompt}}".to_owned(), "{{condition_config}}".to_owned()],
+        environment: BTreeMap::new(),
+        timeout_seconds: 600,
+    };
+    let mut treatment = common.clone();
+    treatment
+        .environment
+        .insert("BRAIN_HOME".to_owned(), "{{sample_brain_home}}".to_owned());
+    treatment
+        .environment
+        .insert("BRAIN_PIPE_NAME".to_owned(), "{{pipe_name}}".to_owned());
+    let templates = ExecutionTemplates {
+        schema_version: 1,
+        max_attempts: 2,
+        brain_service_program: PathBuf::from("brain-service.exe"),
+        claude_code: HarnessExecutionTemplates {
+            brain_off: common.clone(),
+            brain_on: treatment.clone(),
+        },
+        codex: HarnessExecutionTemplates {
+            brain_off: common,
+            brain_on: treatment.clone(),
+        },
+    };
+    assert_eq!(
+        templates.template(BenchmarkHarness::Codex, BenchmarkCondition::BrainOn),
+        &treatment
+    );
+    assert_eq!(
+        serde_json::from_str::<ExecutionTemplates>(&serde_json::to_string(&templates).unwrap())
+            .unwrap(),
+        templates
+    );
+}
+
+#[test]
+fn older_summary_without_audit_metadata_remains_readable() {
+    let summary: BenchmarkSummary = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "run_id": uuid::Uuid::now_v7(),
+        "status": "invalid",
+        "statement": "No claim.",
+        "completed_at": "2026-08-11T00:00:00Z",
+        "overall": null,
+        "harnesses": [],
+        "overall_quality": null,
+        "validity_checks": []
+    }))
+    .expect("old summary");
+    assert!(summary.metadata.suite_id.is_empty());
+    assert!(summary.pair_audit.is_empty());
 }

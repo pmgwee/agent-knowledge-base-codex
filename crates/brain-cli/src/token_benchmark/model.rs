@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use anyhow::{Result, ensure};
 use brain_domain::ProjectId;
@@ -139,6 +140,60 @@ pub struct PlannedSample {
     pub repeat: u32,
     pub condition: BenchmarkCondition,
     pub order: u8,
+}
+
+/// A fully materialized, inspectable native harness launch profile.
+///
+/// Profiles are supplied at preflight rather than inferred from a user's live settings. This is
+/// deliberate: inference can silently omit a hook, MCP server, provider flag, or permission and
+/// create a control/treatment difference that is not the brain. Every placeholder is expanded by
+/// the benchmark runner and the immutable profile is retained with the run artifacts.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct ExecutionTemplate {
+    pub program: PathBuf,
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub environment: BTreeMap<String, String>,
+    pub timeout_seconds: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct HarnessExecutionTemplates {
+    pub brain_off: ExecutionTemplate,
+    pub brain_on: ExecutionTemplate,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct ExecutionTemplates {
+    pub schema_version: u32,
+    pub max_attempts: u32,
+    pub brain_service_program: PathBuf,
+    pub claude_code: HarnessExecutionTemplates,
+    pub codex: HarnessExecutionTemplates,
+}
+
+impl ExecutionTemplates {
+    pub fn template(
+        &self,
+        harness: BenchmarkHarness,
+        condition: BenchmarkCondition,
+    ) -> &ExecutionTemplate {
+        let harness = match harness {
+            BenchmarkHarness::ClaudeCode => &self.claude_code,
+            BenchmarkHarness::Codex => &self.codex,
+        };
+        match condition {
+            BenchmarkCondition::BrainOff => &harness.brain_off,
+            BenchmarkCondition::BrainOn => &harness.brain_on,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct ExecutablePin {
+    pub path: PathBuf,
+    pub sha256: String,
+    pub version: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -314,4 +369,32 @@ pub struct BenchmarkSummary {
     pub harnesses: Vec<HarnessBenchmarkReport>,
     pub overall_quality: Option<QualityEstimate>,
     pub validity_checks: Vec<ValidityCheck>,
+    #[serde(default)]
+    pub metadata: BenchmarkMetadata,
+    #[serde(default)]
+    pub pair_audit: Vec<PairAudit>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize, Serialize)]
+pub struct BenchmarkMetadata {
+    pub suite_id: String,
+    pub repository_commit: String,
+    pub brain_commit: String,
+    pub frozen_snapshot_sha256: String,
+    pub repeats: u32,
+    pub tasks: usize,
+    pub models: BTreeMap<String, String>,
+    pub harness_versions: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct PairAudit {
+    pub task_id: String,
+    pub harness: BenchmarkHarness,
+    pub repeat: u32,
+    pub control_tokens: u64,
+    pub treatment_tokens: u64,
+    pub control_grade: GradeOutcome,
+    pub treatment_grade: GradeOutcome,
+    pub treatment_critical_regression: bool,
 }

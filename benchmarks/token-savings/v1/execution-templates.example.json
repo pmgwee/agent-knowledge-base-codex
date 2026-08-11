@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "max_attempts": 2,
+  "brain_service_program": "C:\\absolute\\path\\to\\brain-service.exe",
+  "claude_code": {
+    "brain_off": {
+      "program": "C:\\absolute\\path\\to\\claude-benchmark-launcher.exe",
+      "args": [
+        "--condition-config", "{{condition_config}}",
+        "--checkout", "{{checkout}}",
+        "--sample-root", "{{sample_root}}",
+        "--max-turns", "{{max_turns}}",
+        "--max-tool-calls", "{{max_tool_calls}}",
+        "--prompt", "{{prompt}}"
+      ],
+      "environment": {},
+      "timeout_seconds": 900
+    },
+    "brain_on": {
+      "program": "C:\\absolute\\path\\to\\claude-benchmark-launcher.exe",
+      "args": [
+        "--condition-config", "{{condition_config}}",
+        "--checkout", "{{checkout}}",
+        "--sample-root", "{{sample_root}}",
+        "--max-turns", "{{max_turns}}",
+        "--max-tool-calls", "{{max_tool_calls}}",
+        "--prompt", "{{prompt}}"
+      ],
+      "environment": {
+        "BRAIN_HOME": "{{sample_brain_home}}",
+        "BRAIN_PIPE_NAME": "{{pipe_name}}"
+      },
+      "timeout_seconds": 900
+    }
+  },
+  "codex": {
+    "brain_off": {
+      "program": "C:\\absolute\\path\\to\\codex-benchmark-launcher.exe",
+      "args": [
+        "--condition-config", "{{condition_config}}",
+        "--checkout", "{{checkout}}",
+        "--sample-root", "{{sample_root}}",
+        "--max-turns", "{{max_turns}}",
+        "--max-tool-calls", "{{max_tool_calls}}",
+        "--prompt", "{{prompt}}"
+      ],
+      "environment": {},
+      "timeout_seconds": 900
+    },
+    "brain_on": {
+      "program": "C:\\absolute\\path\\to\\codex-benchmark-launcher.exe",
+      "args": [
+        "--condition-config", "{{condition_config}}",
+        "--checkout", "{{checkout}}",
+        "--sample-root", "{{sample_root}}",
+        "--max-turns", "{{max_turns}}",
+        "--max-tool-calls", "{{max_tool_calls}}",
+        "--prompt", "{{prompt}}"
+      ],
+      "environment": {
+        "BRAIN_HOME": "{{sample_brain_home}}",
+        "BRAIN_PIPE_NAME": "{{pipe_name}}"
+      },
+      "timeout_seconds": 900
+    }
+  }
+}

@@ -2,6 +2,7 @@ mod artifacts;
 mod grading;
 mod matrix;
 mod model;
+mod orchestrator;
 mod preflight;
 mod production;
 mod report;
@@ -14,6 +15,7 @@ pub use artifacts::{BenchmarkArtifacts, RawArtifact, latest_summary};
 pub use grading::{export_grading_bundle, import_grades};
 pub use matrix::plan_matrix;
 pub use model::*;
+pub use orchestrator::{execute_benchmark_run, execute_benchmark_run_with};
 pub use preflight::{
     ConditionDiff, FrozenSnapshot, ProductionConfigHashes, compare_condition_configs,
     freeze_project_snapshot, hash_optional_file,
@@ -30,6 +32,6 @@ pub use runner::{
 pub use statistics::{clustered_estimate, quality_estimate};
 pub use usage::{parse_claude_usage, parse_codex_usage};
 pub use workflow::{
-    BenchmarkPreflightOptions, BenchmarkRunPreview, build_report_from_artifacts,
-    preflight_benchmark, preview_benchmark_run,
+    BenchmarkPreflightOptions, BenchmarkPreflightReport, BenchmarkRunPreview,
+    build_report_from_artifacts, preflight_benchmark, preview_benchmark_run,
 };

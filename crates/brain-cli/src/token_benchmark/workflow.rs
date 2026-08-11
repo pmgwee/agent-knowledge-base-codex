@@ -12,10 +12,11 @@ use time::format_description::well_known::Rfc3339;
 use uuid::Uuid;
 
 use super::{
-    BenchmarkArtifacts, BenchmarkCondition, BenchmarkPair, BenchmarkStatus, BenchmarkSummary,
-    GradeRecord, PlannedSample, ProductionConfigHashes, RunManifest, SampleRecord, SampleStatus,
-    SuiteManifest, TokenBenchmarkReport, ValidityCheck, compare_condition_configs,
-    evaluate_benchmark, freeze_project_snapshot, hash_optional_file, plan_matrix,
+    BenchmarkArtifacts, BenchmarkCondition, BenchmarkMetadata, BenchmarkPair, BenchmarkStatus,
+    BenchmarkSummary, ExecutablePin, ExecutionTemplates, GradeRecord, PairAudit, PlannedSample,
+    ProductionConfigHashes, RunManifest, SampleRecord, SampleStatus, SuiteManifest,
+    TokenBenchmarkReport, ValidityCheck, compare_condition_configs, evaluate_benchmark,
+    freeze_project_snapshot, hash_optional_file, plan_matrix,
 };
 
 #[derive(Clone, Debug)]
@@ -33,6 +34,7 @@ pub struct BenchmarkPreflightOptions {
     pub claude_treatment_config: PathBuf,
     pub codex_control_config: PathBuf,
     pub codex_treatment_config: PathBuf,
+    pub execution_templates: PathBuf,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -45,7 +47,9 @@ pub struct BenchmarkPreflightReport {
     pub repository_commit: String,
     pub brain_commit: String,
     pub snapshot_sha256: String,
+    pub execution_templates_sha256: String,
     pub pipe_name: String,
+    pub executable_pins: BTreeMap<String, ExecutablePin>,
     pub claude_condition_diff: super::ConditionDiff,
     pub codex_condition_diff: super::ConditionDiff,
     pub production_config_hashes: ProductionConfigHashes,
@@ -100,6 +104,16 @@ pub fn preflight_benchmark(options: BenchmarkPreflightOptions) -> Result<Benchma
     );
     let fixture_commit = (*fixture_commits.iter().next().expect("suite has tasks")).to_owned();
     let brain_commit = git_output(&options.repository, &["rev-parse", "HEAD"])?;
+    let mut execution_templates: ExecutionTemplates =
+        serde_json::from_slice(&fs::read(&options.execution_templates).with_context(|| {
+            format!(
+                "read execution templates {}",
+                options.execution_templates.display()
+            )
+        })?)?;
+    let executable_pins = validate_and_pin_execution_templates(&mut execution_templates)?;
+    let execution_templates_bytes = serde_json::to_vec_pretty(&execution_templates)?;
+    let execution_templates_sha256 = hex::encode(Sha256::digest(&execution_templates_bytes));
     let run_id = options.run_id.unwrap_or_else(Uuid::now_v7);
     let artifacts = BenchmarkArtifacts::new(&options.brain_home, options.project_id, run_id)?;
     let checkout = artifacts.run_dir().join("checkout");
@@ -126,7 +140,7 @@ pub fn preflight_benchmark(options: BenchmarkPreflightOptions) -> Result<Benchma
         .join(options.project_id.0.to_string());
     let snapshot = freeze_project_snapshot(&snapshot_source, &frozen_project, options.project_id)?;
     let frozen_ledger = rebase_ledger_path(&production_project, &snapshot_source, &frozen_project)?;
-    let pipe_name = format!("agent-brain-benchmark-{run_id}");
+    let pipe_name = format!(r"\\.\pipe\agent-brain-benchmark-{run_id}");
     let mut frozen_service = ServiceLaunchConfig::new(&pipe_name);
     frozen_service.review = production_service.review;
     frozen_service.projects.push(ServiceProjectConfig {
@@ -223,6 +237,10 @@ pub fn preflight_benchmark(options: BenchmarkPreflightOptions) -> Result<Benchma
         })
         .collect::<Result<_>>()?;
     artifacts.write_named_json("grading-tasks", &task_text)?;
+    artifacts.write_immutable_file(
+        Path::new("execution-templates.json"),
+        &execution_templates_bytes,
+    )?;
     for (name, source) in [
         (
             "configs/claude-control.json",
@@ -249,7 +267,9 @@ pub fn preflight_benchmark(options: BenchmarkPreflightOptions) -> Result<Benchma
         repository_commit: fixture_commit,
         brain_commit,
         snapshot_sha256: snapshot.sha256,
+        execution_templates_sha256,
         pipe_name,
+        executable_pins,
         claude_condition_diff: claude_diff,
         codex_condition_diff: codex_diff,
         production_config_hashes: production_hashes,
@@ -259,6 +279,148 @@ pub fn preflight_benchmark(options: BenchmarkPreflightOptions) -> Result<Benchma
     };
     artifacts.write_named_json("preflight", &report)?;
     Ok(report)
+}
+
+fn validate_and_pin_execution_templates(
+    templates: &mut ExecutionTemplates,
+) -> Result<BTreeMap<String, ExecutablePin>> {
+    ensure!(
+        templates.schema_version == 1,
+        "unsupported execution-template schema"
+    );
+    ensure!(
+        (1..=3).contains(&templates.max_attempts),
+        "max_attempts must be between one and three"
+    );
+    templates.brain_service_program = canonical_executable(&templates.brain_service_program)?;
+    for harness in super::BenchmarkHarness::ALL {
+        let conditions = match harness {
+            super::BenchmarkHarness::ClaudeCode => &mut templates.claude_code,
+            super::BenchmarkHarness::Codex => &mut templates.codex,
+        };
+        conditions.brain_off.program = canonical_executable(&conditions.brain_off.program)?;
+        conditions.brain_on.program = canonical_executable(&conditions.brain_on.program)?;
+        ensure!(
+            conditions.brain_off.program == conditions.brain_on.program,
+            "{} control and treatment must use the same executable",
+            harness.as_str()
+        );
+        ensure!(
+            conditions.brain_off.args == conditions.brain_on.args,
+            "{} control and treatment arguments must share one placeholder template",
+            harness.as_str()
+        );
+        ensure!(
+            conditions.brain_off.timeout_seconds == conditions.brain_on.timeout_seconds,
+            "{} control and treatment timeouts differ",
+            harness.as_str()
+        );
+        ensure!(
+            conditions
+                .brain_off
+                .args
+                .iter()
+                .any(|argument| argument.contains("{{prompt}}")),
+            "{} execution template has no {{prompt}} placeholder",
+            harness.as_str()
+        );
+        ensure!(
+            conditions
+                .brain_off
+                .args
+                .iter()
+                .any(|argument| argument.contains("{{condition_config}}")),
+            "{} execution template has no {{condition_config}} placeholder",
+            harness.as_str()
+        );
+        ensure!(
+            conditions.brain_off.timeout_seconds > 0,
+            "{} execution timeout must be positive",
+            harness.as_str()
+        );
+        let mut control_environment = conditions.brain_off.environment.clone();
+        let mut treatment_environment = conditions.brain_on.environment.clone();
+        ensure!(
+            !control_environment.contains_key("BRAIN_HOME")
+                && !control_environment.contains_key("BRAIN_PIPE_NAME"),
+            "{} control exposes a brain endpoint",
+            harness.as_str()
+        );
+        ensure!(
+            treatment_environment.remove("BRAIN_HOME").as_deref() == Some("{{sample_brain_home}}")
+                && treatment_environment.remove("BRAIN_PIPE_NAME").as_deref()
+                    == Some("{{pipe_name}}"),
+            "{} treatment must use benchmark-scoped brain placeholders",
+            harness.as_str()
+        );
+        control_environment.remove("BRAIN_HOME");
+        control_environment.remove("BRAIN_PIPE_NAME");
+        ensure!(
+            control_environment == treatment_environment,
+            "{} execution environments differ outside Agent Brain",
+            harness.as_str()
+        );
+    }
+    let mut pins = BTreeMap::new();
+    for (name, path, require_version) in [
+        (
+            "claude_code",
+            templates.claude_code.brain_off.program.as_path(),
+            true,
+        ),
+        ("codex", templates.codex.brain_off.program.as_path(), true),
+        (
+            "brain_service",
+            templates.brain_service_program.as_path(),
+            false,
+        ),
+    ] {
+        pins.insert(name.to_owned(), pin_executable(path, require_version)?);
+    }
+    Ok(pins)
+}
+
+fn canonical_executable(path: &Path) -> Result<PathBuf> {
+    ensure!(
+        path.is_file(),
+        "executable {} does not exist",
+        path.display()
+    );
+    path.canonicalize()
+        .with_context(|| format!("resolve executable {}", path.display()))
+}
+
+fn pin_executable(path: &Path, require_version: bool) -> Result<ExecutablePin> {
+    let version = if require_version {
+        let output = Command::new(path)
+            .arg("--version")
+            .output()
+            .with_context(|| format!("read version from {}", path.display()))?;
+        ensure!(
+            output.status.success(),
+            "{} --version failed",
+            path.display()
+        );
+        let text = if output.stdout.is_empty() {
+            String::from_utf8(output.stderr)?
+        } else {
+            String::from_utf8(output.stdout)?
+        };
+        let version = text.lines().next().unwrap_or_default().trim().to_owned();
+        ensure!(
+            !version.is_empty(),
+            "{} returned no version",
+            path.display()
+        );
+        version
+    } else {
+        "content-addressed executable".to_owned()
+    };
+    Ok(ExecutablePin {
+        path: path.to_path_buf(),
+        sha256: hex::encode(Sha256::digest(fs::read(path)?)),
+        version,
+    })
 }
 
 pub fn preview_benchmark_run(
@@ -358,6 +520,8 @@ pub fn build_report_from_artifacts(
             validity_checks: validity,
         };
         artifacts.write_report(&report)?;
+        let summary = benchmark_summary(&manifest, &report, &pairs, &artifacts)?;
+        artifacts.write_summary(&summary)?;
         return Ok(report);
     }
     let report = evaluate_benchmark(
@@ -368,9 +532,56 @@ pub fn build_report_from_artifacts(
         manifest.matrix.len() / 4,
     )?;
     artifacts.write_report(&report)?;
-    let summary = BenchmarkSummary {
+    let summary = benchmark_summary(&manifest, &report, &pairs, &artifacts)?;
+    artifacts.write_summary(&summary)?;
+    Ok(report)
+}
+
+fn benchmark_summary(
+    manifest: &RunManifest,
+    report: &TokenBenchmarkReport,
+    pairs: &[BenchmarkPair],
+    artifacts: &BenchmarkArtifacts,
+) -> Result<BenchmarkSummary> {
+    let preflight: BenchmarkPreflightReport = artifacts.read_named_json("preflight")?;
+    let suite: SuiteManifest =
+        serde_json::from_slice(&fs::read(artifacts.run_dir().join("suite.json"))?)?;
+    let mut models = BTreeMap::new();
+    for (harness, file) in [
+        ("claude_code", "configs/claude-control.json"),
+        ("codex", "configs/codex-control.json"),
+    ] {
+        let config: serde_json::Value =
+            serde_json::from_slice(&fs::read(artifacts.run_dir().join(file))?)?;
+        if let Some(model) = config.get("model").and_then(serde_json::Value::as_str) {
+            models.insert(harness.to_owned(), model.to_owned());
+        }
+    }
+    let pair_audit = pairs
+        .iter()
+        .map(|pair| PairAudit {
+            task_id: pair.task_id.clone(),
+            harness: pair.harness,
+            repeat: pair.repeat,
+            control_tokens: pair.control_tokens,
+            treatment_tokens: pair.treatment_tokens,
+            control_grade: pair.control_grade,
+            treatment_grade: pair.treatment_grade,
+            treatment_critical_regression: pair.treatment_critical_regression,
+        })
+        .collect();
+    let harness_versions = ["claude_code", "codex"]
+        .into_iter()
+        .filter_map(|harness| {
+            preflight
+                .executable_pins
+                .get(harness)
+                .map(|pin| (harness.to_owned(), pin.version.clone()))
+        })
+        .collect();
+    Ok(BenchmarkSummary {
         schema_version: 1,
-        run_id,
+        run_id: manifest.run_id,
         status: report.status,
         statement: report.statement.clone(),
         completed_at: now_string()?,
@@ -378,9 +589,18 @@ pub fn build_report_from_artifacts(
         harnesses: report.harnesses.clone(),
         overall_quality: report.overall_quality.clone(),
         validity_checks: report.validity_checks.clone(),
-    };
-    artifacts.write_summary(&summary)?;
-    Ok(report)
+        metadata: BenchmarkMetadata {
+            suite_id: manifest.suite_id.clone(),
+            repository_commit: manifest.repository_commit.clone(),
+            brain_commit: manifest.brain_commit.clone(),
+            frozen_snapshot_sha256: manifest.frozen_snapshot_sha256.clone(),
+            repeats: manifest.repeats,
+            tasks: suite.tasks.len(),
+            models,
+            harness_versions,
+        },
+        pair_audit,
+    })
 }
 
 fn build_pairs(
@@ -421,7 +641,7 @@ fn build_pairs(
         .collect()
 }
 
-fn production_config_hashes() -> Result<ProductionConfigHashes> {
+pub(super) fn production_config_hashes() -> Result<ProductionConfigHashes> {
     let profile = std::env::var_os("USERPROFILE")
         .map(PathBuf::from)
         .context("USERPROFILE is unavailable")?;

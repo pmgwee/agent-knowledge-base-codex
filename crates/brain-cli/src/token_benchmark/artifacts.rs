@@ -57,11 +57,14 @@ impl BenchmarkArtifacts {
     }
 
     pub fn append_sample(&self, sample: &SampleRecord) -> Result<()> {
+        let attempt_id = format!("{}:attempt:{}", sample.sample.sample_id, sample.attempt);
         append_immutable_jsonl(
             &self.run_dir.join("samples.jsonl"),
-            &sample.sample.sample_id,
+            &attempt_id,
             sample,
-            |record: &SampleRecord| &record.sample.sample_id,
+            |record: &SampleRecord| {
+                format!("{}:attempt:{}", record.sample.sample_id, record.attempt)
+            },
         )
     }
 
@@ -74,7 +77,7 @@ impl BenchmarkArtifacts {
             &self.run_dir.join("grades.jsonl"),
             &grade.opaque_id,
             grade,
-            |record: &GradeRecord| &record.opaque_id,
+            |record: &GradeRecord| record.opaque_id.clone(),
         )
     }
 
@@ -225,7 +228,7 @@ pub fn latest_summary(
 fn append_immutable_jsonl<T, F>(path: &Path, id: &str, value: &T, record_id: F) -> Result<()>
 where
     T: Serialize + DeserializeOwned + PartialEq,
-    F: Fn(&T) -> &str,
+    F: Fn(&T) -> String,
 {
     for existing in read_jsonl::<T>(path)? {
         if record_id(&existing) == id {
