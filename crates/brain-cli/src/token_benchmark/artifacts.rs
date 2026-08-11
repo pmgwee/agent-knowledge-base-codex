@@ -130,6 +130,55 @@ impl BenchmarkArtifacts {
         write_json_replace(&self.run_dir.join("summary.json"), summary)
     }
 
+    pub fn write_named_json<T: Serialize>(&self, name: &str, value: &T) -> Result<PathBuf> {
+        ensure!(
+            name.chars()
+                .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character)),
+            "unsafe artifact name"
+        );
+        let path = self.run_dir.join(format!("{name}.json"));
+        write_json_replace(&path, value)?;
+        Ok(path)
+    }
+
+    pub fn read_named_json<T: DeserializeOwned>(&self, name: &str) -> Result<T> {
+        ensure!(
+            name.chars()
+                .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character)),
+            "unsafe artifact name"
+        );
+        read_json(&self.run_dir.join(format!("{name}.json")))
+    }
+
+    pub fn write_immutable_file(&self, relative: &Path, bytes: &[u8]) -> Result<PathBuf> {
+        ensure!(
+            !relative.is_absolute()
+                && relative
+                    .components()
+                    .all(|component| !matches!(component, std::path::Component::ParentDir)),
+            "artifact path escaped run directory"
+        );
+        let path = self.run_dir.join(relative);
+        if path.is_file() {
+            ensure!(
+                fs::read(&path)? == bytes,
+                "immutable artifact {} changed",
+                path.display()
+            );
+            return Ok(path);
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        Ok(path)
+    }
+
     pub fn summary(&self) -> Result<BenchmarkSummary> {
         read_json(&self.run_dir.join("summary.json"))
     }

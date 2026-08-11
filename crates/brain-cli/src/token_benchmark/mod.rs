@@ -7,6 +7,7 @@ mod report;
 mod runner;
 mod statistics;
 mod usage;
+mod workflow;
 
 pub use artifacts::{BenchmarkArtifacts, RawArtifact, latest_summary};
 pub use grading::{export_grading_bundle, import_grades};
@@ -23,3 +24,7 @@ pub use runner::{
 };
 pub use statistics::{clustered_estimate, quality_estimate};
 pub use usage::{parse_claude_usage, parse_codex_usage};
+pub use workflow::{
+    BenchmarkPreflightOptions, BenchmarkRunPreview, build_report_from_artifacts,
+    preflight_benchmark, preview_benchmark_run,
+};
