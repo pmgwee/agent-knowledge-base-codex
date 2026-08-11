@@ -1,0 +1,1 @@
+{"model":"pinned-model","effort":"high","tools":{"codegraph":true},"hooks":{"agent_brain":{"command":"brain-hook"}},"mcp":{"agent_brain":{"command":"brain-mcp"}},"environment":{"BRAIN_PIPE_NAME":"agent-brain-benchmark-123"}}

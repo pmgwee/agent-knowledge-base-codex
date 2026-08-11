@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Result, ensure};
+use brain_domain::ProjectId;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -133,6 +135,24 @@ pub struct PlannedSample {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct RunManifest {
+    pub schema_version: u32,
+    pub run_id: Uuid,
+    pub project_id: ProjectId,
+    pub suite_id: String,
+    pub suite_sha256: String,
+    pub repository_commit: String,
+    pub brain_commit: String,
+    pub frozen_snapshot_sha256: String,
+    pub seed: u64,
+    pub repeats: u32,
+    pub bootstrap_resamples: u32,
+    pub claimable: bool,
+    pub created_at: String,
+    pub matrix: Vec<PlannedSample>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct NativeUsage {
     pub harness: BenchmarkHarness,
     pub input_tokens: u64,
@@ -148,10 +168,45 @@ pub struct NativeUsage {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
+pub enum SampleStatus {
+    Completed,
+    InvalidUsage,
+    HarnessFailure,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct SampleRecord {
+    pub schema_version: u32,
+    pub sample: PlannedSample,
+    pub status: SampleStatus,
+    pub attempt: u32,
+    pub native_usage: Option<NativeUsage>,
+    pub answer: String,
+    pub automated_test_passed: Option<bool>,
+    pub stdout_sha256: String,
+    pub stderr_sha256: String,
+    pub error: Option<String>,
+    pub completed_at: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum GradeOutcome {
     Pass,
     Partial,
     Fail,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct GradeRecord {
+    pub schema_version: u32,
+    pub opaque_id: String,
+    pub outcome: GradeOutcome,
+    pub critical_regression: bool,
+    pub reason: String,
+    pub grader: String,
+    pub grader_version: String,
+    pub graded_at: String,
 }
 
 impl GradeOutcome {
@@ -238,5 +293,18 @@ pub struct TokenBenchmarkReport {
     pub overall: Option<TokenEstimate>,
     pub overall_quality: Option<QualityEstimate>,
     pub harnesses: Vec<HarnessBenchmarkReport>,
+    pub validity_checks: Vec<ValidityCheck>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct BenchmarkSummary {
+    pub schema_version: u32,
+    pub run_id: Uuid,
+    pub status: BenchmarkStatus,
+    pub statement: String,
+    pub completed_at: String,
+    pub overall: Option<TokenEstimate>,
+    pub harnesses: Vec<HarnessBenchmarkReport>,
+    pub overall_quality: Option<QualityEstimate>,
     pub validity_checks: Vec<ValidityCheck>,
 }
