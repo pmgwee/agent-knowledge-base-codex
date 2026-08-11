@@ -25,6 +25,7 @@ mod revise;
 mod service;
 mod status;
 mod synthesize;
+mod token_benchmark;
 
 pub use config_panel::{
     BudgetContract, ConfigDashboard, CredentialBinding, HarnessWiring, McpWiring, ScheduledJob,
@@ -101,6 +102,7 @@ pub use synthesize::{
     survey as survey_synthesis,
 };
 pub use task::TaskCommands;
+pub use token_benchmark::*;
 
 mod task;
 pub use benchmark::{
