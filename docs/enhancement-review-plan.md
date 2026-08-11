@@ -755,7 +755,7 @@ global one.
 | 2 | ✅ **A14** — fix the A/B harness · ✅ **A9** — the merge checkpoint | done *while* the queue drains; neither spends quota |
 | 2b | ✅ **A6** verified in rendered pixels · ✅ **A9** ingest half | done; neither spends quota |
 | 3 | ✅ **Drain complete — 11 August, 05:01 UTC** | all three projects at 0 pending and 0 uncovered |
-| 4 | 🔄 Generate the remaining subject pages | unblocked. **148, not 93** — see below |
+| 4 | ✅ Generated — **126 of 150 current** | 189 writes over three passes. It does not reach zero on a live machine, and that is the design — see below |
 | 5 | ⚠️ Confirm 0 dead letters · ✅ embeddings caught up | **7 dead, and no retry fixes them** — see below |
 | 6 | ❌ ~~Run the interleaved 45-session A/B~~ | **superseded** — `token-ab.ps1` is a pilot, and its replacement is specified and unbuilt |
 | 7 | ❌ ~~Grade blind, then quote a percentage~~ | follows 6 |
@@ -768,15 +768,20 @@ while they are being written. Measured over the first pass: 30 jobs consolidated
 minutes it ran, adding 142 current memories (7,799 → 7,941), which invalidated **37 of the 123 pages
 that had just been written**.
 
-| After | Current | Needing prose |
-|---|---|---|
-| pass 1 (121 written) | 86 | 64 |
-| pass 2 (45 written) | 123 | 27 |
+| Pass | Attempted | Written | Current after | Still needing prose |
+|---|---|---|---|---|
+| 1 | 148 | 121 | 86 | 64 |
+| 2 | 64 | 45 | 123 | 27 |
+| 3 | 27 | 23 | **126** | 24 |
 
-It converges — the staleness rate falls as capture quiets — but **100% is not a reachable state
-while a session is open**. The honest target is a high steady-state fraction, and the honest
-operational shape is a scheduled pass on the same idle trigger the drain wants, not a person running
-it to zero.
+**189 page-writes to hold 126 pages.** Current memories went 7,799 → 8,027 across the three passes —
+228 new ones, all of them this session's own activity being captured and consolidated — and roughly
+one page fell stale for every four or five that arrived.
+
+It converges, and the third pass shows it slowing as capture quiets. But **100% is not a reachable
+state while a session is open**: the writer and the invalidator are the same machine. The honest
+target is a high steady-state fraction, and the honest operational shape is a scheduled pass on the
+same idle trigger the drain wants, not a person running it to zero.
 
 **And it was 148 subjects, not 93.** That count was never a backlog being worked off:
 `subject_synthesis` returns `None` the moment a subject's memory set changes, and the drain took this
@@ -909,6 +914,12 @@ subjects on 11 August is what exposed it:
 |---|---|---|---|---|
 | 1 | 148 | 121 | 27 | 26 (18%) |
 | 2 | 64 | 45 | 19 | 17 (27%) |
+| 3 | 27 | 23 | 4 | 2 (7%) |
+
+The rate is not a clean function of batch size — pass 2 was the worst on the smallest-but-one batch —
+so burst load is a plausible contributor rather than a demonstrated cause. What is certain is that a
+fifth of the calls in the two large passes failed at the connection, and nothing in the command
+responds to that.
 
 Nearly every refusal is `provider call failed: send GLM merge request` — a connection-level failure,
 not a rate limit and not the validator. `crates/brain-cli/src/synthesize.rs` contains **no** sleep,
