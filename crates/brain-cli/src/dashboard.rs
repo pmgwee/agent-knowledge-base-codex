@@ -9,6 +9,11 @@ use crate::config_panel::{ConfigDashboard, read_config_panel};
 use crate::deployment::{DeploymentDashboard, read_deployment};
 use crate::providers::provider_status;
 use crate::status::read_status;
+use crate::token_benchmark::{
+    BenchmarkSummary, ProductionTokenTrend, latest_summary, production_token_trend,
+};
+
+pub const DASHBOARD_SCHEMA_VERSION: u32 = 2;
 
 // ---------------------------------------------------------------------------
 // Snapshot structs — the single JSON document the dashboard consumes
@@ -132,6 +137,10 @@ pub struct ProjectDashboard {
     /// stayed invisible: the panel read "75 delivered" beside a green badge while Codex sat at zero
     /// on all three hooks for days. A total cannot show a harness that has stopped.
     pub delivery_channels: Vec<DeliveryChannel>,
+    /// Latest non-retired controlled result. Missing means no benchmark, never zero savings.
+    pub token_benchmark: Option<BenchmarkSummary>,
+    /// Native production counters with no counterfactual. Always explicitly observational.
+    pub production_tokens: ProductionTokenTrend,
 }
 
 /// What the brain's memories are doing, as opposed to how many there are.
@@ -358,6 +367,14 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
         let deliveries_7d = delivery_summary(&ledger, now - time::Duration::days(7));
         let deliveries_30d = delivery_summary(&ledger, now - time::Duration::days(30));
         let delivery_channels = delivery_channels(&ledger, now - time::Duration::days(7));
+        let token_benchmark = latest_summary(brain_home, project_id).unwrap_or(None);
+        let production_tokens = production_token_trend(&ledger, project_id, now).unwrap_or_else(
+            |_| ProductionTokenTrend {
+                observational: true,
+                statement: "Observational production usage is unavailable in this snapshot; no token-savings claim is implied.".to_owned(),
+                windows: Vec::new(),
+            },
+        );
 
         // Providers
         let providers = provider_status(brain_home, &project_id.0.to_string())
@@ -392,6 +409,8 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
             deliveries_7d,
             deliveries_30d,
             delivery_channels,
+            token_benchmark,
+            production_tokens,
         });
     }
 
@@ -408,7 +427,7 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
     let retrieval = read_retrieval(brain_home);
 
     Ok(DashboardSnapshot {
-        schema_version: 1,
+        schema_version: DASHBOARD_SCHEMA_VERSION,
         generated_at: now,
         brain_home: brain_home.to_path_buf(),
         service: ServiceDashboard {

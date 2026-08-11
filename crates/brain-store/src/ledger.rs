@@ -1,6 +1,6 @@
 use std::{cell::RefCell, path::Path};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use brain_domain::{
     CaptureGapRecord, EventBatch, EventType, Harness, NormalizedEvent, ProjectId,
     QuarantinedRecord, SchemaDriftRecord, SourceCursor, WorktreeId,
@@ -25,6 +25,16 @@ pub struct EventLedger {
     /// CPU, so it is a deliberate trade a caller makes rather than a capability that switches
     /// itself on because a file appeared on disk.
     pub(crate) reranker: Option<&'static crate::rerank::Reranker>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct NativeUsageEvent {
+    pub harness: Harness,
+    pub native_session_id: String,
+    pub occurred_at: time::OffsetDateTime,
+    pub source_locator: String,
+    pub source_offset: i64,
+    pub raw: serde_json::Value,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,6 +64,75 @@ pub struct StoredEvent {
 }
 
 impl EventLedger {
+    /// Raw provider usage records since a bounded time, scoped to this ledger's project.
+    ///
+    /// The `instr` predicates are only a read-volume guard. Callers still parse and validate the
+    /// native schema; this query never turns text matches into token claims.
+    pub fn native_usage_events(
+        &self,
+        project_id: ProjectId,
+        since: time::OffsetDateTime,
+    ) -> Result<Vec<NativeUsageEvent>> {
+        if project_id != self.project_scope {
+            bail!(
+                "ledger scoped to {}, cannot read native usage for {}",
+                self.project_scope.0,
+                project_id.0
+            );
+        }
+        let since_ns = i64::try_from(since.unix_timestamp_nanos())
+            .context("native usage time is outside SQLite range")?;
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT harness, native_session_id, occurred_at_ns, source_locator,
+                   source_offset, raw_json
+            FROM events
+            WHERE project_id = ?1
+              AND occurred_at_ns >= ?2
+              AND harness IN ('claude-code', 'codex')
+              AND (instr(raw_json, '"usage"') > 0 OR instr(raw_json, '"token_count"') > 0)
+            ORDER BY occurred_at_ns ASC, source_offset ASC
+            "#,
+        )?;
+        let rows = statement.query_map(params![project_id.0.to_string(), since_ns], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })?;
+        let mut events = Vec::new();
+        for row in rows {
+            let (harness, native_session_id, occurred_at_ns, source_locator, source_offset, raw) =
+                row?;
+            let harness = match harness.as_str() {
+                "claude-code" => Harness::ClaudeCode,
+                "codex" => Harness::Codex,
+                _ => continue,
+            };
+            let Some(occurred_at) =
+                time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(occurred_at_ns)).ok()
+            else {
+                continue;
+            };
+            let Ok(raw) = serde_json::from_str(&raw) else {
+                continue;
+            };
+            events.push(NativeUsageEvent {
+                harness,
+                native_session_id,
+                occurred_at,
+                source_locator,
+                source_offset,
+                raw,
+            });
+        }
+        Ok(events)
+    }
+
     pub const fn project_id(&self) -> ProjectId {
         self.project_scope
     }

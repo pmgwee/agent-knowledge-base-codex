@@ -1,0 +1,10 @@
+{
+  "harness": "claude_code",
+  "model": "glm-5.2",
+  "effort": "high",
+  "permissions": "benchmark_sandbox",
+  "tools": { "codegraph": true },
+  "hooks": {},
+  "mcp": {},
+  "environment": {}
+}

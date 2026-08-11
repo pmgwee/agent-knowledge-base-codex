@@ -13,9 +13,11 @@ brain-adapters = { path = "../brain-adapters" }
 brain-context = { path = "../brain-context" }
 brain-coordination = { path = "../brain-coordination" }
 brain-domain = { path = "../brain-domain" }
+brain-hook = { path = "../brain-hook" }
 brain-service = { path = "../brain-service" }
 brain-store = { path = "../brain-store" }
 clap.workspace = true
+csv.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -25,7 +27,6 @@ hex.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true
-brain-hook = { path = "../brain-hook" }
 rusqlite.workspace = true
 tempfile.workspace = true
 tokio.workspace = true

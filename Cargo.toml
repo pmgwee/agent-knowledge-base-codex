@@ -22,6 +22,7 @@ anyhow = "1"
 async-trait = "0.1"
 atomicwrites = "0.4"
 clap = { version = "4.5", features = ["derive"] }
+csv = "1"
 file-id = "0.2.3"
 fs2 = "0.4"
 hex = "0.4"

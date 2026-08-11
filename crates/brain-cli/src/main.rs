@@ -2,13 +2,16 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use brain_cli::{
-    AgentSourceOptions, BenchmarkProfile, RegisterOptions, ServiceInstallOptions, TaskCommands,
-    benchmark_corpus, configure_codegraph, configure_llm_wiki, disable_provider, index_codegraph,
-    install_claude_hooks, install_codex_hooks, install_windows_service, provider_status,
-    read_dashboard, read_diagnostics, read_hermes_status, read_status, rebuild_basic_memory,
-    rebuild_markdown, register_project_with_sources, remove_provider, source_fingerprint,
-    start_windows_service, stop_windows_service, uninstall_claude_hooks, uninstall_codex_hooks,
-    uninstall_windows_service, verify_projections, windows_service_status,
+    AgentSourceOptions, BenchmarkArtifacts, BenchmarkPreflightOptions, BenchmarkProfile,
+    RegisterOptions, ServiceInstallOptions, TaskCommands, benchmark_corpus,
+    build_report_from_artifacts, configure_codegraph, configure_llm_wiki, disable_provider,
+    execute_benchmark_run, export_grading_bundle, import_grades, index_codegraph,
+    install_claude_hooks, install_codex_hooks, install_windows_service, latest_summary,
+    preflight_benchmark, preview_benchmark_run, provider_status, read_dashboard, read_diagnostics,
+    read_hermes_status, read_status, rebuild_basic_memory, rebuild_markdown,
+    register_project_with_sources, remove_provider, source_fingerprint, start_windows_service,
+    stop_windows_service, uninstall_claude_hooks, uninstall_codex_hooks, uninstall_windows_service,
+    verify_projections, windows_service_status,
 };
 use brain_coordination::{ClaimKind, PathClaimInput, SessionIdentity};
 use brain_domain::{BrainConfig, Harness, ProjectId, ProjectRegistry};
@@ -380,12 +383,8 @@ enum Command {
         action: UpgradeCommand,
     },
     Benchmark {
-        #[arg(long, value_enum, default_value_t = CliBenchmarkProfile::Smoke)]
-        profile: CliBenchmarkProfile,
-        #[arg(long)]
-        output: PathBuf,
-        #[arg(long, default_value_t = 42)]
-        seed: u64,
+        #[command(subcommand)]
+        action: Box<BenchmarkCommand>,
     },
     Providers {
         #[command(subcommand)]
@@ -394,6 +393,112 @@ enum Command {
     Service {
         #[command(subcommand)]
         action: ServiceCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum BenchmarkCommand {
+    /// Preserve the original generated-corpus scale benchmark.
+    Scale {
+        #[arg(long, value_enum, default_value_t = CliBenchmarkProfile::Smoke)]
+        profile: CliBenchmarkProfile,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+    },
+    /// Validate and freeze one zero-cost benchmark run.
+    Preflight(Box<BenchmarkPreflightCommand>),
+    /// Preview by default. `--execute` is the only paid-session boundary.
+    Run {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        run: uuid::Uuid,
+        #[arg(long)]
+        execute: bool,
+    },
+    Grade {
+        #[command(subcommand)]
+        action: BenchmarkGradeCommand,
+    },
+    Report {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        run: uuid::Uuid,
+    },
+    Show {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        run: Option<uuid::Uuid>,
+    },
+    Retire {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        run: uuid::Uuid,
+        #[arg(long)]
+        reason: String,
+    },
+    /// Show native production usage as an observational trend, never a savings claim.
+    Production {
+        #[arg(long)]
+        project: String,
+    },
+}
+
+#[derive(Args)]
+struct BenchmarkPreflightCommand {
+    #[arg(long)]
+    project: String,
+    #[arg(long)]
+    suite: PathBuf,
+    #[arg(long)]
+    repository: PathBuf,
+    #[arg(long)]
+    snapshot_source: Option<PathBuf>,
+    #[arg(long)]
+    run_id: Option<uuid::Uuid>,
+    #[arg(long, default_value_t = 42)]
+    seed: u64,
+    #[arg(long, default_value_t = 5)]
+    repeats: u32,
+    #[arg(long)]
+    pilot: bool,
+    #[arg(long)]
+    claude_control_config: PathBuf,
+    #[arg(long)]
+    claude_treatment_config: PathBuf,
+    #[arg(long)]
+    codex_control_config: PathBuf,
+    #[arg(long)]
+    codex_treatment_config: PathBuf,
+    /// Immutable native launcher profiles used by both conditions.
+    #[arg(long)]
+    execution_templates: PathBuf,
+}
+
+#[derive(Subcommand)]
+enum BenchmarkGradeCommand {
+    Export {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        run: uuid::Uuid,
+    },
+    Import {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        run: uuid::Uuid,
+        #[arg(long)]
+        grades: PathBuf,
+        #[arg(long)]
+        grader: String,
+        #[arg(long)]
+        grader_version: String,
     },
 }
 
@@ -696,6 +801,15 @@ enum CliProviderKind {
 }
 
 fn main() -> Result<()> {
+    std::thread::Builder::new()
+        .name("brain-cli".to_owned())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(run)?
+        .join()
+        .map_err(|_| anyhow::anyhow!("brain CLI worker panicked"))?
+}
+
+fn run() -> Result<()> {
     let cli = Cli::parse();
     let brain_home = match cli.brain_home {
         Some(path) => path,
@@ -1785,17 +1899,142 @@ retired {retired} memories as tombstones"
                 UpgradeManager::stage(&brain_home, destination, time::OffsetDateTime::now_utc())?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
-        Command::Benchmark {
-            profile,
-            output,
-            seed,
-        } => {
-            let report = benchmark_corpus(output, profile.into(), seed)?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            if !report.passed {
-                anyhow::bail!("benchmark gates failed: {}", report.failures.join("; "));
+        Command::Benchmark { action } => match *action {
+            BenchmarkCommand::Scale {
+                profile,
+                output,
+                seed,
+            } => {
+                let report = benchmark_corpus(output, profile.into(), seed)?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                if !report.passed {
+                    anyhow::bail!("benchmark gates failed: {}", report.failures.join("; "));
+                }
             }
-        }
+            BenchmarkCommand::Preflight(arguments) => {
+                let BenchmarkPreflightCommand {
+                    project,
+                    suite,
+                    repository,
+                    snapshot_source,
+                    run_id,
+                    seed,
+                    repeats,
+                    pilot,
+                    claude_control_config,
+                    claude_treatment_config,
+                    codex_control_config,
+                    codex_treatment_config,
+                    execution_templates,
+                } = *arguments;
+                let report = preflight_benchmark(BenchmarkPreflightOptions {
+                    brain_home: brain_home.clone(),
+                    project_id: parse_project_id(&project)?,
+                    suite_path: suite,
+                    repository,
+                    snapshot_source,
+                    run_id,
+                    seed,
+                    repeats,
+                    pilot,
+                    claude_control_config,
+                    claude_treatment_config,
+                    codex_control_config,
+                    codex_treatment_config,
+                    execution_templates,
+                })?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                if !report.valid {
+                    anyhow::bail!("benchmark preflight failed");
+                }
+            }
+            BenchmarkCommand::Run {
+                project,
+                run,
+                execute,
+            } => {
+                let project = parse_project_id(&project)?;
+                let preview = if execute {
+                    execute_benchmark_run(&brain_home, project, run)?
+                } else {
+                    preview_benchmark_run(&brain_home, project, run, false)?
+                };
+                println!("{}", serde_json::to_string_pretty(&preview)?);
+            }
+            BenchmarkCommand::Grade { action } => match action {
+                BenchmarkGradeCommand::Export { project, run } => {
+                    let artifacts =
+                        BenchmarkArtifacts::new(&brain_home, parse_project_id(&project)?, run)?;
+                    let manifest = artifacts.manifest()?;
+                    let task_text = artifacts.read_named_json("grading-tasks")?;
+                    let exported = export_grading_bundle(&artifacts, &task_text, manifest.seed)?;
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "sheet": exported.sheet,
+                            "key": exported.key,
+                            "rows": exported.rows
+                        })
+                    );
+                }
+                BenchmarkGradeCommand::Import {
+                    project,
+                    run,
+                    grades,
+                    grader,
+                    grader_version,
+                } => {
+                    let artifacts =
+                        BenchmarkArtifacts::new(&brain_home, parse_project_id(&project)?, run)?;
+                    let graded_at = time::OffsetDateTime::now_utc()
+                        .format(&time::format_description::well_known::Rfc3339)?;
+                    let imported =
+                        import_grades(&artifacts, &grades, &grader, &grader_version, &graded_at)?;
+                    println!("{}", serde_json::json!({ "imported": imported }));
+                }
+            },
+            BenchmarkCommand::Report { project, run } => {
+                let report =
+                    build_report_from_artifacts(&brain_home, parse_project_id(&project)?, run)?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            }
+            BenchmarkCommand::Show { project, run } => {
+                let project_id = parse_project_id(&project)?;
+                let summary = if let Some(run) = run {
+                    Some(BenchmarkArtifacts::new(&brain_home, project_id, run)?.summary()?)
+                } else {
+                    latest_summary(&brain_home, project_id)?
+                };
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            }
+            BenchmarkCommand::Retire {
+                project,
+                run,
+                reason,
+            } => {
+                let artifacts =
+                    BenchmarkArtifacts::new(&brain_home, parse_project_id(&project)?, run)?;
+                artifacts.retire(&reason)?;
+                println!("{}", serde_json::json!({ "run_id": run, "retired": true }));
+            }
+            BenchmarkCommand::Production { project } => {
+                let project_id = parse_project_id(&project)?;
+                let config =
+                    ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+                let project = config
+                    .projects
+                    .iter()
+                    .find(|project| project.project_id == project_id)
+                    .context("project is not registered")?;
+                let ledger = EventLedger::open(&project.ledger_path, project_id)?;
+                let trend = brain_cli::production_token_trend(
+                    &ledger,
+                    project_id,
+                    time::OffsetDateTime::now_utc(),
+                )?;
+                println!("{}", serde_json::to_string_pretty(&trend)?);
+            }
+        },
         Command::Providers {
             action: ProviderCommand::Status { project },
         } => {

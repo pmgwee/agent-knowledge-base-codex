@@ -1,0 +1,10 @@
+{
+  "harness": "claude_code",
+  "model": "glm-5.2",
+  "effort": "high",
+  "permissions": "benchmark_sandbox",
+  "tools": { "codegraph": true },
+  "hooks": { "agent_brain": { "transport": "brain-hook.exe", "events": ["SessionStart", "UserPromptSubmit", "SessionEnd"] } },
+  "mcp": { "agent_brain": { "transport": "brain-mcp.exe", "scope": "depth_on_demand" } },
+  "environment": { "BRAIN_HOME": "{{frozen_brain_home}}", "BRAIN_PIPE_NAME": "{{pipe_name}}" }
+}

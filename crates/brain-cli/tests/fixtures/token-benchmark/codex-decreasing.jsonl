@@ -1,0 +1,2 @@
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":700,"cached_input_tokens":500,"output_tokens":200,"total_tokens":900}}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":600,"cached_input_tokens":400,"output_tokens":200,"total_tokens":800}}}}
