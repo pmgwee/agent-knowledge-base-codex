@@ -442,6 +442,11 @@ enum BenchmarkCommand {
         #[arg(long)]
         reason: String,
     },
+    /// Show native production usage as an observational trend, never a savings claim.
+    Production {
+        #[arg(long)]
+        project: String,
+    },
 }
 
 #[derive(Args)]
@@ -2007,6 +2012,23 @@ retired {retired} memories as tombstones"
                     BenchmarkArtifacts::new(&brain_home, parse_project_id(&project)?, run)?;
                 artifacts.retire(&reason)?;
                 println!("{}", serde_json::json!({ "run_id": run, "retired": true }));
+            }
+            BenchmarkCommand::Production { project } => {
+                let project_id = parse_project_id(&project)?;
+                let config =
+                    ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+                let project = config
+                    .projects
+                    .iter()
+                    .find(|project| project.project_id == project_id)
+                    .context("project is not registered")?;
+                let ledger = EventLedger::open(&project.ledger_path, project_id)?;
+                let trend = brain_cli::production_token_trend(
+                    &ledger,
+                    project_id,
+                    time::OffsetDateTime::now_utc(),
+                )?;
+                println!("{}", serde_json::to_string_pretty(&trend)?);
             }
         },
         Command::Providers {

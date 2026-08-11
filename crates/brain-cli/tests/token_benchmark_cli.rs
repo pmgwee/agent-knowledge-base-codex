@@ -19,6 +19,7 @@ fn benchmark_help_exposes_scale_and_token_workflows() {
         "report",
         "show",
         "retire",
+        "production",
     ] {
         assert!(text.contains(command), "missing {command}: {text}");
     }

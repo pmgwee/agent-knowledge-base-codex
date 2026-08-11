@@ -3,6 +3,7 @@ mod grading;
 mod matrix;
 mod model;
 mod preflight;
+mod production;
 mod report;
 mod runner;
 mod statistics;
@@ -16,6 +17,10 @@ pub use model::*;
 pub use preflight::{
     ConditionDiff, FrozenSnapshot, ProductionConfigHashes, compare_condition_configs,
     freeze_project_snapshot, hash_optional_file,
+};
+pub use production::{
+    HarnessProductionTokens, ProductionTokenTrend, ProductionTokenWindow, production_token_trend,
+    summarize_production_events,
 };
 pub use report::evaluate_benchmark;
 pub use runner::{

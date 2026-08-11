@@ -31,7 +31,7 @@ pub use config_panel::{
     BudgetContract, ConfigDashboard, CredentialBinding, HarnessWiring, McpWiring, ScheduledJob,
     read_config_panel,
 };
-pub use dashboard::{DashboardSnapshot, read_dashboard};
+pub use dashboard::{DASHBOARD_SCHEMA_VERSION, DashboardSnapshot, read_dashboard};
 pub use deployment::{
     DEPLOY_MANIFEST, DEPLOYED_BINARIES, DeployManifest, DeployStatus, DeployedBinary,
     DeploymentDashboard, read_deployment, read_head_commit, source_fingerprint,

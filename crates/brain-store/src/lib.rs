@@ -70,7 +70,7 @@ pub use jobs::{
     ConsolidationJob, ConsolidationQueue, ConsolidationReason, JobStatus, MAX_JOB_EVENTS,
     MAX_JOB_PAYLOAD_BYTES, RedactionManifestEntry,
 };
-pub use ledger::{AppendResult, EventLedger, StoredEvent};
+pub use ledger::{AppendResult, EventLedger, NativeUsageEvent, StoredEvent};
 pub use markdown::{
     MarkdownProjector, ProjectionReport, ProjectionVerification, project_vault_root,
 };
