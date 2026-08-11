@@ -15,8 +15,8 @@ check whether the reasoning held.
 
 **✅ shipped · ⚠️ open · ~~struck through~~ = the item is resolved and no longer applies.**
 
-**Everything still open is gated on one thing:** this project's consolidation queue reaching zero.
-Nothing that can be built without spending quota is waiting on it — see
+**The drain finished on 11 August at 05:01 UTC** — all three projects at 0 pending, 0 uncovered.
+What it unblocked, and the two steps it changed rather than merely released, are in
 [What is left, in the order it has to happen](#what-is-left-in-the-order-it-has-to-happen).
 
 ### The original seven, plus what the round added
@@ -754,13 +754,76 @@ global one.
 | 1 | ✅ **A13** — make consolidation concurrent | done first, because it moved every estimate after it |
 | 2 | ✅ **A14** — fix the A/B harness · ✅ **A9** — the merge checkpoint | done *while* the queue drains; neither spends quota |
 | 2b | ✅ **A6** verified in rendered pixels · ✅ **A9** ingest half | done; neither spends quota |
-| 3 | ⚠️ Generate the remaining 93 subject pages | this project reaches **0 pending** — their prose is keyed to an exact memory set, and consolidation is still changing it |
-| 4 | ⚠️ Confirm 0 dead letters, embeddings caught up | after 3 |
-| 5 | ⚠️ Run the interleaved 45-session A/B | after 4 |
-| 6 | ⚠️ Grade blind against the rubrics, *then* quote a percentage | after 5, and it is not optional — the token column cannot see a confidently wrong answer |
+| 3 | ✅ **Drain complete — 11 August, 05:01 UTC** | all three projects at 0 pending and 0 uncovered |
+| 4 | 🔄 Generate the remaining subject pages | unblocked. **148, not 93** — see below |
+| 5 | ⚠️ Confirm 0 dead letters · ✅ embeddings caught up | **7 dead, and no retry fixes them** — see below |
+| 6 | ❌ ~~Run the interleaved 45-session A/B~~ | **superseded** — `token-ab.ps1` is a pilot, and its replacement is specified and unbuilt |
+| 7 | ❌ ~~Grade blind, then quote a percentage~~ | follows 6 |
 
-Steps 3 and 5 are the only ones that spend quota, which is why they are last and why nothing above
-them had to wait for the queue.
+### The drain finished, and it changed two of the steps that were waiting on it
+
+**Step 4 is 148 subjects, not 93.** That count was never a backlog being worked off:
+`subject_synthesis` returns `None` the moment a subject's memory set changes, and the drain took this
+project from 632 to 7,799 current memories. Nearly every page that had prose now describes a set that
+no longer exists — `brain synthesize` reports **2 current, 148 needing prose**. This is the mechanism
+working as designed, and it is exactly why holding them back was right: generating them a day earlier
+would have invalidated all of them.
+
+**Step 5 cannot be met, and retrying is the wrong response.** Seven dead letters, two causes:
+
+| Cause | Count | Retryable |
+|---|---|---|
+| GLM emitting a malformed UUID — `invalid group count: expected 5, found 4` | 5 | **No.** Requests go out at `temperature: 0`, so a retry reproduces the same output. `1ca07ee8` is at **attempt 11** and has already proved it |
+| `memory version ID collision has different content or scope` | 2 | **No**, and this one is ours |
+
+The second is a design tension rather than a provider fault.
+`crates/brain-context/src/llm.rs:180` derives `version_id` from `(job_id, index)`:
+
+```rust
+version_id: deterministic_id(packet.job_id, index, b"version"),
+```
+
+That is deliberate — it makes a crash mid-append idempotent, since `append_memory` early-returns when
+the content matches. But it holds only while the provider answers identically on retry. When a job
+fails partway and retries, GLM answers slightly differently, memory `index` carries new content under
+the old id, and `append_memory` correctly refuses. Then it retries and refuses again, until the job
+dies. **Determinism bought idempotent replay at the cost of making retry-with-different-output
+unrecoverable.**
+
+Seven jobs out of 5,835, and no evidence is lost — the events are still in the ledger; those seven
+≤200-event windows simply were not distilled. The honest resolution is to accept them and record why.
+
+Embeddings, by contrast, are **fully caught up**: 100% of events vectorised in all three projects,
+memory vectors within ~1% of the version count and closing continuously.
+
+### Step 6 is superseded — `token-ab.ps1` is a pilot, and its replacement is specified
+
+`docs/superpowers/specs/2026-08-11-cross-harness-token-savings-benchmark-design.md` (`737b362`, spec
+only — 436 lines, no implementation) names this script's limits directly:
+
+> *"`scripts/token-ab.ps1` is a useful pilot but not the final instrument. It runs only Claude Code,
+> omits Claude cache-creation tokens, uses five historical question-answer tasks, writes the live
+> Claude settings file between conditions, and does not publish a durable benchmark result. It must
+> become a compatibility wrapper or be retired after the new orchestrator ships."*
+
+All of that is accurate, and two are things **A14 improved without eliminating**:
+
+| A14 did | The spec requires |
+|---|---|
+| Derive each condition from a pristine backup, assert it, restore in `finally` | **Never rewrite `~/.claude/settings.json` at all** — hash it before and after, fail the run if it changed |
+| Give each session an explicit `--session-id` so its footprint is findable | A **frozen brain snapshot** outside every registered project root, so benchmark sessions cannot become evidence at all |
+
+The spec is strictly stronger in both. A14 was not wasted — the `Set-Condition` defect it found was
+real, and a spec independently forbidding *any* settings rewrite corroborates the concern rather than
+contradicting it — but the 45-session run it was fixing should not now happen.
+
+The scale differs by an order of magnitude too: **30–50 tasks × ≥5 repeats × 2 harnesses**, against
+5 × 3 × 3 on one. A 45-session figure would be a pilot result, and the spec already classifies a
+pilot as explicitly non-claimable.
+
+**So the token-saving percentage stays unmeasured, and it is now a build task rather than a run
+task** — seven implementation steps before the spec's step 8, *"execute, grade and publish the first
+claimable benchmark only after an explicit operator action."*
 
 ---
 
