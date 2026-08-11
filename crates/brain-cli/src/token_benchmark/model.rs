@@ -65,10 +65,12 @@ pub struct BenchmarkTask {
     pub fixture_commit: String,
     pub allowed_files: Vec<String>,
     pub rubric: String,
+    pub reference_facts: Vec<String>,
     pub automated_check: Option<String>,
     pub critical_regression: String,
     pub combined_eligible: bool,
     pub max_turns: u32,
+    pub max_tool_calls: u32,
     pub timeout_seconds: u64,
 }
 
@@ -105,6 +107,11 @@ impl SuiteManifest {
                 task.id
             );
             ensure!(task.max_turns > 0, "task {} has no turn budget", task.id);
+            ensure!(
+                task.max_tool_calls > 0,
+                "task {} has no tool budget",
+                task.id
+            );
             ensure!(task.timeout_seconds > 0, "task {} has no timeout", task.id);
             *strata.entry(task.stratum).or_insert(0usize) += 1;
         }

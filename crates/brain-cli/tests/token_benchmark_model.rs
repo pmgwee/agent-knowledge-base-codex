@@ -19,10 +19,12 @@ fn suite_validation_requires_unique_balanced_tasks() {
                 fixture_commit: "0123456789abcdef0123456789abcdef01234567".to_owned(),
                 allowed_files: vec!["crates/**".to_owned()],
                 rubric: "rubrics/example.md".to_owned(),
+                reference_facts: vec!["A cited fact.".to_owned()],
                 automated_check: None,
                 critical_regression: "No materially false claim.".to_owned(),
                 combined_eligible: true,
                 max_turns: 8,
+                max_tool_calls: 20,
                 timeout_seconds: 600,
             });
         }
