@@ -762,7 +762,23 @@ global one.
 
 ### The drain finished, and it changed two of the steps that were waiting on it
 
-**Step 4 is 148 subjects, not 93.** That count was never a backlog being worked off:
+**Step 4 does not have a finish line, and that is the design.** `subject_synthesis` returns `None`
+the moment a subject's memory set changes — so on a machine that is still capturing, pages go stale
+while they are being written. Measured over the first pass: 30 jobs consolidated during the ~70
+minutes it ran, adding 142 current memories (7,799 → 7,941), which invalidated **37 of the 123 pages
+that had just been written**.
+
+| After | Current | Needing prose |
+|---|---|---|
+| pass 1 (121 written) | 86 | 64 |
+| pass 2 (45 written) | 123 | 27 |
+
+It converges — the staleness rate falls as capture quiets — but **100% is not a reachable state
+while a session is open**. The honest target is a high steady-state fraction, and the honest
+operational shape is a scheduled pass on the same idle trigger the drain wants, not a person running
+it to zero.
+
+**And it was 148 subjects, not 93.** That count was never a backlog being worked off:
 `subject_synthesis` returns `None` the moment a subject's memory set changes, and the drain took this
 project from 632 to 7,799 current memories. Nearly every page that had prose now describes a set that
 no longer exists — `brain synthesize` reports **2 current, 148 needing prose**. This is the mechanism
@@ -880,11 +896,37 @@ went from 632 to 7,799 current memories. The regenerating batch is **150 subject
 held-back decision paying off rather than failing: doing it a day earlier would have produced 63
 pages describing sets that no longer exist.
 
-### One resilience fix each, both from the same lesson
+### One resilience fix each, both from the same lesson — and the half of it that did not travel
 
 `brain revise --limit 8` lost all seven completed merges to a single transient timeout, because `?`
 propagated it. A provider failure is now that candidate's failure. `brain synthesize` was written
 with the same rule from the start.
+
+**That is the blast-radius half. The back-off half never reached either of them**, and running 148
+subjects on 11 August is what exposed it:
+
+| Pass | Attempted | Written | Refused | Transport failures |
+|---|---|---|---|---|
+| 1 | 148 | 121 | 27 | 26 (18%) |
+| 2 | 64 | 45 | 19 | 17 (27%) |
+
+Nearly every refusal is `provider call failed: send GLM merge request` — a connection-level failure,
+not a rate limit and not the validator. `crates/brain-cli/src/synthesize.rs` contains **no** sleep,
+no backoff and no provider-unavailability branch: it awaits each subject in turn and, on failure,
+records the refusal and immediately fires the next request. `max_retries` is 2 inside `GlmClient`,
+and a fifth of calls still fail.
+
+Consolidation never shows this, and the difference is instructive rather than coincidental. Its
+`WorkerOutcome::ProviderUnavailable(_) => break` stops the whole tick and returns two seconds later,
+so it is *inherently paced*; it also leaves the job untouched so the attempt is not consumed. Synthesis
+bursts at whatever rate the endpoint will accept connections, which is very likely why it stops
+accepting them.
+
+So the lesson generalised one level and stopped: **contain the blast radius** landed in all three
+commands; **stop pushing when the provider is struggling** landed only in the one that happened to
+need it first. A per-subject delay, or reusing `provider_unavailable` to pause the run rather than
+skip the subject, would recover roughly a fifth of every batch. Not fixed here — the pages converge
+under repeated passes, so this is a cost rather than a blocker.
 
 ### The A/B waited for the drain, and by the time the drain finished the instrument had changed
 
