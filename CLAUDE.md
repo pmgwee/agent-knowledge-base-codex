@@ -14,7 +14,7 @@ Rust 1.88.0 (MSVC, edition 2024), a 10-crate Cargo workspace producing four bina
 
 | Binary | Role |
 |---|---|
-| `brain.exe` | CLI — register, status, query, dashboard, service install |
+| `brain.exe` | CLI — register, status, query, dashboard, service install, `review` (A9's ingest gate) |
 | `brain-service.exe` | Background capture, consolidation, rediscovery. Runs as a Task Scheduler task. |
 | `brain-hook.exe` | Lifecycle hook for **both** harnesses — `SessionStart`, `SessionEnd`, `UserPromptSubmit`. Pushes over a named pipe. |
 | `brain-mcp.exe` | MCP stdio server for Codex. **Depth on demand, not delivery** — `brain_search`, `brain_timeline` and four others answer questions a push cannot anticipate. |
@@ -317,6 +317,15 @@ four minutes with the machine to itself, and capture resumes losslessly from its
 - **`current` means the memory's *latest* version, and that it is current.** Both halves. They were
   indistinguishable until the first supersession, and eleven queries had only the second — see
   `CURRENT_CLAIM` in `crates/brain-store/src/lib.rs`.
+- **Readability is an allowlist — `MemoryStatus::is_readable`, never an inline status match.** Three
+  read paths each carried the same *denylist*, "not `invalid` and not `superseded`":
+  `current_project_memories` (which feeds the session-start orientation, the Markdown projection and
+  `brain export`), `current_preferences`, and `resolve_memory_set`. That is correct only while there
+  are exactly three statuses, and it **fails open** the moment a fourth appears. A9 began writing
+  `Proposed` and all three promptly served memories no human had approved — a gate in name only, with
+  nothing about it looking wrong. `Conflict` is readable on purpose: it marks a claim that disagrees
+  with another, not one that is wrong, and retrieval already weights it down. **Adding a
+  `MemoryStatus` variant means deciding its readability in one place, not four.**
 - **Live state outranks memory.** Git, tests, and deployments are authoritative. Memory is
   evidence to verify, not instruction to follow.
 - **The context budget is a contract.** 1,000–1,500 tokens normal, 3,000 hard max, with
