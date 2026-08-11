@@ -1,0 +1,1395 @@
+<!DOCTYPE html>
+<!-- saved from url=(0160)file:///C:/Users/quekm/Desktop/projects/agent-worktrees/agent-knowledge-base-codex/design-and-create-architecture-v3-html-019feaa5/docs/architecture%20v3.2.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Secondary Brain — Architecture v3.2</title>
+
+<style>
+  :root {
+    --ground: #F2F5F7;
+    --surface: #FFFFFF;
+    --surface-2: #E9EEF1;
+    --border: #CBD6DD;
+    --border-firm: #9FB1BC;
+    --ink: #101A21;
+    --muted: #566B77;
+
+    --evidence: #2E6390;
+    --memory: #367A57;
+    --retrieval: #A96D08;
+    --vault: #9E4F35;
+    --planned: #78868F;
+
+    --evidence-wash: #E4EDF5;
+    --memory-wash: #E2F0E8;
+    --retrieval-wash: #FAEEDA;
+    --vault-wash: #F7E7E1;
+
+    --shadow: 0 1px 2px rgba(16, 26, 33, .06), 0 8px 24px -12px rgba(16, 26, 33, .18);
+
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0B1015;
+      --surface: #131C23;
+      --surface-2: #18242C;
+      --border: #26333C;
+      --border-firm: #3D5261;
+      --ink: #DCE7EE;
+      --muted: #8298A6;
+      --evidence: #63A0D0;
+      --memory: #63B189;
+      --retrieval: #E4A83F;
+      --vault: #D08265;
+      --planned: #7B8B96;
+      --evidence-wash: #14232F;
+      --memory-wash: #12261D;
+      --retrieval-wash: #2A2114;
+      --vault-wash: #2A1A15;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -14px rgba(0, 0, 0, .7);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0B1015; --surface: #131C23; --surface-2: #18242C;
+    --border: #26333C; --border-firm: #3D5261;
+    --ink: #DCE7EE; --muted: #8298A6;
+    --evidence: #63A0D0; --memory: #63B189; --retrieval: #E4A83F;
+    --vault: #D08265; --planned: #7B8B96;
+    --evidence-wash: #14232F; --memory-wash: #12261D;
+    --retrieval-wash: #2A2114; --vault-wash: #2A1A15;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -14px rgba(0, 0, 0, .7);
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F2F5F7; --surface: #FFFFFF; --surface-2: #E9EEF1;
+    --border: #CBD6DD; --border-firm: #9FB1BC;
+    --ink: #101A21; --muted: #566B77;
+    --evidence: #2E6390; --memory: #367A57; --retrieval: #A96D08;
+    --vault: #9E4F35; --planned: #78868F;
+    --evidence-wash: #E4EDF5; --memory-wash: #E2F0E8;
+    --retrieval-wash: #FAEEDA; --vault-wash: #F7E7E1;
+    --shadow: 0 1px 2px rgba(16, 26, 33, .06), 0 8px 24px -12px rgba(16, 26, 33, .18);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1360px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+  }
+
+  .wrap > *, figure, .delivery-stack { min-width: 0; }
+
+  header { display: flex; flex-direction: column; gap: 14px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(26px, 4.2vw, 40px);
+    font-weight: 600;
+    letter-spacing: -.02em;
+    line-height: 1.12;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .standfirst { max-width: 68ch; font-size: 16px; color: var(--muted); margin: 0; }
+
+  .stamp {
+    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+    border-top: 1px solid var(--border); padding-top: 12px; margin: 2px 0 0;
+  }
+
+  .rule { height: 1px; background: var(--border); border: 0; margin: 0; }
+
+  h2 {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 18px;
+  }
+
+  figure { margin: 0; display: flex; flex-direction: column; gap: 16px; }
+
+  .delivery-stack { display: grid; gap: 20px; }
+  .path-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin: 0;
+  }
+
+  .canvas {
+    overflow-x: auto;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    box-shadow: var(--shadow);
+  }
+
+  .canvas svg { display: block; min-width: 1280px; width: 100%; height: auto; }
+
+  figcaption { font-size: 14px; color: var(--muted); max-width: 76ch; }
+
+  .band-label { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; fill: var(--muted); }
+  .box-title  { font-family: var(--mono); font-size: 14px; font-weight: 600; fill: var(--ink); }
+  .box-sub    { font-family: var(--mono); font-size: 11.5px; fill: var(--muted); }
+  .edge-label { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+  .tag        { font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; }
+  .timeout-label { font-family: var(--mono); font-size: 11.5px; fill: var(--muted); }
+
+  .s-evidence  { fill: var(--evidence-wash);  stroke: var(--evidence); }
+  .s-memory    { fill: var(--memory-wash);    stroke: var(--memory); }
+  .s-retrieval { fill: var(--retrieval-wash); stroke: var(--retrieval); }
+  .s-vault     { fill: var(--vault-wash);     stroke: var(--vault); }
+  .s-plain     { fill: var(--surface-2);      stroke: var(--border-firm); }
+  .s-planned   { fill: none; stroke: var(--planned); stroke-dasharray: 5 4; }
+
+  .t-evidence  { fill: var(--evidence); }
+  .t-memory    { fill: var(--memory); }
+  .t-retrieval { fill: var(--retrieval); }
+  .t-vault     { fill: var(--vault); }
+  .t-planned   { fill: var(--planned); }
+
+  .flow      { stroke: var(--border-firm); stroke-width: 1.6; fill: none; }
+  .flow-warm { stroke: var(--retrieval);   stroke-width: 2;   fill: none; }
+  .flow-evidence { stroke: var(--evidence); stroke-width: 1.8; fill: none; }
+  .flow-memory { stroke: var(--memory); stroke-width: 1.8; fill: none; }
+  .flow-vault { stroke: var(--vault); stroke-width: 1.8; fill: none; }
+  .flow-soft { stroke: var(--planned); stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+
+  .plane-frame { fill: var(--surface); stroke-width: 1.5; }
+  .plane-evidence { stroke: var(--evidence); }
+  .plane-memory { stroke: var(--memory); }
+  .plane-retrieval { stroke: var(--retrieval); }
+  .plane-vault { stroke: var(--vault); }
+  .plane-optional { stroke: var(--planned); stroke-dasharray: 7 5; }
+  .plane-title { font-family: var(--mono); font-size: 13px; font-weight: 600; letter-spacing: .1em; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 22px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .chip { width: 22px; height: 10px; border-radius: 2px; border: 1.4px solid; display: inline-block; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: var(--shadow);
+  }
+
+  .card h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .stat {
+    font-family: var(--mono);
+    font-size: 27px;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+
+  .card p { margin: 0; font-size: 13.5px; color: var(--muted); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .table-scroll { overflow-x: auto; width: 100%; max-width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); box-shadow: var(--shadow); }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  thead th { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td:first-child { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+  .num { font-variant-numeric: tabular-nums; font-family: var(--mono); }
+  .win { color: var(--memory); font-weight: 600; }
+  .lose { color: var(--retrieval); font-weight: 600; }
+
+  .pill {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    padding: 2.5px 8px;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .pill.live { color: var(--memory); }
+  .pill.part { color: var(--retrieval); }
+  .pill.off  { color: var(--planned); }
+
+  code { font-family: var(--mono); font-size: .92em; background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+
+  .callout {
+    border-left: 2px solid var(--retrieval);
+    background: var(--surface);
+    border-radius: 0 6px 6px 0;
+    padding: 16px 18px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .callout h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .callout p { margin: 0; font-size: 13.5px; color: var(--muted); }
+  .callout-stack { display: flex; flex-direction: column; gap: 12px; }
+
+  @media (max-width: 640px) { .wrap { padding: 36px 16px 64px; gap: 36px; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Cross-agent persistent memory · Rust · Windows · local-only</div>
+    <h1>The secondary brain, end to end — v3.2</h1>
+    <p class="standfirst">
+      Every Claude Code and Codex session on this machine is captured to an append-only SQLite ledger on
+      <code>C:</code>, distilled by an LLM into cited memories, and projected to Markdown you can open in
+      Obsidian. Delivery is progressive: deterministic orientation at session start, memory-only retrieval
+      during a session, and deeper all-source retrieval on demand. Nothing in the brain leaves the machine
+      except the consolidation call.
+    </p>
+    <p class="stamp">
+      Correctness and legibility refresh 11 August 2026 · topology and source-pinned constants only ·
+      <strong>96.0% R@5 on the recorded 500-question LongMemEval-S run</strong><br>
+      Live values are intentionally read from the dashboard; per-item work status remains in <code>docs/status.md</code>.
+    </p>
+  </header>
+
+  <hr class="rule">
+
+  <figure id="diagram-a">
+    <h2>Diagram A · Full secondary-brain pipeline — end to end</h2>
+    <p class="standfirst" style="margin-bottom: 2px;">
+      The whole system in one view. Four planes separate persistent evidence, LLM-derived memory,
+      retrieval/delivery, and human-facing read models; the hook-specific mechanics are expanded in
+      Diagrams B–D.
+    </p>
+    <div class="canvas">
+      <svg viewBox="0 0 1280 1890" role="img" aria-label="Diagram A. Full secondary-brain pipeline end to end: Capture and Store feeds Consolidate and Organize. For SessionStart, recent ledger events supply a surrogate query to the memories-only shared search path. Memory BM25 is the single active list, RRF preserves its order as an identity fusion, and the bounded compiler combines that ranking with recent evidence and live state. Project and Observe reads without writing back; SessionEnd writes a boundary event.">
+
+        <defs>
+          <marker id="a-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--border-firm)"></path>
+          </marker>
+          <marker id="a-yellow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--retrieval)"></path>
+          </marker>
+          <marker id="a-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--evidence)"></path>
+          </marker>
+          <marker id="a-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--memory)"></path>
+          </marker>
+          <marker id="a-dash" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--planned)"></path>
+          </marker>
+        </defs>
+
+        <!-- PLANE 1 -->
+        <rect class="plane-frame plane-evidence" x="30" y="42" width="1220" height="330" rx="8"></rect>
+        <text class="plane-title t-evidence" x="50" y="72">1 · CAPTURE &amp; STORE — authoritative evidence plane</text>
+
+        <rect class="s-plain" x="50" y="100" width="200" height="80" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title" x="68" y="128">Claude Code</text>
+        <text class="box-sub" x="68" y="149">JSONL transcript</text>
+        <text class="box-sub" x="68" y="166">~/.claude/projects</text>
+
+        <rect class="s-plain" x="50" y="200" width="200" height="80" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title" x="68" y="228">Codex Desktop / CLI</text>
+        <text class="box-sub" x="68" y="249">JSONL transcript</text>
+        <text class="box-sub" x="68" y="266">~/.codex/sessions</text>
+
+        <rect class="s-evidence" x="300" y="135" width="300" height="110" rx="5" stroke-width="1.5"></rect>
+        <text class="box-title t-evidence" x="318" y="164">Transcript watcher</text>
+        <text class="box-sub" x="318" y="185">tails JSONL · source-keyed byte cursor</text>
+        <text class="box-sub" x="318" y="204">ownership from transcript cwd</text>
+        <text class="box-sub" x="318" y="223">capture does not depend on hooks</text>
+
+        <rect class="s-evidence" x="650" y="135" width="300" height="110" rx="5" stroke-width="1.6"></rect>
+        <text class="box-title t-evidence" x="668" y="164">Project-scoped SQLite ledger</text>
+        <text class="box-sub" x="668" y="185">append-only events · WAL · FTS5</text>
+        <text class="box-sub" x="668" y="204">project-scoped · append-only authority</text>
+        <text class="box-sub" x="668" y="223">supersede/tombstone; never rewrite</text>
+
+        <rect class="s-evidence" x="990" y="100" width="210" height="80" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title t-evidence" x="1008" y="128">Indexes + blobs</text>
+        <text class="box-sub" x="1008" y="149">384-dim vectors</text>
+        <text class="box-sub" x="1008" y="166">content-addressed</text>
+
+        <rect class="s-evidence" x="990" y="200" width="210" height="80" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title t-evidence" x="1008" y="228">Verified backup</text>
+        <text class="box-sub" x="1008" y="249">separate drive · GFS</text>
+        <text class="box-sub" x="1008" y="266">restore drill + SHA-256</text>
+
+        <path class="flow" d="M 250 140 L 294 172" marker-end="url(#a-arrow)"></path>
+        <path class="flow" d="M 250 240 L 294 208" marker-end="url(#a-arrow)"></path>
+        <path class="flow-evidence" d="M 600 190 L 644 190" marker-end="url(#a-blue)"></path>
+        <path class="flow-evidence" d="M 950 175 L 984 140" marker-end="url(#a-blue)"></path>
+        <path class="flow-evidence" d="M 950 205 L 984 240" marker-end="url(#a-blue)"></path>
+
+        <rect class="s-evidence" x="300" y="300" width="900" height="45" rx="4" stroke-width="1.2"></rect>
+        <text class="box-sub t-evidence" x="318" y="327">SessionEnd boundary event enters via Diagram D; transcript evidence remains authoritative if the write fails.</text>
+
+        <!-- PLANE 2 -->
+        <rect class="plane-frame plane-memory" x="30" y="425" width="1220" height="250" rx="8"></rect>
+        <text class="plane-title t-memory" x="50" y="455">2 · CONSOLIDATE &amp; ORGANIZE — evidence becomes cited memory</text>
+
+        <rect class="s-evidence" x="50" y="490" width="300" height="120" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title t-evidence" x="68" y="520">Bounded consolidation jobs</text>
+        <text class="box-sub" x="68" y="542">≤200 events · ≤400 KB</text>
+        <text class="box-sub" x="68" y="562">leased, retried and dead-lettered</text>
+        <text class="box-sub" x="68" y="582">live depth belongs on dashboard</text>
+        <text class="box-sub" x="68" y="600">never triggers retrieval itself</text>
+
+        <rect class="s-memory" x="460" y="490" width="300" height="120" rx="5" stroke-width="1.5"></rect>
+        <text class="box-title t-memory" x="478" y="520">GLM · Z.ai transformation</text>
+        <text class="box-sub" x="478" y="542">redacted evidence leaves machine</text>
+        <text class="box-sub" x="478" y="562">structured, cited interpretation</text>
+        <text class="box-sub" x="478" y="586">sole network egress</text>
+
+        <rect class="s-memory" x="850" y="490" width="350" height="120" rx="5" stroke-width="1.6"></rect>
+        <text class="box-title t-memory" x="868" y="520">Cited current memories</text>
+        <text class="box-sub" x="868" y="542">decision · constraint · procedure · failure</text>
+        <text class="box-sub" x="868" y="562">every claim cites event:&lt;uuid&gt;</text>
+        <text class="box-sub" x="868" y="586">current status required on every read</text>
+
+        <path class="flow-memory" d="M 350 550 L 454 550" marker-end="url(#a-green)"></path>
+        <path class="flow-memory" d="M 760 550 L 844 550" marker-end="url(#a-green)"></path>
+
+        <!-- CROSS-PLANE INPUTS -->
+        <path class="flow-evidence" d="M 250 372 L 250 419" marker-end="url(#a-blue)"></path>
+        <text class="edge-label t-evidence" x="265" y="402">queued evidence</text>
+
+        <path class="flow-memory" d="M 340 675 L 340 719" marker-end="url(#a-green)"></path>
+        <text class="edge-label t-memory" x="355" y="705">cited memories become searchable</text>
+
+        <path class="flow-evidence" d="M 1160 372 L 1220 372 L 1220 719"></path>
+        <text class="edge-label t-evidence" x="980" y="704">direct ledger evidence</text>
+
+        <!-- PLANE 3 -->
+        <rect class="plane-frame plane-retrieval" x="30" y="725" width="1220" height="640" rx="8"></rect>
+        <text class="plane-title t-retrieval" x="50" y="755">3 · RETRIEVE &amp; DELIVER — a request selects one consumer-specific path</text>
+
+        <rect class="s-plain" x="50" y="790" width="230" height="100" rx="5" stroke-width="1.5"></rect>
+        <text class="box-title" x="68" y="819">brain-hook.exe · lifecycle</text>
+        <text class="box-sub" x="68" y="840">SessionStart · UserPromptSubmit</text>
+        <text class="box-sub" x="68" y="859">SessionEnd · both harnesses</text>
+        <text class="box-sub" x="68" y="876">automatic transport · fails open</text>
+
+        <rect class="s-plain" x="300" y="790" width="250" height="100" rx="5" stroke-width="1.5"></rect>
+        <text class="box-title" x="318" y="819">brain-mcp.exe · on-demand</text>
+        <text class="box-sub" x="318" y="840">structured tools · same query core</text>
+        <text class="box-sub" x="318" y="859">Codex · live</text>
+        <text class="box-sub t-planned" x="318" y="876">Claude Desktop / VS Code · planned</text>
+
+        <rect class="s-plain" x="570" y="790" width="230" height="100" rx="5" stroke-width="1.5"></rect>
+        <text class="box-title" x="588" y="819">brain.exe CLI · fallback</text>
+        <text class="box-sub" x="588" y="840">manual fallback · available</text>
+        <text class="box-sub" x="588" y="859">both harnesses · same query core</text>
+        <text class="box-sub t-planned" x="588" y="876">automatic retry · planned</text>
+
+        <rect class="s-retrieval" x="820" y="790" width="380" height="100" rx="5" stroke-width="1.7"></rect>
+        <text class="box-title t-retrieval" x="838" y="819">Retrieval request router</text>
+        <text class="box-sub" x="838" y="840">SessionStart → one-list identity RRF + compiler</text>
+        <text class="box-sub" x="838" y="859">UserPromptSubmit → two-list RRF + gates</text>
+        <text class="box-sub" x="838" y="876">explicit pull → all-source RRF</text>
+
+        <path class="flow" d="M 165 890 L 165 905"></path>
+        <path class="flow" d="M 425 890 L 425 905"></path>
+        <path class="flow-soft" d="M 685 890 L 685 905"></path>
+        <path class="flow" d="M 165 905 L 805 905 L 805 840 L 814 840" marker-end="url(#a-arrow)"></path>
+
+        <rect class="s-plain" x="50" y="930" width="1150" height="35" rx="4" stroke-width="1.1"></rect>
+        <text class="edge-label" x="68" y="953">route selects: startup → Memory BM25 → identity RRF · prompt → two lists · history → all available lists</text>
+        <path class="flow-warm" d="M 1010 890 L 1010 924" marker-end="url(#a-yellow)"></path>
+
+        <rect class="s-retrieval" x="50" y="1010" width="210" height="85" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title t-retrieval" x="68" y="1038">Event BM25</text>
+        <text class="box-sub" x="68" y="1059">historical all-source only</text>
+        <text class="box-sub" x="68" y="1077">FTS5 · weight 0.4</text>
+
+        <rect id="a-memory-bm25" class="s-retrieval" x="280" y="1010" width="210" height="85" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title t-retrieval" x="298" y="1038">Memory BM25</text>
+        <text class="box-sub" x="298" y="1059">startup's single active list</text>
+        <text class="box-sub" x="298" y="1077">prompt/history · weight 0.4</text>
+
+        <rect class="s-retrieval" x="510" y="1010" width="210" height="85" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title t-retrieval" x="528" y="1038">Vector similarity</text>
+        <text class="box-sub" x="528" y="1059">prompt + historical pull</text>
+        <text class="box-sub" x="528" y="1077">384-dim · weight 0.6</text>
+
+        <rect class="s-retrieval" x="740" y="1010" width="210" height="85" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title t-retrieval" x="758" y="1038">Graph expansion</text>
+        <text class="box-sub" x="758" y="1059">historical all-source only</text>
+        <text class="box-sub" x="758" y="1077">event ↔ memory · weight 0.2</text>
+
+        <rect class="s-retrieval" x="990" y="1010" width="210" height="85" rx="5" stroke-width="1.6"></rect>
+        <text class="box-title t-retrieval" x="1008" y="1038">RRF fusion · k=60</text>
+        <text class="box-sub" x="1008" y="1059">startup: one list · identity</text>
+        <text class="box-sub" x="1008" y="1077">prompt/history: available lists</text>
+
+        <path class="flow-warm" d="M 155 1010 L 155 990"></path>
+        <path class="flow-warm" d="M 385 1010 L 385 990"></path>
+        <path class="flow-warm" d="M 615 1010 L 615 990"></path>
+        <path class="flow-warm" d="M 845 1010 L 845 990"></path>
+        <path class="flow-warm" d="M 155 990 L 1095 990 L 1095 1004" marker-end="url(#a-yellow)"></path>
+
+        <rect id="a-orientation-compiler" class="s-retrieval" x="50" y="1180" width="230" height="100" rx="5" stroke-width="1.7"></rect>
+        <text class="box-title t-retrieval" x="68" y="1207">Bounded orientation</text>
+        <text class="box-title t-retrieval" x="68" y="1224">compiler</text>
+        <text class="box-sub" x="68" y="1247">evidence + memory ranking</text>
+        <text class="box-sub" x="68" y="1266">live state · token-bounded</text>
+
+        <rect id="a-new-session-orientation" class="s-retrieval" x="300" y="1180" width="250" height="100" rx="5" stroke-width="1.7"></rect>
+        <text class="box-title t-retrieval" x="318" y="1207">New-session orientation</text>
+        <text class="box-sub" x="318" y="1232">compiled before model begins</text>
+        <text class="box-sub" x="318" y="1253">Diagram B · identity-RRF output</text>
+
+        <rect id="a-current-session-prompt-push" class="s-retrieval" x="570" y="1180" width="310" height="100" rx="5" stroke-width="1.7"></rect>
+        <text class="box-title t-retrieval" x="588" y="1207">Current-session prompt push</text>
+        <text class="box-sub" x="588" y="1232">Memory BM25 + Vector → two-list RRF</text>
+        <text class="box-sub" x="588" y="1253">≤400 tokens · gates · Diagram C</text>
+
+        <rect id="a-historical-results" class="s-retrieval" x="900" y="1180" width="300" height="100" rx="5" stroke-width="1.7"></rect>
+        <text class="box-title t-retrieval" x="918" y="1207">Historical results</text>
+        <text class="box-sub" x="918" y="1232">four channels → RRF · Diagram C</text>
+        <text class="box-sub" x="918" y="1253">MCP primary · CLI fallback</text>
+
+        <path id="a-ledger-to-startup-ranking" class="flow-evidence" d="M 1220 719 L 1220 1128 L 500 1128 L 500 1052 L 496 1052" marker-end="url(#a-blue)"></path>
+        <path id="a-ledger-to-orientation-compiler" class="flow-evidence" d="M 1220 719 L 1220 1148 L 245 1148 L 245 1174" marker-end="url(#a-blue)"></path>
+        <path id="a-rrf-to-orientation-compiler" class="flow-warm" d="M 1095 1095 L 1095 1136 L 165 1136 L 165 1174" marker-end="url(#a-yellow)"></path>
+        <path id="a-orientation-compiler-to-output" class="flow-warm" d="M 280 1230 L 294 1230" marker-end="url(#a-yellow)"></path>
+        <path class="flow-warm" d="M 1095 1095 L 1095 1112 L 725 1112 L 725 1174" marker-end="url(#a-yellow)"></path>
+        <path class="flow-warm" d="M 1095 1095 L 1095 1122 L 1050 1122 L 1050 1174" marker-end="url(#a-yellow)"></path>
+
+        <path class="flow-warm" d="M 425 1280 L 425 1315"></path>
+        <path class="flow-warm" d="M 725 1280 L 725 1315"></path>
+        <path class="flow-warm" d="M 1050 1280 L 1050 1315"></path>
+        <path class="flow-warm" d="M 425 1315 L 1218 1315" marker-end="url(#a-yellow)"></path>
+        <text class="edge-label t-retrieval" x="930" y="1335">selected context returns to the active agent →</text>
+
+        <path class="flow-evidence" d="M 50 840 L 16 840 L 16 335 L 294 335" marker-end="url(#a-blue)"></path>
+        <text class="edge-label t-evidence" x="38" y="320">SessionEnd boundary → Capture &amp; Store</text>
+
+        <!-- PLANE 4 -->
+        <rect class="plane-frame plane-vault" x="30" y="1415" width="1220" height="260" rx="8"></rect>
+        <text class="plane-title t-vault" x="50" y="1445">4 · PROJECT &amp; OBSERVE — read-only human-facing views</text>
+        <text class="edge-label t-planned" x="680" y="1445">reads ledger + memories · writes nothing back to planes 1–3</text>
+
+        <rect class="s-vault" x="50" y="1490" width="260" height="120" rx="5" stroke-width="1.5"></rect>
+        <text class="box-title t-vault" x="68" y="1520">MarkdownProjector</text>
+        <text class="box-sub" x="68" y="1542">current-memory notes</text>
+        <text class="box-sub" x="68" y="1561">content-addressed generations</text>
+        <text class="box-sub" x="68" y="1585">every 5 s if changed</text>
+
+        <rect class="s-vault" x="350" y="1490" width="260" height="120" rx="5" stroke-width="1.5"></rect>
+        <text class="box-title t-vault" x="368" y="1520">Wikilinks + subjects</text>
+        <text class="box-sub" x="368" y="1542">shared evidence + supersession</text>
+        <text class="box-sub" x="368" y="1561">optional cited synthesis prose</text>
+        <text class="box-sub" x="368" y="1585">human-readable structure</text>
+
+        <rect class="s-vault" x="650" y="1490" width="260" height="120" rx="5" stroke-width="1.5"></rect>
+        <text class="box-title t-vault" x="668" y="1520">Obsidian vault</text>
+        <text class="box-sub" x="668" y="1542">generated/ rebuildable</text>
+        <text class="box-sub" x="668" y="1561">notes/ human-owned</text>
+        <text class="box-sub" x="668" y="1585">graph view over cited claims</text>
+
+        <rect class="s-plain" x="950" y="1490" width="250" height="120" rx="5" stroke-width="1.5"></rect>
+        <text class="box-title" x="968" y="1520">Read-only dashboard</text>
+        <text class="box-sub" x="968" y="1542">service · deployment · storage</text>
+        <text class="box-sub" x="968" y="1561">retrieval · jobs · provenance</text>
+        <text class="box-sub" x="968" y="1585">30 s cache · shells to brain.exe</text>
+
+        <path class="flow-vault" d="M 310 1550 L 344 1550" marker-end="url(#a-arrow)"></path>
+        <path class="flow-vault" d="M 610 1550 L 644 1550" marker-end="url(#a-arrow)"></path>
+        <path class="flow-soft" d="M 910 1550 L 944 1550" marker-end="url(#a-dash)"></path>
+
+        <path class="flow-soft" d="M 16 340 L 16 1470 L 30 1470" marker-end="url(#a-dash)"></path>
+        <path class="flow-soft" d="M 16 600 L 16 1470"></path>
+        <text class="edge-label t-planned" x="48" y="1395">read-only ledger + cited memories → projection and metrics</text>
+
+        <!-- OPTIONAL / ALONGSIDE -->
+        <rect class="plane-frame plane-optional" x="30" y="1725" width="1220" height="135" rx="8"></rect>
+        <text class="plane-title t-planned" x="50" y="1755">ALONGSIDE / OPTIONAL / GENUINELY LEFT — not a fifth pipeline step</text>
+
+        <rect class="s-evidence" x="50" y="1780" width="260" height="60" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title t-evidence" x="68" y="1807">CodeGraph · current truth</text>
+        <text class="box-sub" x="68" y="1827">live code index · both agents</text>
+
+        <rect class="s-planned" x="340" y="1780" width="280" height="60" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title t-planned" x="358" y="1807">Backlog + subject synthesis</text>
+        <text class="box-sub t-planned" x="358" y="1827">live values: dashboard + docs/status.md</text>
+
+        <rect class="s-planned" x="650" y="1780" width="260" height="60" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title t-planned" x="668" y="1807">Measured token savings</text>
+        <text class="box-sub t-planned" x="668" y="1827">paired · quality-gated · explicit run</text>
+
+        <rect class="s-memory" x="940" y="1780" width="260" height="60" rx="5" stroke-width="1.4"></rect>
+        <text class="box-title t-memory" x="958" y="1807">A9 shipped · both halves</text>
+        <text class="box-sub t-memory" x="958" y="1827">merge review + ingest gate · off by default</text>
+      </svg>
+    </div>
+
+    <div class="legend">
+      <span><i class="chip" style="background: var(--evidence-wash); border-color: var(--evidence);"></i> Raw evidence — mechanical, authoritative</span>
+      <span><i class="chip" style="background: var(--memory-wash); border-color: var(--memory);"></i> Derived memory — LLM interpretation, cited</span>
+      <span><i class="chip" style="background: var(--retrieval-wash); border-color: var(--retrieval);"></i> Retrieval and delivery</span>
+      <span><i class="chip" style="background: var(--vault-wash); border-color: var(--vault);"></i> Markdown projection</span>
+      <span><i class="chip" style="background: var(--surface-2); border-color: var(--border-firm);"></i> Runtime / control — routes or executes; not stored knowledge</span>
+      <span><i class="chip" style="border-color: var(--planned); border-style: dashed;"></i> Not running, deferred, or off by decision</span>
+    </div>
+
+    <figcaption>
+      <strong>This is the full secondary-brain pipeline, not a strict one-way queue.</strong> Capture
+      and Store feeds consolidation, but recent ledger events also supply SessionStart’s surrogate
+      query to <code>search()</code> with <code>memories_only()</code>. Memory BM25 is the single active
+      retrieval list on this hook path, and the common RRF step is therefore an identity ordering.
+      Recent evidence separately enters the Bounded orientation compiler, where it joins that ranking and live state before producing the New-session
+      orientation. Consolidation adds cited memories as another retrieval input.
+      <br><br>
+      <strong>Retrieval is invoked, never caused by consolidation.</strong> Automatic hook callers and
+      explicit MCP/CLI callers choose a consumer-specific path. Diagram B expands the evidence-derived
+      one-list identity RRF startup ranking; Diagram C expands the two-list prompt path and four-channel historical
+      pull; Diagram D expands the boundary write.
+      <br><br>
+      <strong>Project and Observe is a read-only side plane.</strong> Markdown and dashboard views read
+      the same evidence and memories without triggering capture, consolidation or delivery. CodeGraph
+      remains alongside the brain because it indexes current code rather than historical memory.
+    </figcaption>
+  </figure>
+
+  <hr class="rule">
+
+  <section id="hookcycles">
+    <h2>Hookcycle paths — three hooks, three different jobs</h2>
+    <p class="standfirst" style="margin-bottom: 18px;">
+      The same persistent ledger serves all three hooks, but their behavior is intentionally different:
+      SessionStart derives a surrogate query from recent evidence and runs a one-list identity RRF over Memory BM25;
+      UserPromptSubmit fuses Memory BM25 and Vector lists before applying delivery gates; SessionEnd
+      writes the boundary that closes the episode.
+    </p>
+
+    <div class="delivery-stack">
+      <figure id="diagram-b">
+        <h3 class="path-title">Diagram B · SessionStart push hookcycle — deterministic orientation</h3>
+        <div class="canvas">
+          <svg viewBox="0 0 1280 470" role="img" aria-label="Diagram B. SessionStart push hookcycle: SessionStart resolves the project, reads recent ledger events, derives a surrogate query, calls the common memories-only search path, and runs RRF with Memory BM25 as its single active list. The identity-ordered ranking joins evidence and live state in the bounded compiler before the New-session orientation is pushed.">
+            <defs>
+              <marker id="b-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--border-firm)"></path>
+              </marker>
+              <marker id="b-yellow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--retrieval)"></path>
+              </marker>
+            </defs>
+
+            <text class="band-label" x="40" y="30">REQUEST + STARTUP RELEVANCE — NO NEW USER PROMPT EXISTS YET</text>
+
+            <rect class="s-plain" x="40" y="50" width="120" height="126" rx="5" stroke-width="1.4"></rect>
+            <text class="box-title" x="58" y="84">New session</text>
+            <text class="box-title" x="58" y="103">or resume</text>
+            <text class="box-sub" x="58" y="128">Claude or Codex</text>
+            <text class="box-sub" x="58" y="147">before model</text>
+
+            <path class="flow" d="M 160 113 L 174 113" marker-end="url(#b-arrow)"></path>
+
+            <rect class="s-plain" x="180" y="44" width="210" height="138" rx="5" stroke-width="1.5"></rect>
+            <text class="box-title" x="198" y="68">brain-hook.exe</text>
+            <text class="box-sub" x="198" y="91">SessionStart · both</text>
+            <text class="timeout-label" x="198" y="113">outer: Claude 10 s</text>
+            <text class="timeout-label" x="198" y="135">outer: Codex 15 s</text>
+            <text class="timeout-label" x="198" y="157">internal: 3 s fail-open</text>
+
+            <path class="flow" d="M 390 113 L 404 113" marker-end="url(#b-arrow)"></path>
+
+            <rect class="s-plain" x="410" y="50" width="130" height="126" rx="5" stroke-width="1.4"></rect>
+            <text class="box-title" x="428" y="84">Resolve</text>
+            <text class="box-title" x="428" y="103">project</text>
+            <text class="box-sub" x="428" y="128">cwd → one root</text>
+            <text class="box-sub" x="428" y="147">isolation locked</text>
+
+            <path class="flow-evidence" d="M 540 113 L 554 113" marker-end="url(#a-blue)"></path>
+
+            <rect class="s-evidence" x="560" y="50" width="165" height="126" rx="5" stroke-width="1.6"></rect>
+            <text class="box-title t-evidence" x="578" y="84">Recent events</text>
+            <text class="box-sub" x="578" y="109">chronological</text>
+            <text class="box-sub" x="578" y="128">project scoped</text>
+            <text class="box-sub" x="578" y="147">authoritative</text>
+
+            <path class="flow-warm" d="M 725 113 L 739 113" marker-end="url(#b-yellow)"></path>
+
+            <rect class="s-retrieval" x="745" y="50" width="165" height="126" rx="5" stroke-width="1.6"></rect>
+            <text class="box-title t-retrieval" x="763" y="84">Surrogate query</text>
+            <text class="box-sub" x="763" y="109">recent text supplies</text>
+            <text class="box-sub" x="763" y="128">startup relevance</text>
+            <text class="box-sub" x="763" y="147">before a prompt</text>
+
+            <path class="flow-warm" d="M 910 113 L 924 113" marker-end="url(#b-yellow)"></path>
+
+            <rect class="s-retrieval" x="930" y="50" width="135" height="126" rx="5" stroke-width="1.7"></rect>
+            <text class="box-title t-retrieval" x="948" y="84">Memory BM25</text>
+            <text class="box-sub" x="948" y="109">memory scope</text>
+            <text class="box-sub" x="948" y="128">vector off</text>
+            <text class="box-sub" x="948" y="147">single list</text>
+
+            <path class="flow-warm" d="M 1065 113 L 1079 113" marker-end="url(#b-yellow)"></path>
+
+            <rect class="s-retrieval" x="1085" y="50" width="155" height="126" rx="5" stroke-width="1.7"></rect>
+            <text class="box-title t-retrieval" x="1103" y="84">One-list RRF</text>
+            <text class="box-sub" x="1103" y="109">k=60 · rank path</text>
+            <text class="box-sub" x="1103" y="128">identity order</text>
+            <text class="box-sub" x="1103" y="147">same search()</text>
+
+            <text class="band-label" x="40" y="236">COMPILE + DELIVER — RANKED MEMORY JOINS EVIDENCE AND LIVE STATE</text>
+
+            <rect class="s-evidence" x="40" y="260" width="220" height="118" rx="5" stroke-width="1.5"></rect>
+            <text class="box-title t-evidence" x="58" y="290">Live state</text>
+            <text class="box-sub" x="58" y="315">Git head · branch · dirty</text>
+            <text class="box-sub" x="58" y="334">task · claims · leases</text>
+            <text class="box-sub" x="58" y="353">mechanical current truth</text>
+
+            <rect class="s-memory" x="290" y="260" width="240" height="118" rx="5" stroke-width="1.5"></rect>
+            <text class="box-title t-memory" x="308" y="290">Current cited memories</text>
+            <text class="box-sub" x="308" y="315">all current memories loaded</text>
+            <text class="box-sub" x="308" y="334">identity-RRF rank reorders</text>
+            <text class="box-sub" x="308" y="353">unranked memories remain eligible</text>
+
+            <rect class="s-retrieval" x="580" y="260" width="300" height="118" rx="5" stroke-width="1.7"></rect>
+            <text class="box-title t-retrieval" x="598" y="290">Bounded orientation compiler</text>
+            <text class="box-sub" x="598" y="315">recent evidence + ranked memories</text>
+            <text class="box-sub" x="598" y="334">preferences + live state</text>
+            <text class="box-sub" x="598" y="353">1,000–1,500 normal · 3,000 hard max</text>
+
+            <rect class="s-retrieval" x="930" y="260" width="310" height="118" rx="5" stroke-width="1.8"></rect>
+            <text class="box-title t-retrieval" x="948" y="290">New-session orientation</text>
+            <text class="box-sub" x="948" y="315">pushed before model begins</text>
+            <text class="box-sub" x="948" y="334">every included fact is cited</text>
+            <text class="box-sub" x="948" y="353">one-list identity RRF upstream</text>
+
+            <path class="flow-evidence" d="M 150 378 L 150 400 L 560 400 L 560 319 L 574 319" marker-end="url(#a-blue)"></path>
+            <path class="flow-memory" d="M 530 344 L 574 344" marker-end="url(#a-green)"></path>
+            <path class="flow-warm" d="M 1163 176 L 1163 215 L 410 215 L 410 254" marker-end="url(#b-yellow)"></path>
+            <path class="flow-evidence" d="M 655 170 L 655 254" marker-end="url(#a-blue)"></path>
+            <path class="flow-warm" d="M 880 319 L 924 319" marker-end="url(#b-yellow)"></path>
+
+            <rect class="s-planned" x="220" y="410" width="840" height="42" rx="5" stroke-width="1.2"></rect>
+            <text class="box-sub t-planned" x="238" y="436">The shared search path runs RRF; with one active Memory BM25 list, fusion preserves that list's order.</text>
+          </svg>
+        </div>
+      </figure>
+
+      <figure id="diagram-c">
+        <h3 class="path-title">Diagram C · UserPromptSubmit push hookcycle — selective push, then optional depth</h3>
+        <div class="canvas">
+          <svg viewBox="0 0 1280 620" role="img" aria-label="Diagram C. UserPromptSubmit push hookcycle: the automatic path retrieves memories through Memory BM25 and vector similarity, fuses two ranked lists, applies delivery gates, and may deliver the Current-session prompt push. A separate explicit path uses brain-mcp as primary on-demand access with brain CLI fallback, runs the four-channel historical pull, returns historical results, resolves evidence, and verifies current truth.">
+            <defs>
+              <marker id="c-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--border-firm)"></path>
+              </marker>
+              <marker id="c-yellow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--retrieval)"></path>
+              </marker>
+            </defs>
+
+            <text class="band-label" x="40" y="30">AUTOMATIC PUSH — TWO RETRIEVAL LISTS · HEALTHY SILENCE IS VALID</text>
+
+            <rect class="s-plain" x="40" y="54" width="120" height="118" rx="5" stroke-width="1.4"></rect>
+            <text class="box-title" x="58" y="84">Prompt</text>
+            <text class="box-sub" x="58" y="109">same project</text>
+            <text class="box-sub" x="58" y="128">live session</text>
+            <text class="box-sub" x="58" y="147">≥24 characters</text>
+
+            <path class="flow" d="M 160 113 L 184 113" marker-end="url(#c-arrow)"></path>
+
+            <rect class="s-plain" x="190" y="48" width="210" height="130" rx="5" stroke-width="1.5"></rect>
+            <text class="box-title" x="208" y="68">brain-hook.exe</text>
+            <text class="box-sub" x="208" y="91">UserPromptSubmit · both</text>
+            <text class="timeout-label" x="208" y="113">outer: Claude 10 s</text>
+            <text class="timeout-label" x="208" y="135">outer: Codex 15 s</text>
+            <text class="timeout-label" x="208" y="157">internal: 3 s fail-open</text>
+
+            <path class="flow-warm" d="M 400 113 L 414 113" marker-end="url(#c-yellow)"></path>
+
+            <rect class="s-retrieval" x="420" y="54" width="190" height="118" rx="5" stroke-width="1.7"></rect>
+            <text class="box-title t-retrieval" x="438" y="84">Memory BM25</text>
+            <text class="box-title t-retrieval" x="438" y="103">+ Vector</text>
+            <text class="box-sub" x="438" y="128">memories_only()</text>
+            <text class="box-sub" x="438" y="147">two lists · graph none</text>
+
+            <path class="flow-warm" d="M 610 113 L 624 113" marker-end="url(#c-yellow)"></path>
+
+            <rect class="s-retrieval" x="630" y="54" width="150" height="118" rx="5" stroke-width="1.6"></rect>
+            <text class="box-title t-retrieval" x="648" y="84">two-list RRF</text>
+            <text class="box-sub" x="648" y="109">k=60 · by rank</text>
+            <text class="box-sub" x="648" y="128">not raw scores</text>
+            <text class="box-sub" x="648" y="147">rerank off</text>
+
+            <path class="flow-warm" d="M 780 113 L 794 113" marker-end="url(#c-yellow)"></path>
+
+            <rect class="s-retrieval" x="800" y="54" width="180" height="118" rx="5" stroke-width="1.5"></rect>
+            <text class="box-title t-retrieval" x="818" y="84">Delivery gates</text>
+            <text class="box-sub" x="818" y="109">exclude pushed</text>
+            <text class="box-sub" x="818" y="128">vocabulary floor</text>
+            <text class="box-sub" x="818" y="147">≤4 · ≤400 tokens</text>
+
+            <path class="flow-warm" d="M 980 113 L 994 113" marker-end="url(#c-yellow)"></path>
+
+            <rect class="s-retrieval" x="1000" y="54" width="240" height="118" rx="5" stroke-width="1.8"></rect>
+            <text class="box-title t-retrieval" x="1018" y="84">Current-session</text>
+            <text class="box-title t-retrieval" x="1018" y="103">prompt push</text>
+            <text class="box-sub" x="1018" y="128">newly useful memory</text>
+            <text class="box-sub" x="1018" y="147">each arrives once</text>
+            <text class="box-sub" x="1018" y="166">or healthy silence</text>
+
+            <text class="band-label" x="40" y="252">EXPLICIT DEPTH — MCP PRIMARY, CLI FALLBACK, SAME QUERY SERVICE</text>
+            <path class="flow-soft" d="M 1120 172 L 1120 216 L 105 216 L 105 294" marker-end="url(#c-arrow)"></path>
+
+            <rect class="s-plain" x="40" y="300" width="130" height="126" rx="5" stroke-width="1.4"></rect>
+            <text class="box-title" x="58" y="330">Need deeper</text>
+            <text class="box-title" x="58" y="349">history?</text>
+            <text class="box-sub" x="58" y="374">claim · timeline</text>
+            <text class="box-sub" x="58" y="393">conflict · proof</text>
+
+            <path class="flow" d="M 170 363 L 189 363" marker-end="url(#c-arrow)"></path>
+
+            <rect class="s-plain" x="195" y="300" width="200" height="126" rx="5" stroke-width="1.6"></rect>
+            <text class="box-title" x="213" y="330">brain-mcp.exe</text>
+            <text class="box-title" x="213" y="349">primary on-demand</text>
+            <text class="box-sub" x="213" y="374">Codex · live</text>
+            <text class="box-sub t-planned" x="213" y="393">Claude Code · planned</text>
+            <text class="box-sub" x="213" y="412">structured tools</text>
+
+            <path class="flow-warm" d="M 395 363 L 414 363" marker-end="url(#c-yellow)"></path>
+
+            <rect class="s-retrieval" x="420" y="300" width="230" height="126" rx="5" stroke-width="1.8"></rect>
+            <text class="box-title t-retrieval" x="438" y="330">On-demand historical pull</text>
+            <text class="box-sub" x="438" y="355">Event BM25 · Memory BM25</text>
+            <text class="box-sub" x="438" y="374">Vector · Graph expansion</text>
+            <text class="box-sub" x="438" y="393">all-source RRF · rerank off</text>
+            <text class="box-sub" x="438" y="412">explicit request · no hook</text>
+
+            <path class="flow-warm" d="M 650 363 L 669 363" marker-end="url(#c-yellow)"></path>
+
+            <rect class="s-retrieval" x="675" y="300" width="170" height="126" rx="5" stroke-width="1.6"></rect>
+            <text class="box-title t-retrieval" x="693" y="330">Historical results</text>
+            <text class="box-sub" x="693" y="355">ranked events</text>
+            <text class="box-sub" x="693" y="374">+ cited memories</text>
+            <text class="box-sub" x="693" y="393">bounded response</text>
+
+            <path class="flow-evidence" d="M 845 363 L 864 363" marker-end="url(#a-blue)"></path>
+
+            <rect class="s-evidence" x="870" y="300" width="170" height="126" rx="5" stroke-width="1.5"></rect>
+            <text class="box-title t-evidence" x="888" y="330">Resolve cited</text>
+            <text class="box-title t-evidence" x="888" y="349">evidence</text>
+            <text class="box-sub" x="888" y="374">search · timeline</text>
+            <text class="box-sub" x="888" y="393">event byte offsets</text>
+            <text class="box-sub" x="888" y="412">claims · coordination</text>
+
+            <path class="flow-evidence" d="M 1040 363 L 1059 363" marker-end="url(#a-blue)"></path>
+
+            <rect class="s-evidence" x="1065" y="300" width="175" height="126" rx="5" stroke-width="1.5"></rect>
+            <text class="box-title t-evidence" x="1083" y="330" style="font-size: 12px;">Verify current truth</text>
+            <text class="box-sub" x="1083" y="355">CodeGraph · files</text>
+            <text class="box-sub" x="1083" y="374">Git · tests · deploy</text>
+            <text class="box-sub" x="1083" y="393">memory is evidence,</text>
+            <text class="box-sub" x="1083" y="412">not current code</text>
+
+            <rect class="s-planned" x="195" y="486" width="250" height="100" rx="5" stroke-width="1.5"></rect>
+            <text class="box-title t-planned" x="213" y="516">brain.exe CLI · fallback</text>
+            <text class="box-sub" x="213" y="541">manual fallback · available</text>
+            <text class="box-sub" x="213" y="560">same BrainQueryService</text>
+            <text class="box-sub t-planned" x="213" y="579">automatic retry · planned</text>
+
+            <path class="flow-soft" d="M 295 426 L 295 480" marker-end="url(#c-arrow)"></path>
+            <text class="edge-label t-planned" x="310" y="462">MCP unavailable</text>
+            <path class="flow-soft" d="M 445 536 L 535 536 L 535 432" marker-end="url(#c-arrow)"></path>
+          </svg>
+        </div>
+      </figure>
+
+      <figure id="diagram-d">
+        <h3 class="path-title">Diagram D · SessionEnd boundary hookcycle — close the episode</h3>
+        <div class="canvas">
+          <svg viewBox="0 0 1280 360" role="img" aria-label="Diagram D. SessionEnd boundary hookcycle: when a session ends, SessionEnd resolves cwd to the project, writes a boundary event into that project&#39;s ledger, and makes the finished episode eligible for immediate or threshold consolidation. It performs no RRF retrieval and normally returns no context.">
+            <defs>
+              <marker id="d-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--border-firm)"></path>
+              </marker>
+              <marker id="d-yellow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--retrieval)"></path>
+              </marker>
+              <marker id="d-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--evidence)"></path>
+              </marker>
+            </defs>
+
+            <rect class="s-plain" x="40" y="58" width="150" height="112" rx="5" stroke-width="1.4"></rect>
+            <text class="box-title" x="58" y="88">Session ends</text>
+            <text class="box-sub" x="58" y="113">Claude or Codex</text>
+            <text class="box-sub" x="58" y="132">session boundary</text>
+            <text class="box-sub" x="58" y="151">transcript captured</text>
+
+            <path class="flow" d="M 190 114 L 216 114" marker-end="url(#d-arrow)"></path>
+
+            <rect class="s-retrieval" x="220" y="48" width="230" height="130" rx="5" stroke-width="1.6"></rect>
+            <text class="box-title t-retrieval" x="238" y="68">brain-hook.exe</text>
+            <text class="box-sub" x="238" y="91">SessionEnd · automatic · both</text>
+            <text class="timeout-label" x="238" y="113">outer: Claude 10 s</text>
+            <text class="timeout-label" x="238" y="135">outer: Codex 3 s clamp</text>
+            <text class="timeout-label" x="238" y="157">internal: 3 s fail-open</text>
+
+            <path class="flow" d="M 450 114 L 464 114" marker-end="url(#d-arrow)"></path>
+
+            <rect class="s-plain" x="470" y="58" width="160" height="112" rx="5" stroke-width="1.4"></rect>
+            <text class="box-title" x="488" y="88">Project lookup</text>
+            <text class="box-sub" x="488" y="113">cwd → root</text>
+            <text class="box-sub" x="488" y="132">same isolation</text>
+            <text class="box-sub" x="488" y="151">as other hooks</text>
+
+            <path class="flow-evidence" d="M 630 114 L 644 114" marker-end="url(#d-blue)"></path>
+
+            <rect class="s-evidence" x="650" y="58" width="210" height="112" rx="5" stroke-width="1.6"></rect>
+            <text class="box-title t-evidence" x="668" y="88">Boundary event</text>
+            <text class="box-sub" x="668" y="113">records finished episode</text>
+            <text class="box-sub" x="668" y="132">append-only evidence</text>
+            <text class="box-sub" x="668" y="151">normally no reply</text>
+
+            <path class="flow-evidence" d="M 860 114 L 874 114" marker-end="url(#d-blue)"></path>
+
+            <rect class="s-evidence" x="880" y="58" width="170" height="112" rx="5" stroke-width="1.6"></rect>
+            <text class="box-title t-evidence" x="898" y="88">Project ledger</text>
+            <text class="box-title t-evidence" x="898" y="107">updated</text>
+            <text class="box-sub" x="898" y="132">replayable</text>
+            <text class="box-sub" x="898" y="151">never rewritten</text>
+
+            <path class="flow" d="M 1050 114 L 1066 114" marker-end="url(#d-arrow)"></path>
+
+            <rect class="s-plain" x="1070" y="58" width="170" height="112" rx="5" stroke-width="1.4"></rect>
+            <text class="box-title" x="1088" y="88">Episode eligible</text>
+            <text class="box-sub" x="1088" y="113">session_stopped job</text>
+            <text class="box-sub" x="1088" y="132">immediate / threshold</text>
+            <text class="box-sub" x="1088" y="151">consolidation later</text>
+
+            <rect class="s-planned" x="170" y="224" width="940" height="76" rx="5" stroke-width="1.4"></rect>
+            <text class="box-title t-planned" x="188" y="252">NO RRF · NO RETRIEVAL · normally no context returned</text>
+            <text class="box-sub" x="188" y="274">If boundary recording fails, the hook returns successfully and transcript capture still preserves the session evidence.</text>
+            <text class="box-sub" x="188" y="292">This is bonded to the running-session lifecycle, but separate from Diagram C because it is not a prompt push.</text>
+          </svg>
+        </div>
+      </figure>
+    </div>
+
+    <h3 class="path-title" style="margin: 22px 0 12px;">Harness capability matrix — current wiring plus explicitly marked target</h3>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Capability</th><th>Claude Code</th><th>Codex Desktop / CLI</th><th>What actually happens</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>SessionStart</code></td><td><span class="pill live">Automatic</span></td><td><span class="pill live">Automatic</span></td><td>Recent ledger events supply a surrogate query to <code>search()</code> with <code>memories_only()</code>. The single active Memory BM25 list enters RRF, so fusion is an identity ordering; the bounded <strong>New-session orientation</strong> then combines evidence, ranked memories and live state.</td></tr>
+          <tr><td><code>UserPromptSubmit</code></td><td><span class="pill live">Automatic</span></td><td><span class="pill live">Automatic</span></td><td>Memory BM25 and Vector similarity produce two lists for RRF and delivery gates; the result may be a <strong>Current-session prompt push</strong> or healthy silence. Graph expansion contributes nothing under the memories-only filter.</td></tr>
+          <tr><td><code>SessionEnd</code></td><td><span class="pill live">Automatic</span></td><td><span class="pill live">Automatic</span></td><td>Appends the <strong>SessionEnd boundary event</strong>. It performs no retrieval and normally returns no context.</td></tr>
+          <tr><td>Explicit brain retrieval</td><td><code>brain.exe</code> CLI available; <span class="pill part">MCP planned</span></td><td><code>brain-mcp.exe</code> live; CLI fallback available</td><td>MCP is the preferred adapter and CLI is the fallback over the same query service. Claude MCP wiring and automatic fallback remain planned. The four-channel <strong>On-demand historical pull</strong> itself runs independently of hooks.</td></tr>
+          <tr><td>CodeGraph</td><td>Own integration</td><td>Own integration</td><td>Mechanical current-code index; deliberately separate from historical memory.</td></tr>
+          <tr><td>Current-truth verification</td><td>CodeGraph · files · Git · tests</td><td>CodeGraph · files · Git · tests</td><td>Both agents verify memory-derived claims against the live working tree before changing code.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout" style="margin-top: 16px;">
+      <h3>Hooks are lifecycle callers; they are not the retrieval engine.</h3>
+      <p>
+        <strong>Retrieval does not require a hook.</strong> <code>brain_search</code> is an MCP adapter
+        over the same <code>BrainQueryService</code> reached by <code>brain.exe</code> CLI.
+        <code>UserPromptSubmit</code> automatically selects a memories-only two-list query with stricter
+        delivery gates. SessionStart uses recent evidence to derive a query, calls the same fused search
+        implementation, and receives a one-list identity RRF because only Memory BM25 is active on that
+        hook path. SessionEnd appends a boundary, and explicit MCP/CLI searches can run at any point.
+      </p>
+      <p>
+        All three hooks are harness-invoked in both agents. Codex MCP is live. Claude Code Desktop and
+        VS Code can share user-scoped MCP configuration, but that brain server wiring is still planned in
+        this project. Manual CLI fallback is available to both; automatic fallback after MCP failure is not.
+      </p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2>Operational snapshot · global corpus 05:33 UTC; current-project queue refreshed in v3.2</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Captured</h3>
+        <div class="stat" style="color: var(--evidence);">Append-only</div>
+        <p>Events from both agents remain project-scoped. Zero cross-project leakage — ownership is decided by each transcript's own recorded <code>cwd</code>, never by proximity in the directory layout.</p>
+      </div>
+      <div class="card">
+        <h3>Distilled</h3>
+        <div class="stat" style="color: var(--memory);">Evidence-cited</div>
+        <p>Every derived memory cites <code>event:&lt;uuid&gt;</code>. Counts and queue depth move continuously, so the live dashboard owns those values instead of this topology page.</p>
+      </div>
+      <div class="card">
+        <h3>Vector index</h3>
+        <div class="stat" style="color: var(--evidence);">14 left</div>
+        <p>Near-complete on both layers: the dashboard reported 16,739 memory vectors and 161,482 event vectors, with 13 memory rows and 1 event row still outstanding.</p>
+      </div>
+      <div class="card">
+        <h3>Delivery contract</h3>
+        <div class="stat" style="color: var(--retrieval);">1k–1.5k</div>
+        <p>normal startup-orientation budget, with a 3,000-token hard maximum. Mid-session prompt delivery has a separate 400-token maximum and commonly returns nothing.</p>
+      </div>
+      <div class="card">
+        <h3>Subject synthesis batch</h3>
+        <div class="stat" style="color: var(--vault);">63 / 156</div>
+        <p>subject pages generated; 93 were deliberately deferred because that work competes with consolidation and a changing memory set can invalidate the prose.</p>
+      </div>
+      <div class="card">
+        <h3><code>brain lint</code> · 9 Aug snapshot</h3>
+        <div class="stat" style="color: var(--vault);">4 + 660</div>
+        <p>Contradictions needing a decision, and memories sharing evidence with nothing else — 31.5% of that dated vault snapshot. Plus four dated 1970-01-01: undated, not old.</p>
+      </div>
+    </div>
+    <div class="callout" style="margin-top: 16px;">
+      <h3>Backlog completion improves coverage; it does not make retrieval infallible.</h3>
+      <p>
+        Unconsolidated evidence already exists in the event ledger and remains available to an explicit
+        all-source search. It is not yet available as a derived memory, so the memories-only prompt path and
+        memory-heavy orientation can miss it. Draining the queue therefore raises recall and makes the A/B
+        baseline stable; citations and live CodeGraph, file, Git and test checks are still required for a
+        high-confidence answer.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Retrieval quality — all 500 instances</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      Run 9 August 2026: every LongMemEval-S question, 23,867 sessions, 246,750 turns, 243,657 vectors,
+      3 h 54 m with the service stopped. BM25 + vector RRF-fused — no rerank, and no query expansion,
+      because the harness has no switch for it.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Pooled, all 500</th><th>Ours</th><th>Published comparison</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>R@5</td><td class="num win">96.0%</td><td class="num">95.2%</td></tr>
+          <tr><td>R@10</td><td class="num lose">98.2%</td><td class="num">98.6%</td></tr>
+          <tr><td>MRR</td><td class="num win">0.922</td><td class="num">0.882</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-scroll" style="margin-top: 12px;">
+      <table>
+        <thead>
+          <tr><th>Question type</th><th>Instances</th><th>R@5</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>single-session-assistant</td><td class="num">56</td><td class="num win">100.0%</td></tr>
+          <tr><td>knowledge-update</td><td class="num">78</td><td class="num">98.7%</td></tr>
+          <tr><td>multi-session</td><td class="num">133</td><td class="num">97.0%</td></tr>
+          <tr><td>single-session-user</td><td class="num">70</td><td class="num">94.3%</td></tr>
+          <tr><td>temporal-reasoning</td><td class="num">133</td><td class="num">94.0%</td></tr>
+          <tr><td>single-session-preference</td><td class="num">30</td><td class="num">90.0%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout" style="margin-top: 16px;">
+      <h3>Two things to say every time these are quoted.</h3>
+      <p>
+        <strong>R@10 is behind.</strong> 98.2% against 98.6%. This system ranks better inside the top
+        five and retrieves marginally less inside ten, and that belongs beside the two wins rather
+        than under them. And this is the <em>same dataset</em>, not a controlled head-to-head — two
+        independent harnesses computing one metric over the same 500 questions is far closer than
+        anything sayable before, and still not one harness running both systems.
+      </p>
+      <p>
+        <strong><code>single-session-preference</code> reproduced at exactly 90.0%</strong> — the same
+        figure the 30-instance run returned, against a corpus seventeen times larger. Two independent
+        measurements agreeing to the decimal is the reason to trust either. It is also still the
+        weakest category, which is what the section below is about.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>What the earlier per-category runs decided</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      Thirty <code>single-session-preference</code> instances, 1,427 sessions, 14,551 vectors, the service
+      stopped so the run had the machine. One switch changed between the last two rows.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Configuration</th><th>R@5</th><th>R@10</th><th>MRR</th><th>Elapsed</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>BM25 only <span class="pill off">baseline</span></td><td class="num">63.3%</td><td class="num">73.3%</td><td class="num">0.509</td><td class="num">—</td></tr>
+          <tr><td>BM25 + vector, RRF-fused</td><td class="num win">90.0%</td><td class="num">96.7%</td><td class="num win">0.779</td><td class="num">870 s</td></tr>
+          <tr><td>…plus cross-encoder rerank</td><td class="num lose">86.7%</td><td class="num">96.7%</td><td class="num lose">0.715</td><td class="num">1,084 s</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout" style="margin-top: 16px;">
+      <h3>R@10 is identical, and that is the whole finding</h3>
+      <p>
+        The answering session is still <em>retrieved</em> — re-ranking moves it <em>down</em>, out of the top
+        five, and spends 25% more wall-clock to do it. MRR falls further than R@5 does, so the cost is spread
+        through the ordering rather than concentrated in one lost instance. Isolated beforehand on a fixture:
+        holding the distractor constant and changing one word of the answer, <code>ship</code> →
+        <code>deploy</code>, moved its score 10.2 points — the model's entire range — for a sentence meaning
+        the same thing. The bi-encoder fails the same cases in the same direction, which makes this structural
+        rather than a weak checkpoint. The fix for a vocabulary gap is query expansion, not a second scoring
+        model.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lifecycle coverage — honest reading</h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Stage</th><th>Status</th><th>What is actually true</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Collect</td>
+            <td><span class="pill live">Complete</span></td>
+            <td>Both agents, automatically, with no per-session action. Transcript-based rather than hook-based, so nothing is lost when a hook fails to fire — and the session <em>boundary</em> is now observed too, which no amount of transcript reading could have supplied.</td>
+          </tr>
+          <tr>
+            <td>Organize</td>
+            <td><span class="pill live">Complete</span></td>
+            <td>Events become typed memories with <code>event:&lt;uuid&gt;</code> citations, wikilinks derived from shared evidence, index and subject pages — a real structure, not a pile of embeddings.</td>
+          </tr>
+          <tr>
+            <td>Evolve</td>
+            <td><span class="pill live">Complete</span></td>
+            <td>Supersession, surfaced conflicts, manual withdrawal, access counting, derived staleness, <code>brain lint</code>, and eviction that <em>refuses</em> to run until thirty days of access data exist. Gated by arithmetic, not missing.</td>
+          </tr>
+          <tr>
+            <td>Use</td>
+            <td><span class="pill live">Complete</span></td>
+            <td>Both harnesses receive startup and useful prompt-time pushes. Startup derives a surrogate query from recent evidence and ranks memories with Memory BM25; prompt push fuses Memory BM25 and Vector lists; on-demand history can use all four channels. Codex MCP is live, Claude MCP wiring is planned, and manual CLI fallback is available while automatic fallback remains planned.</td>
+          </tr>
+          <tr>
+            <td>Govern</td>
+            <td><span class="pill live">Complete · A9 shipped</span></td>
+            <td>Inspect, trust, export and withdraw all exist — dashboard, <code>verify memory</code>, verified backups, restore drills, <code>export</code>, <code>forget</code> as a tombstone and gated <code>evict</code>. A9 adds per-merge review and an ingest gate for configured high-impact memory kinds; the ingest gate is off by default so enabling it remains an operator commitment.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>The pipeline, against a hook-driven one</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      Competing systems hang the whole capture pipeline off a <code>PostToolUse</code> hook. We run
+      every one of those stages, triggered by the transcript watcher instead — because a hook that
+      fails to fire loses an observation permanently and a transcript file does not.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Stage</th><th>Ours</th><th>Standing</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>SHA-256 dedup, 5-minute window</td><td><code>UNIQUE(idempotency_key)</code>, 32 bytes</td><td><span class="pill live">Ahead — permanent, not a window</span></td></tr>
+          <tr><td>Privacy filter — strip secrets</td><td><code>redact_string</code> + per-job redaction manifest</td><td><span class="pill live">Ahead — auditable, not silent</span></td></tr>
+          <tr><td>Store raw observation</td><td>Append-only events</td><td><span class="pill live">Ahead — enforced, not conventional</span></td></tr>
+          <tr><td>LLM compress → structured facts</td><td><code>ConsolidationLlm::propose</code>, evidence-cited</td><td><span class="pill live">Equal, and ours cites</span></td></tr>
+          <tr><td>Vector embedding</td><td>In-process MiniLM, one provider</td><td><span class="pill part">Behind on count — and count is not the constraint</span></td></tr>
+          <tr><td>Index in BM25 + vector</td><td>FTS5 + vectors, fused by RRF</td><td><span class="pill live">Equal</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout" style="margin-top: 16px;">
+      <h3>Capture was covered. Push now is too.</h3>
+      <p>
+        Seven of their nine hooks are redundant here because the transcript already holds what those
+        hooks capture. But capture is not all those hooks do — <code>UserPromptSubmit</code> also
+        <em>injects</em> back into the conversation, and for a long time this system did not travel
+        that direction at all: <strong>the brain pushed exactly once, at session start.</strong> A
+        session that ran for hours and pivoted to a different subject was never re-oriented.
+      </p>
+      <p>
+        <strong>Shipped.</strong> The brain now sits on <code>UserPromptSubmit</code> alongside
+        CodeGraph and runs a memories-only query on each substantive prompt: Memory BM25 and Vector
+        similarity fused as two ranked lists. Cross-source graph expansion contributes nothing under
+        this filter. Most of the work is restraint, because a
+        push on every message has the opposite failure mode from a push on none:
+      </p>
+      <p>
+        <strong>Never repeat</strong> — a memory reaches a session at most once, and a session takes
+        at most twenty in total. <strong>Silence is the common answer</strong> — short prompts, no new
+        matches, or nothing above the floor all return nothing. <strong>A stricter floor than search
+        uses</strong> — FTS terms are OR-joined, so a prompt shares "is"/"the"/"of" with almost
+        anything; measured, a question about unladen swallows retrieved a database-migration memory
+        and would have injected it. <strong>400 tokens, four memories, and a meter that names what it
+        dropped</strong> — the session-start budget is 1,000–1,500 and fires once; this fires every
+        message, and a session takes at most twenty memories in total.
+      </p>
+      <p>
+        The meter is the last line of every push, verbatim from a live run:
+        <code>[brain · 4 of 6 memories · 324 tokens · 2 dropped over budget]</code>. A silent
+        truncation reads as "that is all there was".
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>What the vector channel is, and is not, short of</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      One embedding provider against a competitor's six looks like the obvious gap. Building the
+      mid-session push showed it is not the one that bites.
+    </p>
+    <div class="callout">
+      <h3>Provider count is not the constraint. A trustworthy threshold is.</h3>
+      <p>
+        Six providers buy redundancy and a choice of quality tier. They do not change what a
+        bi-encoder can tell you, and running one model in-process is a real property: no sidecar, no
+        network, no install step, and a binary that loads under Task Scheduler and Codex's sandbox
+        where a dynamically-linked ONNX runtime does not.
+      </p>
+      <p>
+        <strong>What actually blocked the push was the absence of a similarity score anyone can put a
+        floor under.</strong> An unsolicited injection needs to answer "is this relevant enough to
+        interrupt with", and neither channel gives a usable yes/no. FTS terms are OR-joined, so BM25
+        returns something for every input — measured, a question about unladen swallows retrieved a
+        database-migration memory. Cosine over <code>all-MiniLM-L6-v2</code> is no better as a gate:
+        the same model scored a turn about deployment <em>speed</em> at 0.478 and the turn that
+        actually answered at 0.353, so no fixed cutoff separates them.
+      </p>
+      <p>
+        So the push ships with a <em>keyword</em> floor — two shared content terms — which is honest
+        and deliberately conservative. It will miss a memory that is genuinely relevant and shares no
+        vocabulary, which is the same gap the cross-encoder failed to close. The fix is query
+        expansion, not more providers: expand the prompt into the words the corpus actually uses, and
+        the floor stops being a handicap. <strong>Shipped as <code>6b431c0</code></strong> — take the
+        top five hits, harvest the terms appearing in at least two of them, append the best six and
+        retrieve again. Selection is by <em>document frequency</em>, never raw count: a word repeated
+        ten times in one document is about that document; a word in two is about the subject. It is
+        fused as an extra channel rather than rewriting the query, so it <strong>cannot lose</strong>
+        a result the plain query found — a rewritten query can drop the very document that seeded it.
+        Live on this corpus: 0 lost, 1 newly reached.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Memory tiers</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      All four tiers of the working / episodic / semantic / procedural model exist. Every memory
+      additionally cites the events it came from — a tier label says what kind of thing a memory is; a
+      citation says whether it is true.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Tier</th><th>Ours</th><th>State</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Working</strong> — raw observations</td><td><code>events</code> captured in project-scoped append-only ledgers; live values are on the dashboard</td><td><span class="pill live">Have</span></td></tr>
+          <tr><td><strong>Episodic</strong> — session summaries</td><td>Boundary hook + <code>session_stopped</code> consolidation</td><td><span class="pill live">Have — 8 Aug</span></td></tr>
+          <tr><td><strong>Semantic</strong> — facts and patterns</td><td><code>Fact</code> · <code>Decision</code> · <code>Investigation</code> · <code>Preference</code></td><td><span class="pill live">Have</span></td></tr>
+          <tr><td><strong>Procedural</strong> — workflows</td><td><code>Procedure</code> · <code>Task</code> · <code>Deployment</code> · <code>Checkpoint</code> · <code>Timeline</code></td><td><span class="pill live">Have</span></td></tr>
+          <tr><td>Decay curve · access-strengthening</td><td>Ebbinghaus <code>retention_score</code>; ten retrievals decay ~3.4× slower, logarithmically</td><td><span class="pill live">Shipped</span></td></tr>
+          <tr><td>Contradiction resolution</td><td><code>brain reconcile</code> proposes from authority → recency → evidence, and refuses when they are level</td><td><span class="pill live">Proposed, never applied</span></td></tr>
+          <tr><td>Revision in place</td><td>Supersession, live across all three projects — <code>brain reconcile --apply</code> folded 97 contradictions and retired 142 memories, deleting nothing</td><td><span class="pill live">Shipped</span></td></tr>
+          <tr><td>Cross-claim rewrite</td><td><code>brain revise</code> validator and apply path ship; A9 adds review-sheet/apply-reviewed for one-at-a-time human decisions, while ingest gating uses <code>MemoryStatus::Proposed</code></td><td><span class="pill live">A9 shipped · off by default</span></td></tr>
+          <tr><td>Scheduled reflection</td><td><code>brain digest</code> daily via <code>AgentBrain.Digest</code> — never-retrieved share, retention distribution, contradictions, queue depth, appended to each vault’s <code>log.md</code></td><td><span class="pill live">Shipped — derived, no model</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Two indexes, and why neither queries the other</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      CodeGraph runs its own MCP server against both harnesses — v1.5.0, this repository at 229
+      files, 3,673 nodes and 11,732 edges in an up-to-date SQLite graph — and it also
+      sits on <code>UserPromptSubmit</code> beside the brain's hook. The brain's internal
+      <code>codegraph</code> provider, which was designed to proxy it, stays
+      <code>enabled: false</code> on all three projects.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Question</th><th>Answers it</th><th>Because</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Where is <code>auth_check</code> defined? What calls it?</td><td>CodeGraph</td><td>Structure is a live derivative of the working tree; it belongs to a file watcher and is invalid the moment you type</td></tr>
+          <tr><td>What did we decide about retries, and why?</td><td>The brain</td><td>A decision is an append-only claim about the past, cited to the turn that produced it</td></tr>
+          <tr><td>Fix the bug from last week's post-mortem</td><td>Both, in order</td><td>The brain finds the session; CodeGraph finds today's code. Neither can do the other's half</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout" style="margin-top: 16px;">
+      <h3>The separation <em>is</em> the integration.</h3>
+      <p>
+        A proxy was planned and dissolved. It would have built a second path to data both agents
+        already reach directly, and it would have had to invalidate on every keystroke — a cache over
+        a file watcher. What the two share is the agent, not a database.
+      </p>
+      <p>
+        <strong>The token claim is unmeasured here.</strong> CodeGraph publishes ~35% less cost and
+        ~70% fewer tool calls across seven repositories; nothing on this machine has checked that, and
+        it should not be repeated as though it had been. It is also why the brain's own A/B needed a
+        third condition: both hooks fire on every prompt, so a two-condition split would credit the
+        brain with whatever CodeGraph saved.
+      </p>
+      <p>
+        <strong>And both now fire in both harnesses.</strong> CodeGraph registered its own hook in
+        Codex before we did; ours failed to launch there for five days because
+        <code>commandWindows</code> quoted the executable and Codex does not strip it. That is the
+        whole story of the “Codex has no push path” conclusion, and it was ours, not
+        Codex’s.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Against the LLM Wiki pattern</h2>
+    <p class="standfirst" style="margin-bottom: 4px;">
+      Karpathy's LLM Wiki is a <em>maintenance discipline</em>, not a retrieval source: pages compiled
+      once and then kept current, rather than another way to search. Measured against it, the
+      architecture was there from the start and the <em>operations</em> were what was missing.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Karpathy's piece</th><th>Ours</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Raw sources — immutable</td><td>Captured events, append-only by invariant</td><td><span class="pill live">Have — stricter</span></td></tr>
+          <tr><td>The wiki — LLM writes, you read</td><td><code>vault/generated/</code>; <code>notes/</code> stays yours</td><td><span class="pill live">Have</span></td></tr>
+          <tr><td>The schema — <code>CLAUDE.md</code> / <code>AGENTS.md</code></td><td>Both exist and are mirrored</td><td><span class="pill live">Have</span></td></tr>
+          <tr><td><code>index.md</code> — content catalog</td><td><code>render_index</code>, regenerated each pass</td><td><span class="pill live">Have</span></td></tr>
+          <tr><td><code>log.md</code> — chronological, greppable</td><td>One per project in the vault, append-only</td><td><span class="pill live">Closed</span></td></tr>
+          <tr><td><strong>Ingest</strong> — integrate into existing pages</td><td>A re-derived claim folds into the one it repeats, by supersession; the subject page carries the trail. Prose that <em>rewrites</em> a page is 3.2b and still open</td><td><span class="pill live">Closed structurally</span></td></tr>
+          <tr><td>Query — good answers filed back</td><td><code>brain remember</code>, refusing uncited claims</td><td><span class="pill live">Closed</span></td></tr>
+          <tr><td>Lint — contradictions, stale, orphans</td><td><code>brain lint</code>, six derived rules</td><td><span class="pill live">Closed</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout" style="margin-top: 16px;">
+      <h3>All four operations have closed. The last one was not where it was thought to be.</h3>
+      <p>
+        The sentence that indicted the original design: the LLM <em>"doesn't just index it for later
+        retrieval — it integrates it into the existing wiki."</em> That was recorded here as a
+        <em>page</em> problem — pages compound in coverage and are never revised. Measuring it found
+        something sharper: <strong>2,097 memories, 2,097 distinct ids, and zero supersession
+        edges.</strong> The entire supersession lifecycle — schema, reader filters,
+        <code>MemoryStatus::Superseded</code>, the tests — was code production had never once
+        exercised. <code>MemoryStatus::Superseded</code> appeared in four places and every one was a
+        read. Nothing wrote it.
+      </p>
+      <p>
+        So the gap was never that pages were unrevised. It was that <em>claims</em> were.
+        Consolidation re-derives the same conclusion from overlapping event windows and files each as
+        a new memory, so the vault accumulated duplicates and <code>brain lint</code> called them
+        contradictions. <code>brain reconcile --apply</code> folds them: two appends per fold, nothing
+        deleted — a new version of the keeper carrying the supersession edges, and a retirement
+        version per loser. Live across all three projects: <strong>97 contradictions folded, 142
+        memories superseded, 0 deleted</strong>, and <code>subjects/backup.md</code> now opens with
+        <em>"1 of these 35 claims has been revised in place, absorbing 4 earlier claims."</em>
+      </p>
+      <p>
+        Ten contradictions remain, and they are the right ten: pairs filed twice on the same day from
+        the same evidence, level on authority, date <em>and</em> evidence count, differing only in
+        wording. Deciding whether two differently-worded bodies say the same thing is a reading of
+        the text — exactly where derivation should stop, because the alternative is a coin-flip
+        dressed as a rule, applied silently and never revisited.
+      </p>
+      <p>
+        What remains open is genuinely narrower than the row above claimed: a paragraph that
+        <em>rewrites</em> the page rather than listing what it holds. That is 3.2b, it needs a live
+        provider, and it is now the only unwritten feature in any wave.
+      </p>
+      <p>
+        This is a different thing from the <code>llm_wiki</code> provider in the codebase, which is a
+        keyword searcher over a Markdown directory. Pointed at this vault it would search our own
+        generated notes with a weaker index than the FTS5 already running over the same memories.
+        Shipping the provider is not adopting the pattern, and adopting the pattern did not need it.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Open, and needing a human</h2>
+    <div class="callout-stack">
+      <div class="callout">
+        <h3>Contradictions and unlinked memories</h3>
+        <p>
+          <code>brain lint</code> reports memories that disagree with each other, undated records, and claims
+          sharing evidence with nothing else so no wikilink reaches them. The live values belong in the
+          dashboard and <code>docs/status.md</code>; deciding which side of a contradiction is true is not
+          something derivation can do.
+        </p>
+      </div>
+      <div class="callout">
+        <h3>One number that could not be traced</h3>
+        <p>
+          A 93.2% R@5 figure appears in an earlier roadmap and in no document or commit. The recorded numbers
+          are 96.0% pooled over all 500, and per-category 63.3% → 90.0% on <code>single-session-preference</code>. Those are not the same
+          measurement and should not be quoted as one.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+
+</body></html>
