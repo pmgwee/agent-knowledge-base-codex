@@ -34,6 +34,11 @@ run `scripts/deploy.ps1` manually if you change it.
 - **Cross-project isolation is absolute.** Zero leakage between projects. A transcript's
   `cwd` decides ownership, never directory proximity.
 - **Evidence is append-only.** Supersede; never delete or rewrite.
+- **Readability is an allowlist — `MemoryStatus::is_readable`, never an inline status match.**
+  Three read paths each carried the same denylist ("not invalid, not superseded"), which fails
+  open the moment a fourth status exists: A9's `Proposed` was served straight into the
+  session-start orientation until one shared predicate replaced them. Adding a `MemoryStatus`
+  variant means deciding its readability in one place, not four.
 - **The context budget is a contract.** 1,000–1,500 tokens normal, 3,000 hard max.
 - **Cursors are keyed by source.** Append only to a project's source list; never reorder
   or replace — that orphans cursors and re-ingests captured evidence.

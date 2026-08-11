@@ -192,7 +192,7 @@ review. What remains is two measurements and two provider-quota items — no unw
 | ~~**6**~~ | ~~**Scheduled reflection**~~ — **shipped** `d4629d6` as `brain digest` + `AgentBrain.Digest`, daily. Never-retrieved share, retention distribution, contradictions, queue depth, appended to each project's vault `log.md`. **No provider call**, so it reports during exactly the outage that makes it most useful | The "maintains itself" claim. Consolidation already ran continuously; what was missing was anything that stepped back and asked whether the result was still coherent | — | — |
 | **7** | **3.2b** — the synthesis *generation* call | The last piece of the Karpathy pattern. Validator, store and rendering ship | Watching the citation check refuse a real bad citation from a live provider | M |
 | ~~**8**~~ | ~~**5.6** — the config panel~~ — **shipped** `10b72f8` (Rust) and `c75507c` (dashboard). Wave 5 complete | Every delivery defect here looked identical from a settings page, so no setting renders without the fact that decides whether it does anything. Caught two things on its first run, one of them a bug in itself | — | — |
-| **9** | **0.2** — drain the consolidation backlog | 1,973 pending across three projects | **Provider quota.** 290 of 294 deferrals were plain HTTP 429. *Nothing to build* | — |
+| ~~**9**~~ | ~~**0.2** — drain the consolidation backlog~~ — **done 11 August**, zero pending in all three projects | *"Provider quota. Nothing to build"* was **half wrong**, and the half that was wrong cost days: the loop awaited every provider call in series — `for project` and `for job` both — so three projects and eight slots produced one call at a time, capping the service near 90 jobs/hour. `3b33bcd` made the ledgers concurrent: ~60 → ~215 jobs/hour | — |
 | ~~**10**~~ | ~~**Resolve the 4 contradictions**~~ — **done** `fbc6fe5`. Folded rather than decided: all four were re-derivations of one claim from overlapping event windows, which is arithmetic, not a judgement about truth | 7 memories superseded, 0 deleted. The first supersession this system has ever performed | — | — |
 | ~~**11**~~ | ~~**Fold the other projects**~~ — **done**. 97 contradictions folded across three projects, 142 memories superseded, nothing deleted | 10 remain that derivation cannot separate: level on authority, date and evidence, where telling a re-wording from a disagreement is a reading of the text | — | — |
 | **12** | **Decide the last 10 contradictions** | Pairs filed twice the same day from the same evidence, differing only in wording. Whether two bodies say the same thing is not derivable | **You** | S |
@@ -214,7 +214,7 @@ review. What remains is two measurements and two provider-quota items — no unw
   with an unremarkable brain producing "Nothing needs a decision." rather than manufactured concern.
 - **7** — a paragraph cites only memory ids present on its own page, and a bad citation leaves the
   links-only page intact.
-- **9** — `consolidation_jobs` holds zero `pending` for an hour with the service running.
+- **9** — ✅ *met 11 August 05:01 UTC.* `consolidation_jobs` holds zero `pending` in all three projects with the service running.
 
 ### 1.2 Item 2, as shipped — the caution and what it cost
 
@@ -348,8 +348,9 @@ cannot show it is a marketing document.
 
 1. ~~Wave 0.1 must land first~~ — **landed** (`407d345`). Measuring saved tokens with an instrument
    that counted compiled orientations rather than received ones would have overstated the numerator.
-2. **Wave 0.2 must land first.** A half-consolidated brain understates the warm condition, and 1,973
-   jobs are still queued.
+2. ~~**Wave 0.2 must land first.**~~ — **landed 11 August.** A half-consolidated brain understates the
+   warm condition; the queue is now empty. The A/B is blocked on its *instrument* instead: the
+   cross-harness spec retires `token-ab.ps1` as a pilot.
 3. Stop `AgentBrain.Service` during runs. Measured: with the backfill draining, a hybrid benchmark
    took over three hours for work that takes four minutes with the machine to itself. **And keep it
    stopped** — committing deploys, and deploying restarts the service, so a long run interrupted by
@@ -425,10 +426,12 @@ counting has run for thirty days, because on the day counting ships *every* memo
 never-retrieved — a policy reading that number would retire all 13,246 of them and write a defensible
 reason for each. The refusal is arithmetic, not caution.
 
-**One correction to the original framing, which still holds.** The brain is not *insufficiently
-intelligent*; it is *incompletely running*. 1,973 pending jobs across three projects is a throughput
-problem. Adding autonomy on top of a queue that is not draining would make an unreliable system
-harder to diagnose.
+**One correction to the original framing.** The brain was not *insufficiently intelligent*; it was
+*incompletely running*. That held, and the throughput problem is now fixed — the queue reached zero
+on 11 August. What the framing got wrong was the cause: this was read as a pure quota ceiling with
+*nothing to build*, and it was also a concurrency defect worth ~3.5× throughput. Adding autonomy on
+top of a queue that is not draining would still be the wrong order; the point is that "not draining"
+deserved a profiler before it deserved patience.
 
 ---
 
@@ -922,8 +925,9 @@ Wave 0 gated Wave 1 because the measurement depends on it. Waves 2 and 3 were in
 have run in either order. Wave 4 depended on 3.3 for anything to decay meaningfully. Wave 5 trailed
 everything, because a console is most useful once there is more to show.
 
-**Waves 0, 2, 4 and 5 are done** bar the quota-bound backlog and two panels. **Wave 3** has 3.1,
-3.2a, 3.3, 3.4, 3.6, 3.7 and 3.8 shipped, 3.5 cut, and 3.2b half. **Wave 1** is half.
+**Waves 0, 2, 4 and 5 are done** — the backlog drained on 11 August and the panels shipped.
+**Wave 3** has 3.1, 3.2a, 3.3, 3.4, 3.6, 3.7 and 3.8 shipped, 3.5 cut, and 3.2b regenerating after
+the drain rewrote its memory sets. **Wave 1** is half, and its remaining half is now a build task.
 
 The remaining order is short and has one real decision in it:
 

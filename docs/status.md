@@ -32,9 +32,10 @@ time this is a pooled number over the whole dataset rather than one category, so
 beside a published one — 95.2% / 98.6% / 88.2% — without the caveat that killed every earlier
 comparison. We are ahead on R@5 and MRR and behind on R@10. Caveats below, and they matter.
 
-Waves 2, 4 and **5** are complete. Wave 0 is complete bar a quota-bound backlog. Wave 3 is complete
-except for one generation step held back on purpose. Wave 1 is half done — retrieval quality is now
-fully measured, the token saving never has been, and the harness for measuring it exists.
+Waves 0, 2, 3, 4 and **5** are complete — the consolidation backlog drained on 11 August at
+05:01 UTC, all three projects at zero. Wave 1 is still half done: retrieval quality is fully
+measured, the token saving never has been, and the harness that existed for measuring it has since
+been superseded by a spec that retires it.
 
 **Both harnesses are now pushed to, and the asymmetry that shaped this document is gone.** Codex
 Desktop dispatches `SessionStart`, `SessionEnd` and `UserPromptSubmit` exactly as Claude Code does —
@@ -86,6 +87,12 @@ one thing holding it back. 3.2b's generation call shipped as `brain synthesize`;
 now carry cited prose. The three dead-lettered jobs were requeued through `brain jobs --retry-dead`,
 which did not exist: the digest had reported the count for weeks and nothing could act on it.
 
+Both figures moved once the drain completed. The subject pages became **150** to regenerate, because
+`subject_synthesis` returns `None` the moment a memory set changes and this project went from 632 to
+7,799 current memories — which is what holding them back was for. And the dead-letter count is **7**,
+none of them retryable: five are GLM emitting malformed UUIDs, which `temperature: 0` reproduces
+exactly, and two are `version_id` collisions on retry, which is ours.
+
 **A8b also produced the finding that matters more than the feature.** The merges were well-formed,
 well-cited, correctly shortened — and *confidently false*, because the claims they merged were.
 **Every guarantee the validator makes is mechanical, and none of them is truth.** Twenty-six current
@@ -104,9 +111,10 @@ access-strengthening, `brain reconcile` and the fold, `brain explain`, `brain re
 retrieval-shaped notes, query expansion, a scheduled health digest, and the 500-instance benchmark.
 **Every item that review raised.**
 
-Two things remain that nothing external is holding up: the benchmark (running) and the token-saving
-A/B (never started). Two more wait on provider quota by choice — draining the consolidation backlog,
-and 3.2b's generation call.
+One thing remains: the token-saving A/B, which has never been run and now cannot be run as designed
+— `scripts/token-ab.ps1` is a pilot, and the cross-harness benchmark spec (`737b362`) retires it by
+name. It is a build task rather than a run task. Everything that was waiting on provider quota has
+finished.
 
 | | |
 |---|---|
@@ -114,7 +122,7 @@ and 3.2b's generation call.
 | Current memories | **13,594**, every one citing `event:<uuid>` |
 | Vector index | **complete** — 13,447 memories and 142,696 events; 5 remaining |
 | Vault | 450 subject pages · **142 claims revised in place** |
-| Consolidation | **2,191 pending** · 3 dead-lettered — both quota-bound |
+| Consolidation | **0 pending** across all three projects · 5,835 completed · 7 dead, none retryable |
 | Orientation | mean **1,007** tokens over 127 receipts, against a 3,000 hard cap |
 | Session start | **0.31–0.89 s** on all three projects, three rounds running, against a 3 s ceiling |
 | Gates | `fmt` clean · clippy 0 errors · full workspace suite green |
@@ -160,7 +168,7 @@ separate things (`ec30787` and `a4ce736`), so the wave is complete rather than c
 | Wave | Item | State | Evidence, or why not |
 |---|---|---|---|
 | 0.1 | Deliveries counted at receipt | **Shipped** `407d345` | An outcome dropped without recording leaves zero rows |
-| **0.2** | **Consolidation drained** | **Quota-bound** | 1,973 pending across 3 projects; 290 of 294 deferrals were plain HTTP 429 |
+| **0.2** | **Consolidation drained** | **Shipped** `3b33bcd` | Zero pending in all three projects, 11 Aug 05:01 UTC. It was *not* only quota: the loop awaited every provider call in series, and making the three ledgers concurrent took ~60 → ~215 jobs/hour |
 | 0.3 | Queue and dead letters visible | **Shipped** `6d8c6cd` | Pending / leased / completed / dead per project, with the reason a job died |
 | **1** | **Value proved** | **Half** | Retrieval measured on all 500 — 96.0% R@5. The token-saving A/B has never been run |
 | 2.1 | `brain export` | **Shipped** `5c6eebc` | 41 MB, zero unresolved citations |
@@ -245,9 +253,13 @@ and therefore still reports during exactly the outage that makes it most useful.
 
 ## The four that are not simply "done"
 
-**0.2 is quota-bound, not code-bound.** 1,973 jobs pending across three projects. The deferral path
-works exactly as designed — no attempt consumed, nothing lost — and it finishes when quota allows.
-There is no work here to do.
+**~~0.2 is quota-bound, not code-bound.~~ Both, and the code half was the bigger one.** This said
+1,973 jobs were pending, the deferral path worked as designed, and *there is no work here to do*.
+The deferral path did work — no attempt consumed, nothing lost. But the drain was also awaiting every
+provider call in series, across projects *and* within them, so the whole service made one call at a
+time and capped near 90 jobs/hour. `3b33bcd` made the three ledgers concurrent and took it to ~215.
+The queue reached **zero on 11 August**. A ceiling nobody had profiled was read as a quota nobody
+could raise.
 
 **1 is half measured.** Retrieval quality has a number and it reproduced exactly. The *token saving*
 — the headline this project is usually asked about — has never been measured, and only the
@@ -496,7 +508,7 @@ original nine-item list has shipped. Full reasoning and done-when criteria in
 | ~~1~~ | ~~**Run all 500 LongMemEval instances**~~ — **done** 9 Aug. 96.0% R@5 / 98.2% R@10 / 0.922 MRR over 23,867 sessions in 3 h 54 m | — | — |
 | 2 | **Run the token-saving A/B** — 5 tasks × **3** conditions × 3 repeats | **Quota**, same as the two below — headless sessions return 429 until the weekly limit resets. Harness built and verified | L |
 | 3 | **3.2b** — the synthesis generation call | **Quota**, by choice: watching the citation check refuse a *real* bad citation is the point | M |
-| 4 | **0.2** — drain the consolidation backlog | **Quota.** 1,973 pending; nothing to build | — |
+| ~~4~~ | ~~**0.2** — drain the consolidation backlog~~ — **done 11 August** | *"Quota; nothing to build"* was wrong. `3b33bcd` made the three ledgers drain concurrently: ~60 → ~215 jobs/hour | — |
 | ~~5~~ | ~~**Resolve the 4 contradictions**~~ — **done** `fbc6fe5`. Folded, not decided: all four were re-derivations of one claim, which is arithmetic | — | — |
 | ~~—~~ | ~~Mid-session push~~ `af81e4d` · ~~AI-first notes~~ `6a1e34f` · ~~contradiction proposals~~ `eec8925` · ~~query expansion~~ `6b431c0` · ~~scheduled reflection~~ `d4629d6` · ~~5.6 config panel~~ `10b72f8` · ~~the fold~~ `fbc6fe5` | — | — |
 

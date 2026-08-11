@@ -1,8 +1,8 @@
 # Cross-Harness Token Savings Benchmark Design
 
-**Status:** Approved design direction; written-spec review pending  
-**Date:** 2026-08-11  
-**Owner:** Agent Brain  
+**Status:** Approved design direction; written-spec review pending
+**Date:** 2026-08-11
+**Owner:** Agent Brain
 **Repositories:** `agent-knowledge-base-codex`, `agent-brain-dashboard`
 
 ## Purpose

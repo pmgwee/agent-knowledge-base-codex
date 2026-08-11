@@ -23,8 +23,8 @@ old backlog decision.
 
 **✅ shipped · ⚠️ open · ~~struck through~~ = the item is resolved and no longer applies.**
 
-**Everything still open is gated on one thing:** this project's consolidation queue reaching zero.
-Nothing that can be built without spending quota is waiting on it — see
+**The drain finished on 11 August at 05:01 UTC** — all three projects at 0 pending, 0 uncovered.
+What it unblocked, and the two steps it changed rather than merely released, are in
 [What is left, in the order it has to happen](#what-is-left-in-the-order-it-has-to-happen).
 
 ### The original seven, plus what the round added
@@ -134,9 +134,9 @@ trust.
 |---|---|---|
 | ~~A8b's generation call~~ | ✅ **run 10 August** | Both rules caught refusing real output: `LostNewEvidence` and `ForeignCitation` |
 | ~~3 dead-lettered jobs~~ | ✅ **requeued** | Through `brain jobs --retry-dead`, which did not exist — the digest reported the count and nothing could act on it |
-| ~~3.2b subject-page prose~~ | ✅ **shipped** | `brain synthesize`. 63 pages carry cited prose, ⚠️ 93 held back until the drain finishes — their prose is keyed to an exact memory set that consolidation is still changing |
-| Consolidation backlog | ⚠️ **draining, ~3x faster since A13** | 2,191 → 1,834. `Ai-community-channel` is done; this project is 48% consolidated with ~7 h of uptime left, independent of `subscription-agent`'s 1,199 |
-| Token-saving A/B | ⚠️ **not run, by decision** | Never blocked on a second quota — `claude -p` reports `glm-5.2`. Blocked on its own precondition: a half-consolidated brain understates the warm condition |
+| ~~3.2b subject-page prose~~ | ✅ **shipped**, ▶️ regenerating | `brain synthesize`. The held-back pages became **148** once the drain rewrote the memory sets — running now that the queue is empty |
+| ~~Consolidation backlog~~ | ✅ **drained 11 August, 05:01 UTC** | 2,191 → **0** in all three projects, 0 uncovered. 5,835 jobs completed; 7 dead and none of them retryable |
+| Token-saving A/B | ❌ **superseded, not merely unrun** | The precondition was met when the drain finished — but `token-ab.ps1` is a pilot and its replacement is specified (`737b362`) and unbuilt. Now a build task |
 
 ### Against Karpathy's pattern — the two skips that were wrong
 
@@ -144,7 +144,7 @@ trust.
 |---|---|---|
 | **Ingest = integrate into existing pages** | ❌ we appended, never integrated | ✅ **`brain revise` merges; `brain synthesize` writes the page's prose.** The machine now integrates |
 | **Query = file answers back** | ❌ 0 of 13,493 | ✅ **`brain remember` with derived citations.** 7+ filed, including today's three retractions |
-| Human in the loop on ingest | ⚠️ debatable | ⚠️ still open as **A9**, and A8b's false merges are the argument for it |
+| Human in the loop on ingest | ⚠️ debatable | ✅ **Shipped as A9, both halves** — `--review-sheet` for merges, `MemoryStatus::Proposed` + `brain review` for ingest. Off by default |
 
 The other six skips stand as correct and unchanged.
 
@@ -177,7 +177,7 @@ correct. Two were the same mistake seen from opposite sides.
 | `index.md` as primary navigation | ⚠️ built, unused by retrieval | ✅ Right — he says it *"avoids embedding-based RAG"* at ~100 sources; we are at 144k events |
 | **Ingest = integrate into existing pages** | ❌ | ❌ **Wrong. This is his central claim** |
 | **Query = file answers back** | ❌ 0 of 13,493 | ❌ **Wrong. Same claim, other side** |
-| Human in the loop on ingest | ❌ | ⚠️ Debatable — see A9 |
+| Human in the loop on ingest | ❌ | ✅ Shipped as **A9** — and still debatable *whether to turn it on*, which is why it defaults off |
 
 **The machine never integrated, and the human never filed.** That is why the vault accumulated
 instead of compounding, and it is the single sentence this plan exists to make false.
@@ -762,13 +762,97 @@ global one.
 | 1 | ✅ **A13** — make consolidation concurrent | done first, because it moved every estimate after it |
 | 2 | ✅ **A14** — fix the A/B harness · ✅ **A9** — the merge checkpoint | done *while* the queue drains; neither spends quota |
 | 2b | ✅ **A6** verified in rendered pixels · ✅ **A9** ingest half | done; neither spends quota |
-| 3 | ⚠️ Generate the remaining 93 subject pages | this project reaches **0 pending** — their prose is keyed to an exact memory set, and consolidation is still changing it |
-| 4 | ⚠️ Confirm 0 dead letters, embeddings caught up | after 3 |
-| 5 | ⚠️ Run the interleaved 45-session A/B | after 4 |
-| 6 | ⚠️ Grade blind against the rubrics, *then* quote a percentage | after 5, and it is not optional — the token column cannot see a confidently wrong answer |
+| 3 | ✅ **Drain complete — 11 August, 05:01 UTC** | all three projects at 0 pending and 0 uncovered |
+| 4 | ✅ Generated — **126 of 150 current** | 189 writes over three passes. It does not reach zero on a live machine, and that is the design — see below |
+| 5 | ⚠️ Confirm 0 dead letters · ✅ embeddings caught up | **7 dead, and no retry fixes them** — see below |
+| 6 | ❌ ~~Run the interleaved 45-session A/B~~ | **superseded** — `token-ab.ps1` is a pilot, and its replacement is specified and unbuilt |
+| 7 | ❌ ~~Grade blind, then quote a percentage~~ | follows 6 |
 
-Steps 3 and 5 are the only ones that spend quota, which is why they are last and why nothing above
-them had to wait for the queue.
+### The drain finished, and it changed two of the steps that were waiting on it
+
+**Step 4 does not have a finish line, and that is the design.** `subject_synthesis` returns `None`
+the moment a subject's memory set changes — so on a machine that is still capturing, pages go stale
+while they are being written. Measured over the first pass: 30 jobs consolidated during the ~70
+minutes it ran, adding 142 current memories (7,799 → 7,941), which invalidated **37 of the 123 pages
+that had just been written**.
+
+| Pass | Attempted | Written | Current after | Still needing prose |
+|---|---|---|---|---|
+| 1 | 148 | 121 | 86 | 64 |
+| 2 | 64 | 45 | 123 | 27 |
+| 3 | 27 | 23 | **126** | 24 |
+
+**189 page-writes to hold 126 pages.** Current memories went 7,799 → 8,027 across the three passes —
+228 new ones, all of them this session's own activity being captured and consolidated — and roughly
+one page fell stale for every four or five that arrived.
+
+It converges, and the third pass shows it slowing as capture quiets. But **100% is not a reachable
+state while a session is open**: the writer and the invalidator are the same machine. The honest
+target is a high steady-state fraction, and the honest operational shape is a scheduled pass on the
+same idle trigger the drain wants, not a person running it to zero.
+
+**And it was 148 subjects, not 93.** That count was never a backlog being worked off:
+`subject_synthesis` returns `None` the moment a subject's memory set changes, and the drain took this
+project from 632 to 7,799 current memories. Nearly every page that had prose now describes a set that
+no longer exists — `brain synthesize` reports **2 current, 148 needing prose**. This is the mechanism
+working as designed, and it is exactly why holding them back was right: generating them a day earlier
+would have invalidated all of them.
+
+**Step 5 cannot be met, and retrying is the wrong response.** Seven dead letters, two causes:
+
+| Cause | Count | Retryable |
+|---|---|---|
+| GLM emitting a malformed UUID — `invalid group count: expected 5, found 4` | 5 | **No.** Requests go out at `temperature: 0`, so a retry reproduces the same output. `1ca07ee8` is at **attempt 11** and has already proved it |
+| `memory version ID collision has different content or scope` | 2 | **No**, and this one is ours |
+
+The second is a design tension rather than a provider fault.
+`crates/brain-context/src/llm.rs:180` derives `version_id` from `(job_id, index)`:
+
+```rust
+version_id: deterministic_id(packet.job_id, index, b"version"),
+```
+
+That is deliberate — it makes a crash mid-append idempotent, since `append_memory` early-returns when
+the content matches. But it holds only while the provider answers identically on retry. When a job
+fails partway and retries, GLM answers slightly differently, memory `index` carries new content under
+the old id, and `append_memory` correctly refuses. Then it retries and refuses again, until the job
+dies. **Determinism bought idempotent replay at the cost of making retry-with-different-output
+unrecoverable.**
+
+Seven jobs out of 5,835, and no evidence is lost — the events are still in the ledger; those seven
+≤200-event windows simply were not distilled. The honest resolution is to accept them and record why.
+
+Embeddings, by contrast, are **fully caught up**: 100% of events vectorised in all three projects,
+memory vectors within ~1% of the version count and closing continuously.
+
+### Step 6 is superseded — `token-ab.ps1` is a pilot, and its replacement is specified
+
+`docs/superpowers/specs/2026-08-11-cross-harness-token-savings-benchmark-design.md` (`737b362`, spec
+only — 436 lines, no implementation) names this script's limits directly:
+
+> *"`scripts/token-ab.ps1` is a useful pilot but not the final instrument. It runs only Claude Code,
+> omits Claude cache-creation tokens, uses five historical question-answer tasks, writes the live
+> Claude settings file between conditions, and does not publish a durable benchmark result. It must
+> become a compatibility wrapper or be retired after the new orchestrator ships."*
+
+All of that is accurate, and two are things **A14 improved without eliminating**:
+
+| A14 did | The spec requires |
+|---|---|
+| Derive each condition from a pristine backup, assert it, restore in `finally` | **Never rewrite `~/.claude/settings.json` at all** — hash it before and after, fail the run if it changed |
+| Give each session an explicit `--session-id` so its footprint is findable | A **frozen brain snapshot** outside every registered project root, so benchmark sessions cannot become evidence at all |
+
+The spec is strictly stronger in both. A14 was not wasted — the `Set-Condition` defect it found was
+real, and a spec independently forbidding *any* settings rewrite corroborates the concern rather than
+contradicting it — but the 45-session run it was fixing should not now happen.
+
+The scale differs by an order of magnitude too: **30–50 tasks × ≥5 repeats × 2 harnesses**, against
+5 × 3 × 3 on one. A 45-session figure would be a pilot result, and the spec already classifies a
+pilot as explicitly non-claimable.
+
+**So the token-saving percentage stays unmeasured, and it is now a build task rather than a run
+task** — seven implementation steps before the spec's step 8, *"execute, grade and publish the first
+claimable benchmark only after an explicit operator action."*
 
 ---
 
@@ -816,28 +900,65 @@ what "current" means. Third variant of the `CURRENT_CLAIM` bug. Fixed `7a75da6`;
 ### 3.2b's generation shipped
 
 `brain synthesize` is the call that never existed — the validator, the store and the projector's
-read path had all been in place for months. 63 subject pages now carry prose; 93 remain. One
-refusal in 45, a provider timeout, correctly scoped to that subject rather than the run.
+read path had all been in place for months. 63 subject pages carried prose after the first batch;
+one refusal in 45, a provider timeout, correctly scoped to that subject rather than the run.
 
-### One resilience fix each, both from the same lesson
+The rest were held until the drain finished — and the drain then invalidated nearly all of the 63,
+because `subject_synthesis` returns `None` the moment a subject's memory set changes and this project
+went from 632 to 7,799 current memories. The regenerating batch is **150 subjects**, which is the
+held-back decision paying off rather than failing: doing it a day earlier would have produced 63
+pages describing sets that no longer exist.
+
+### One resilience fix each, both from the same lesson — and the half of it that did not travel
 
 `brain revise --limit 8` lost all seven completed merges to a single transient timeout, because `?`
 propagated it. A provider failure is now that candidate's failure. `brain synthesize` was written
 with the same rule from the start.
 
-### The A/B is unblocked and deliberately not run
+**That is the blast-radius half. The back-off half never reached either of them**, and running 148
+subjects on 11 August is what exposed it:
 
-Its precondition is not met: this project is **48% consolidated, 632 jobs still queued**, and a
-half-consolidated brain understates the warm condition, so the figure would have to be re-run.
-Operator's decision, taken: wait for the drain, then run 5 × 3 × 3.
+| Pass | Attempted | Written | Refused | Transport failures |
+|---|---|---|---|---|
+| 1 | 148 | 121 | 27 | 26 (18%) |
+| 2 | 64 | 45 | 19 | 17 (27%) |
+| 3 | 27 | 23 | 4 | 2 (7%) |
 
-At the post-A13 rate that is **~7 hours of uptime** for this project — not for the whole backlog,
-which is a distinction worth keeping when the number is finally quoted. `subscription-agent` will
-still hold ~1,000 jobs at that point. The benchmark asks five questions about *this* repository, so
-that is fine; it does mean "the backlog has drained" will be true of the thing being measured and
-false globally.
+The rate is not a clean function of batch size — pass 2 was the worst on the smallest-but-one batch —
+so burst load is a plausible contributor rather than a demonstrated cause. What is certain is that a
+fifth of the calls in the two large passes failed at the connection, and nothing in the command
+responds to that.
 
-The waiting time was also spent, not merely passed: **A14** found that the harness's second and
+Nearly every refusal is `provider call failed: send GLM merge request` — a connection-level failure,
+not a rate limit and not the validator. `crates/brain-cli/src/synthesize.rs` contains **no** sleep,
+no backoff and no provider-unavailability branch: it awaits each subject in turn and, on failure,
+records the refusal and immediately fires the next request. `max_retries` is 2 inside `GlmClient`,
+and a fifth of calls still fail.
+
+Consolidation never shows this, and the difference is instructive rather than coincidental. Its
+`WorkerOutcome::ProviderUnavailable(_) => break` stops the whole tick and returns two seconds later,
+so it is *inherently paced*; it also leaves the job untouched so the attempt is not consumed. Synthesis
+bursts at whatever rate the endpoint will accept connections, which is very likely why it stops
+accepting them.
+
+So the lesson generalised one level and stopped: **contain the blast radius** landed in all three
+commands; **stop pushing when the provider is struggling** landed only in the one that happened to
+need it first. A per-subject delay, or reusing `provider_unavailable` to pause the run rather than
+skip the subject, would recover roughly a fifth of every batch. Not fixed here — the pages converge
+under repeated passes, so this is a cost rather than a blocker.
+
+### The A/B waited for the drain, and by the time the drain finished the instrument had changed
+
+The original blocker was a measurement-validity one: a half-consolidated brain understates the warm
+condition, so the figure would have to be re-run. **That blocker is gone** — the drain finished on
+11 August at 05:01 UTC with all three projects at zero.
+
+The A/B still did not run, for a different and better reason. `token-ab.ps1` is a pilot, and the
+cross-harness benchmark spec written the same night (`737b362`) retires it by name. Running its
+45 sessions would have produced a number the spec classifies as non-claimable — real money spent on
+a figure that could not be quoted. See *Step 6 is superseded* below.
+
+The waiting time was spent rather than merely passed: **A14** found that the harness's second and
 third conditions were both measuring the first, which would have made the run worthless.
 
 ---
@@ -847,11 +968,11 @@ third conditions were both measuring the first, which would have made the run wo
 | Item | Blocker |
 |---|---|
 | ~~A8b's generation call~~ | ✅ **Run 10 August.** Both validator rules observed refusing real provider output |
-| Token-saving A/B | **Its own precondition, not quota.** `claude -p` authenticates and reports `glm-5.2`. This project is 48% consolidated with 632 jobs queued, and a half-consolidated brain understates the warm condition. ~7 h of uptime left — see below |
+| Token-saving A/B | **No longer the precondition — the instrument.** The drain finished 11 August; `token-ab.ps1` is a pilot the cross-harness spec (`737b362`) explicitly retires. Blocked on building its replacement |
 | ~~3 dead-lettered jobs~~ | ✅ **Requeued 10 August** via `brain jobs --retry-dead`, which did not exist — the digest reported the count and nothing could act on it |
-| ~~3.2b synthesis prose~~ | ✅ **Shipped 10 August.** `brain synthesize`; 63 subject pages carry prose. The other 93 are **held back on purpose**, not outstanding work: their prose is keyed to an exact memory set, and generating now would be regenerating after the drain |
+| ~~3.2b synthesis prose~~ | ✅ **Shipped 10 August**, generating 11 August. The held-back pages became 148 when the drain rewrote the memory sets — which is precisely why they were held |
 | ~~Codex mid-session parity~~ | ✅ **Resolved.** It was never structural: `UserPromptSubmit` is registered and observed firing four times across two Codex prompts. Nothing is invoked voluntarily any more |
-| Rendered-UI verification | The Browser pane never paints. Split above |
+| ~~Rendered-UI verification~~ | ✅ **Done 10 August** via a second browser. The Browser *pane* cannot composite; that was misread as "rendered UI cannot be checked" |
 
 ### The backlog ETA was a rate quoted as a duration
 
@@ -883,10 +1004,10 @@ Two things came out of that, one still true and one since fixed:
   **~215 jobs/hour**, and — the part that mattered more — the three ledgers drain independently, so
   this project no longer queues behind `subscription-agent`.
 
-**And the backlog is not old backfill.** The pending jobs for `agent-knowledge-base-codex` cover
-7 August through 10 August — the project is 48% consolidated, the lowest of the three, and the
-unconsolidated part is the recent work an A/B question here would actually be about. That is the
-whole reason the A/B waits, and it is a measurement-validity reason rather than a cost one.
+**And the backlog was not old backfill.** The pending jobs for `agent-knowledge-base-codex` covered
+7 August through 10 August — the unconsolidated part was the recent work an A/B question here would
+actually be about, which is why waiting was a measurement-validity decision rather than a cost one.
+Resolved 11 August: 0 pending, 7,799 current memories.
 
 **On cost, for the record.** With GLM quota no longer scarce, the ranking of reasons to wait is:
 the number would not be quotable (validity); the run competes with the drain for the same quota
