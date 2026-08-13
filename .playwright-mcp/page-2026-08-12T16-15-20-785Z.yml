@@ -1,0 +1,119 @@
+- generic [ref=f1e2]:
+  - complementary [ref=f1e3]:
+    - link "Agent Brain Dashboard" [ref=f1e4] [cursor=pointer]:
+      - /url: /
+      - generic [ref=f1e9]:
+        - generic [ref=f1e10]: Agent Brain
+        - generic [ref=f1e11]: Dashboard
+    - navigation [ref=f1e12]:
+      - paragraph [ref=f1e13]: Monitoring
+      - link "Overview" [ref=f1e14] [cursor=pointer]:
+        - /url: "#top"
+      - link "Service" [ref=f1e21] [cursor=pointer]:
+        - /url: "#service"
+      - link "Deployment" [ref=f1e25] [cursor=pointer]:
+        - /url: "#deployment"
+      - link "Storage" [ref=f1e32] [cursor=pointer]:
+        - /url: "#storage"
+      - link "Projects" [ref=f1e36] [cursor=pointer]:
+        - /url: "#projects"
+      - link "Retrieval" [ref=f1e43] [cursor=pointer]:
+        - /url: "#retrieval"
+      - link "Session replay" [ref=f1e48] [cursor=pointer]:
+        - /url: "#replay"
+      - link "Token baseline" [ref=f1e54] [cursor=pointer]:
+        - /url: "#tokens"
+      - link "Configuration" [ref=f1e59] [cursor=pointer]:
+        - /url: "#config"
+    - generic [ref=f1e62]: Auto-refresh · 30s
+  - generic [ref=f1e76]:
+    - banner [ref=f1e77]:
+      - generic [ref=f1e78]:
+        - generic [ref=f1e79]: Live
+        - button "Switch to light theme" [ref=f1e83]
+    - main [ref=f1e84]:
+      - generic [ref=f1e85]:
+        - generic [ref=f1e86]:
+          - generic [ref=f1e89]:
+            - heading "Brain dashboard" [level=1] [ref=f1e90]
+            - paragraph [ref=f1e91]: Health, storage, providers, and delivery monitoring for the secondary brain.
+          - generic [ref=f1e96]:
+            - button "Refresh now" [disabled]
+        - generic [ref=f1e103]:
+          - heading "Service health" [level=2] [ref=f1e104]
+          - paragraph [ref=f1e105]: Windows Task Scheduler survival — tasks, binaries, and recovery
+        - generic [ref=f1e123]:
+          - heading "Deployment" [level=2] [ref=f1e124]
+          - paragraph [ref=f1e125]: Whether the running binaries match the source they were built from
+        - generic [ref=f1e134]:
+          - generic [ref=f1e136]:
+            - heading "Storage" [level=2] [ref=f1e137]
+            - paragraph [ref=f1e138]: Brain home, backups, disk headroom, and ledger footprint
+          - generic [ref=f1e139]:
+            - paragraph [ref=f1e141]: Brain home
+            - paragraph [ref=f1e144]: Backups
+            - paragraph [ref=f1e147]: Ledger total
+          - generic [ref=f1e149]:
+            - generic [ref=f1e151]:
+              - generic [ref=f1e152]: "?"
+              - generic [ref=f1e153]: 0 B free of 0 B
+            - generic [ref=f1e155]: No backup drive
+          - paragraph [ref=f1e157]: Ledger size by project
+        - generic [ref=f1e164]:
+          - heading "Projects" [level=2] [ref=f1e165]
+          - paragraph [ref=f1e166]: Registered projects, event throughput, and provider state
+        - generic [ref=f1e192]:
+          - heading "Retrieval" [level=2] [ref=f1e193]
+          - paragraph [ref=f1e194]: Which channels answer a query, how they are weighted, and which can currently fire
+        - generic [ref=f1e207]:
+          - generic [ref=f1e209]:
+            - heading "Session replay" [level=2] [ref=f1e210]
+            - paragraph [ref=f1e211]: One captured session, turn by turn — the question an aggregate cannot answer
+          - generic [ref=f1e212]:
+            - button "Load sessions" [disabled]
+            - generic [ref=f1e213]: Waiting for the snapshot — the project list comes from it.
+          - generic [ref=f1e215]: A page at a time, always. The largest session here runs past 16,000 events and serialises to 100 MB whole, so the list carries a preview per turn and opening one fetches that single event.
+        - generic [ref=f1e222]:
+          - generic [ref=f1e225]:
+            - heading "Measured token savings" [level=2] [ref=f1e226]
+            - paragraph [ref=f1e227]: Paired brain-off vs brain-on native token counts, gated by blind answer quality
+          - generic [ref=f1e229]:
+            - generic [ref=f1e231]:
+              - heading "Production token trend" [level=2] [ref=f1e232]
+              - paragraph [ref=f1e233]: Actual native usage under whichever configuration was active — operational telemetry, not an A/B result
+            - generic [ref=f1e234]: Observational
+          - generic [ref=f1e238]:
+            - generic [ref=f1e240]:
+              - heading "Context delivery" [level=2] [ref=f1e241]
+              - paragraph [ref=f1e242]: Tokens injected by Second Brain, shown as delivery volume — not token savings
+            - generic [ref=f1e243]:
+              - generic [ref=f1e244]:
+                - paragraph [ref=f1e245]: Today
+                - paragraph [ref=f1e247]: —
+              - generic [ref=f1e248]:
+                - paragraph [ref=f1e249]: Last 7 days
+                - paragraph [ref=f1e251]: —
+              - generic [ref=f1e252]:
+                - paragraph [ref=f1e253]: Last 30 days
+                - paragraph [ref=f1e255]: —
+            - paragraph [ref=f1e257]: Delivery channels, last 7 days — a total across harnesses cannot show one that has stopped
+            - generic [ref=f1e259]:
+              - paragraph [ref=f1e261]: Events by harness
+              - generic [ref=f1e264]:
+                - generic [ref=f1e265]:
+                  - generic [ref=f1e266]:
+                    - generic [ref=f1e267]: Max delivery vs 1,500-token budget
+                    - generic [ref=f1e268]: 0 / 1,500
+                  - paragraph [ref=f1e270]: Over budget this period.
+                - generic [ref=f1e271]: Orientations are delivered with cited context, capped at 1,500 tokens.
+            - paragraph [ref=f1e276]: Tokens delivered by window
+        - generic [ref=f1e283]:
+          - heading "Configuration" [level=2] [ref=f1e284]
+          - paragraph [ref=f1e285]: What the brain is wired to do — and whether each wire reaches anything
+        - generic [ref=f1e299]:
+          - generic [ref=f1e301]:
+            - heading "Coordination" [level=2] [ref=f1e302]
+            - paragraph [ref=f1e303]: Active leases, worktrees, and path claims
+          - generic [ref=f1e311]:
+            - paragraph [ref=f1e312]: No active coordination tasks
+            - paragraph [ref=f1e313]: When agents acquire leases or claim paths during parallel work, they'll appear here.

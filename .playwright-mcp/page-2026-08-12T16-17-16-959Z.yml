@@ -1,0 +1,13 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e2]: "Left-click: rotate, Mouse-wheel/middle-click: zoom, Right-click: pan"
+  - generic [ref=f2e7]:
+    - heading "OpenClaw Agents Graph" [level=2] [ref=f2e8]
+    - generic [ref=f2e9]: 27 Nodes | 32 Links
+    - generic [ref=f2e10]:
+      - generic [ref=f2e11]: Core System
+      - generic [ref=f2e13]: C-Level Agents
+      - generic [ref=f2e15]: Roles / Functions
+      - generic [ref=f2e17]: AI Skills / Tools
+    - generic [ref=f2e19]:
+      - button "Toggle Auto-Rotate" [ref=f2e20] [cursor=pointer]
+      - button "Fit to Screen" [ref=f2e21] [cursor=pointer]
