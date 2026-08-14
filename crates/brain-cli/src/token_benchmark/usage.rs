@@ -4,7 +4,15 @@ use serde_json::Value;
 use super::{BenchmarkHarness, NativeUsage};
 
 pub fn parse_claude_usage(raw: &str) -> Result<NativeUsage> {
-    let value: Value = serde_json::from_str(raw).context("Claude output is not valid JSON")?;
+    let values = parse_values(raw, "Claude")?;
+    let matching = values
+        .iter()
+        .filter(|value| value.get("usage").and_then(Value::as_object).is_some())
+        .collect::<Vec<_>>();
+    let value = matching
+        .last()
+        .copied()
+        .ok_or_else(|| anyhow!("Claude result has no usage object"))?;
     let usage = value
         .get("usage")
         .and_then(Value::as_object)
@@ -35,8 +43,22 @@ pub fn parse_claude_usage(raw: &str) -> Result<NativeUsage> {
         output_tokens: output,
         reasoning_output_tokens: None,
         total_tokens: total,
-        native_records: 1,
+        native_records: u32::try_from(matching.len()).context("too many Claude usage records")?,
     })
+}
+
+fn parse_values(raw: &str, harness: &str) -> Result<Vec<Value>> {
+    if let Ok(value) = serde_json::from_str(raw) {
+        return Ok(vec![value]);
+    }
+    raw.lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+        .map(|(index, line)| {
+            serde_json::from_str(line)
+                .with_context(|| format!("{harness} JSONL line {} is malformed", index + 1))
+        })
+        .collect()
 }
 
 pub fn parse_codex_usage(raw: &str) -> Result<NativeUsage> {
@@ -113,4 +135,28 @@ fn optional_u64(value: Option<&Value>, name: &str) -> Result<Option<u64>> {
     value
         .map(|value| value.as_u64().ok_or_else(|| anyhow!("invalid {name}")))
         .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_claude_usage;
+
+    #[test]
+    fn claude_stream_json_uses_the_terminal_result_usage() {
+        let raw = concat!(
+            "{\"type\":\"system\",\"subtype\":\"init\"}\n",
+            "{\"type\":\"assistant\",\"message\":{\"content\":[]}}\n",
+            "{\"type\":\"result\",\"result\":\"done\",\"usage\":{\"input_tokens\":10,\"cache_creation_input_tokens\":20,\"cache_read_input_tokens\":30,\"output_tokens\":40}}\n"
+        );
+        let usage = parse_claude_usage(raw).expect("stream usage");
+        assert_eq!(usage.total_tokens, 100);
+        assert_eq!(usage.native_records, 1);
+    }
+
+    #[test]
+    fn malformed_claude_jsonl_is_rejected_instead_of_partially_counted() {
+        let error = parse_claude_usage("{\"type\":\"system\"}\nnot-json\n")
+            .expect_err("malformed stream must fail");
+        assert!(error.to_string().contains("line 2"));
+    }
 }

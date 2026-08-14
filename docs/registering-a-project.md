@@ -56,7 +56,20 @@ different clone of the same repo elsewhere on disk is a *different* project by d
    schtasks /Run /TN "AgentBrain.Service"
    ```
 
-3. **Nothing.** Both harnesses are now wired globally, and neither needs a per-project step.
+3. **Nothing per project.** Both harnesses' hooks are wired globally, and neither needs a
+   per-project step. Brain MCP is also global once installed; each tool call still names its
+   project UUID or exact registered path, so global wiring does not weaken isolation.
+
+   On a new machine, install Claude's on-demand historical depth once, explicitly:
+
+   ```
+   brain.exe --brain-home ~/AgentBrain install-mcp --harness claude
+   ```
+
+   This invokes Claude Code's supported `claude mcp add --scope user` interface. It never edits or
+   replaces `~/.claude.json` directly, pins `~/AgentBrain/bin/brain-mcp.exe`, and refuses a
+   `target/release` or drifted binary. `uninstall-mcp --harness claude` removes only a server named `brain`
+   whose command still matches Agent Brain. Registration itself remains one local-path command.
 
    This used to be the required, easily-forgotten step: append a brain section to the new
    project's `AGENTS.md` telling Codex to call `brain_checkpoint`. **It is obsolete**, and it has
@@ -150,7 +163,8 @@ does not strip, so the hook exited 1 before reaching our binary. Fixed, and pinn
 — it is worse than nothing, because it asks the model to spend a tool call reproducing context the
 harness already placed in front of it.
 
-**What MCP is still for.** `~/.codex/config.toml` keeps `[mcp_servers.brain]`, and it should. The
+**What MCP is still for.** Codex keeps `[mcp_servers.brain]`, and Claude Code has the same
+user-scoped `brain` server after the explicit install above. The
 hook *pushes* an orientation; the tools *answer questions* — `brain_search`, `brain_timeline`,
 `brain_evidence`, `brain_claims`, `brain_leases` have no hook equivalent and never will, because
 nothing can push an answer to a question not yet asked. What changed is that MCP stopped being the

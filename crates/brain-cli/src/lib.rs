@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod benchmark;
+mod benchmark_launcher;
 mod config_panel;
 mod dashboard;
 mod deployment;
@@ -10,6 +11,7 @@ mod evict;
 mod explain;
 mod export;
 mod install_hooks;
+mod install_mcp;
 mod jobs;
 mod lint;
 mod longmemeval;
@@ -20,9 +22,11 @@ mod reconcile;
 mod register;
 mod remember;
 mod replay;
+mod retrieval_benchmark;
 mod review;
 mod revise;
 mod service;
+mod session_status;
 mod status;
 mod synthesize;
 mod token_benchmark;
@@ -31,7 +35,10 @@ pub use config_panel::{
     BudgetContract, ConfigDashboard, CredentialBinding, HarnessWiring, McpWiring, ScheduledJob,
     read_config_panel,
 };
-pub use dashboard::{DASHBOARD_SCHEMA_VERSION, DashboardSnapshot, read_dashboard};
+pub use dashboard::{
+    BrainAlert, DASHBOARD_SCHEMA_VERSION, DashboardSnapshot, ProjectDashboard, SessionDashboard,
+    read_dashboard,
+};
 pub use deployment::{
     DEPLOY_MANIFEST, DEPLOYED_BINARIES, DeployManifest, DeployStatus, DeployedBinary,
     DeploymentDashboard, read_deployment, read_head_commit, source_fingerprint,
@@ -49,6 +56,11 @@ pub use export::{ExportFormat, ExportReport, export_project};
 pub use install_hooks::{
     HookInstallResult, install_claude_hooks, install_codex_hooks, uninstall_claude_hooks,
     uninstall_codex_hooks,
+};
+pub use install_mcp::{
+    McpCommandOutput, McpCommandRunner, McpInstallReport, SystemMcpCommandRunner,
+    install_claude_mcp, install_claude_mcp_with, uninstall_claude_mcp, uninstall_claude_mcp_with,
+    validate_installed_mcp_path,
 };
 pub use jobs::{DeadJob, JobReport, render as render_jobs, report as job_report};
 pub use lint::{
@@ -82,6 +94,12 @@ pub use replay::{
     event as replay_event, page as replay_page, render_page as render_replay_page,
     sessions as replay_sessions,
 };
+pub use retrieval_benchmark::{
+    AcceptableEvidence, PercentageMetric, RetrievalBenchmarkOptions, RetrievalBenchmarkReport,
+    RetrievalCaseResult, RetrievalChannel, RetrievalGoldCase, RetrievalMetrics, RetrievalSplit,
+    evaluate_retrieval_cases, evaluate_retrieval_fixture_cases, read_gold_cases,
+    run_retrieval_benchmark, run_retrieval_fixture_benchmark, sha256_file,
+};
 pub use review::{
     PendingMemory, ReviewReport, pending as pending_reviews, render as render_review,
     rule as rule_on_memory,
@@ -96,7 +114,14 @@ pub use service::{
     ServiceUninstallReport, install_windows_service, start_windows_service, stop_windows_service,
     uninstall_windows_service, windows_service_status,
 };
-pub use status::{BrainStatus, HermesStatus, read_hermes_status, read_status};
+pub use session_status::{
+    ChannelState, SessionActivity, SessionChannelStatus, SessionFilter, SessionLifecycleState,
+    SessionStatus, SessionStatusOptions, SessionStatusPage, fold_session_status,
+    read_session_status,
+};
+pub use status::{
+    BrainStatus, HermesStatus, SessionLifecycleCounts, read_hermes_status, read_status,
+};
 pub use synthesize::{
     SubjectOutcome, SynthesisReport, generate as generate_synthesis, render as render_synthesis,
     survey as survey_synthesis,
@@ -109,3 +134,4 @@ pub use benchmark::{
     BenchmarkProfile, BenchmarkReport, CorpusHashes, benchmark_corpus, benchmark_report_dir,
     corpus_hashes, preserve_benchmark_report,
 };
+pub use benchmark_launcher::{BenchmarkLauncherArgs, LauncherPreparation, run_benchmark_launcher};

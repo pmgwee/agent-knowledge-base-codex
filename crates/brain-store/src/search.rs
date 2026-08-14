@@ -125,6 +125,11 @@ pub struct SearchQuery {
     /// than evidence — so it is fused in as an extra channel rather than replacing the query, which
     /// makes it incapable of losing a result the plain query already found.
     pub expand_query: bool,
+    /// Whether returned memories update the production access/retention projection.
+    ///
+    /// On by default. Deterministic evaluators turn it off so rerunning a locked benchmark cannot
+    /// alter the corpus state it is trying to measure.
+    pub record_access: bool,
     pub limit: usize,
 }
 
@@ -141,6 +146,7 @@ impl SearchQuery {
             source_filter: SearchSourceFilter::All,
             diversify_sessions: true,
             expand_query: false,
+            record_access: true,
             limit: DEFAULT_LIMIT,
         }
     }
@@ -206,6 +212,11 @@ impl SearchQuery {
 
     pub fn without_session_diversity(mut self) -> Self {
         self.diversify_sessions = false;
+        self
+    }
+
+    pub fn without_access_recording(mut self) -> Self {
+        self.record_access = false;
         self
     }
 
@@ -306,7 +317,7 @@ impl EventLedger {
         // still answered the question, and failing it to protect a statistic would be the wrong
         // trade in the wrong direction.
         let retrieved: Vec<uuid::Uuid> = hits.iter().filter_map(|hit| hit.memory_id).collect();
-        if !retrieved.is_empty() {
+        if query.record_access && !retrieved.is_empty() {
             let _ = self.record_memory_access(&retrieved, time::OffsetDateTime::now_utc());
         }
         let entry_bytes = estimated_cache_entry_bytes(query, &hits);

@@ -379,7 +379,7 @@ once its hooks were trusted.
 | `SessionStart` | Fires. 75+ deliveries | **Fires.** 1,043–1,045 tokens, 46 coordination tokens |
 | `SessionEnd` | Fires | **Fires.** Real `session.ended` events with v7 ids. Declares a 3 s timeout because Codex clamps anything larger |
 | `UserPromptSubmit` | Fires — mid-session push, 400 tokens | **Fires.** Registered `eb67502` |
-| MCP | Not wired | 16 tools — **depth on demand, never delivery.** `brain_checkpoint` is redundant with the hook and no longer requested anywhere |
+| MCP | Installer/verification implemented; explicit user-scope install pending | 16 tools configured — **depth on demand, never delivery.** `brain_checkpoint` is redundant with the hook and no longer requested anywhere |
 
 **Full parity, and all of it observed in one instrumented Codex session** —
 `019fe7c5-698c-7c63-b4bd-57c66056f628`, 10 August 2026:
@@ -454,9 +454,11 @@ and before reading any issue tracker.
 
 ### What is still asymmetric
 
-**Nothing.** All three hooks apply to both harnesses, harness-invoked, before the model reads
-anything — and as of 10 August that is no longer inferred from delivery rows but read directly off
-`hook received`, which records the invocation whether or not anything was pushed.
+**The hooks are symmetric; installed MCP wiring is not yet.** All three hooks apply to both
+harnesses, harness-invoked, before the model reads anything. Codex has the 16-tool Brain MCP server
+configured. Claude now has a supported, idempotent `brain install-mcp --harness claude` path and
+verification, but installation is deliberately an explicit operator action and must not be inferred
+from the code existing.
 
 ## Registering a project
 
@@ -475,8 +477,10 @@ once, at startup (`build_capture_bindings` in `crates/brain-service/src/main.rs`
 `schtasks /Run /TN "AgentBrain.Service"` runs, the project sits in the config with nothing
 capturing it — and everything looks fine while that is true.
 
-**Nothing else.** There is no per-harness step: both hooks are registered globally and resolve
-the project from the session's `cwd`.
+**Nothing else for hooks or capture.** Both hooks are registered globally and resolve the project
+from the session's `cwd`. Brain MCP is also global rather than project-specific, but Claude's
+one-time user-scope MCP installation is a separate explicit operator action; project registration
+must not silently mutate it.
 
 The `AGENTS.md` brain section that used to be required here is **obsolete, and has been removed
 from all three registered projects.** It asked Codex to call `brain_checkpoint` because its hook was

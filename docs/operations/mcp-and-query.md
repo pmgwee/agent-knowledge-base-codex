@@ -12,10 +12,21 @@ $env:BRAIN_HOME = "$env:USERPROFILE\AgentBrain"
 brain-mcp
 ~~~
 
-An MCP client should launch the binary directly and exchange one JSON-RPC
-message per line over stdin/stdout. Logs, if added, must go to stderr. Register
-the same command in Claude Code, Codex, Hermes, and future agents; the tools and
-project boundaries are identical for every harness.
+An MCP client should launch the binary directly and exchange one JSON-RPC message per line over
+stdin/stdout. Logs, if added, must go to stderr.
+
+For Claude Code, use its supported user-scope interface rather than hand-editing configuration:
+
+~~~powershell
+brain --brain-home "$env:USERPROFILE\AgentBrain" install-mcp --harness claude
+claude mcp get brain
+~~~
+
+The installer is an explicit operator action. It pins `AgentBrain\bin\brain-mcp.exe`, refuses
+`target\release` and drifted deployments, and is idempotent. `uninstall-mcp --harness claude` removes only a
+server named `brain` whose command still matches Agent Brain. Codex uses its user-level
+`[mcp_servers.brain]` setting. Both harnesses receive bounded hook pushes; MCP is historical depth
+on demand.
 
 ## Tools
 
@@ -28,6 +39,11 @@ project boundaries are identical for every harness.
 - `brain_correct`: append-only, human-authority correction. Callers must provide
   a stable `correction_id` UUID so retries are idempotent.
 - `brain_status`: canonical store health and optional-provider independence.
+- `brain_claim`, `brain_claims`, `brain_release_claim`: project-scoped coordination claims.
+- `brain_lease_acquire`, `brain_lease_renew`, `brain_lease_release`, `brain_lease_handoff`, and
+  `brain_leases`: one-writer task coordination.
+- `brain_merge_preflight`: verify integration state before merging task-owned work.
+- `brain_context_for_prompt`: bounded prompt context for explicit clients.
 
 Read tools return `structuredContent` plus the same JSON serialized in a text
 content block for older clients. Results state whether an item is current
@@ -59,6 +75,10 @@ Obsidian, CodeGraph, or LLM Wiki. If any optional process is unavailable, MCP
 search, timeline, checkpoint, evidence, correction, and status continue from the
 per-project ledger. `optional_provider_state: canonical_fts_only` is explicit in
 retrieval results.
+
+Every call records request plus success/failure telemetry. Claude supplies exact session
+correlation when its client exposes it; otherwise the receipt is explicitly `unattributed` rather
+than guessed.
 
 An unknown project, malformed timestamp, cross-project evidence reference, or
 invalid correction is returned as an MCP tool execution error (`isError: true`)

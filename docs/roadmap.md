@@ -10,6 +10,25 @@ silently rewrites its own predictions cannot be checked against reality later.
 
 ---
 
+## 13 August 2026 — measurement-first shipping decision
+
+The active success criterion is no longer “the memory system exists.” It is whether the smallest
+measured component set improves three independent outcomes: net native tokens, end-to-end coding
+time, and final-answer quality. The preregistered C0–C4 matrix, deterministic retrieval evaluator,
+isolated launcher, lifecycle telemetry, session status, alerts, and dashboard views are implemented.
+
+No native-agent percentage exists yet. The visible retrieval calibration is a fixture correctness
+result, not an A/B result. Next authorized steps are: clean/freeze the implementation commit; run and
+blind-grade the 20-session instrumentation smoke; obtain separate approval for the 240-session
+current-state pilot; then apply the trigger rules. Prompt-push tuning and a continuation capsule are
+not assumed improvements and stay unimplemented unless the pilot triggers them. The locked retrieval
+split is opened once after calibration freezes. The 1,600-session claimable matrix remains a distinct
+high-cost approval boundary.
+
+The final architecture is selected by measured increments. C2, C3, or C4 can be disabled even when
+the Brain remains useful as an append-only cross-platform historical store. Lifecycle observability
+can ship independently if its reliability and false-alert gates pass.
+
 ## 11 August 2026 execution update — the instrument is shipped, the number is not
 
 The old five-question, Claude-only A/B is superseded by the approved

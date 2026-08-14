@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "harness": "codex",
+  "condition": "c0",
+  "model": "native_default",
+  "effort": "native_default",
+  "permissions": "native_default",
+  "native_memory": "native_default",
+  "skills": "native_default",
+  "providers": {},
+  "tools": { "codegraph": { "enabled": false } },
+  "hooks": {},
+  "mcp": {},
+  "environment": {},
+  "instructions": "instructions/AGENTS.md"
+}

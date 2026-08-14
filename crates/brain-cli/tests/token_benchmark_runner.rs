@@ -1,7 +1,10 @@
 use std::cell::Cell;
 use std::collections::BTreeMap;
 
-use brain_cli::{CommandPlan, ProcessOutput, ProcessRunner, RunOutcome, execute_command_plan};
+use brain_cli::{
+    CommandPlan, ProcessOutput, ProcessRunner, RunOutcome, SystemProcessRunner,
+    execute_command_plan,
+};
 
 struct FakeRunner {
     calls: Cell<usize>,
@@ -15,6 +18,7 @@ impl ProcessRunner for FakeRunner {
             stdout: b"result".to_vec(),
             stderr: Vec::new(),
             timed_out: false,
+            elapsed_ms: Some(25),
         })
     }
 }
@@ -67,4 +71,26 @@ fn generic_home_overrides_are_rejected() {
     };
     assert!(execute_command_plan(&plan, true, &runner).is_err());
     assert_eq!(runner.calls.get(), 0);
+}
+
+#[test]
+fn system_runner_measures_through_timeout_cleanup_with_one_monotonic_clock() {
+    let temp = tempfile::tempdir().unwrap();
+    let powershell = std::path::PathBuf::from(std::env::var("SystemRoot").unwrap())
+        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+    let plan = CommandPlan {
+        sample_id: "timed-timeout".to_owned(),
+        program: powershell,
+        args: vec![
+            "-NoProfile".to_owned(),
+            "-Command".to_owned(),
+            "Start-Sleep -Seconds 5".to_owned(),
+        ],
+        current_dir: temp.path().to_path_buf(),
+        environment: BTreeMap::new(),
+        timeout_seconds: 1,
+    };
+    let output = SystemProcessRunner.run(&plan).expect("timed process");
+    assert!(output.timed_out);
+    assert!(output.elapsed_ms.expect("monotonic elapsed time") >= 900);
 }

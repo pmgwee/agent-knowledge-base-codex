@@ -132,9 +132,8 @@ fn multiple_checkpoints_accumulate_in_the_delivery_log() {
 
 #[test]
 fn checkpoint_prepends_coordination_context_so_codex_sees_active_state() {
-    // Codex's desktop app does not fire the SessionStart hook, so brain_checkpoint is the only
-    // channel through which it learns about leases and path claims. The checkpoint must prepend
-    // the same coordination view the hook injects for Claude Code.
+    // MCP remains a depth-on-demand path for either harness. When explicitly requested, its
+    // checkpoint must prepend the same coordination view the SessionStart hook already injects.
     let (_temp, service, project_id, _ledger_path) = service_with_project();
 
     let response = service

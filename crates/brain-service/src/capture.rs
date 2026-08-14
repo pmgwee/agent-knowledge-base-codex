@@ -284,6 +284,14 @@ impl CaptureSupervisor {
                     for record in &batch.records {
                         events.extend(binding.adapter.normalize(record, &binding.context)?);
                     }
+                    let capture_attribution = events.last().map(|event| {
+                        (
+                            event.harness.clone(),
+                            brain_store::SessionAttribution::Attributed(
+                                event.native_session_id.clone(),
+                            ),
+                        )
+                    });
                     let last_event_id = events.last().map(|event| event.event_id);
                     let consolidation_reason = consolidation_reason(&events);
                     let (result, persisted_events, last_event_at) = {
@@ -297,6 +305,33 @@ impl CaptureSupervisor {
                             capture_gaps,
                             next_cursor: batch.next_cursor,
                         })?;
+                        if backlog == 0 {
+                            let (harness, session) =
+                                capture_attribution.clone().unwrap_or_else(|| {
+                                    (
+                                        brain_domain::Harness::Other("capture".to_owned()),
+                                        brain_store::SessionAttribution::Unattributed,
+                                    )
+                                });
+                            let receipt = brain_store::LifecycleEvent {
+                                event_id: uuid::Uuid::now_v7(),
+                                project_id: binding.context.project_id,
+                                harness,
+                                session,
+                                correlation_id: None,
+                                channel: brain_store::LifecycleChannel::Capture,
+                                stage: brain_store::LifecycleStage::CaptureCaughtUp,
+                                occurred_at: observed_at,
+                                detail: serde_json::json!({
+                                    "source_id": binding.source.source_id,
+                                    "backlog_bytes": 0,
+                                    "source_may_grow": true,
+                                }),
+                            };
+                            if let Err(error) = store.record_lifecycle_event(&receipt) {
+                                tracing::warn!(%error, "could not record capture caught-up receipt");
+                            }
+                        }
                         if let (Some(last), Some(reason)) = (last_event_id, consolidation_reason) {
                             store.enqueue_through_event_job(last, reason)?;
                         } else {

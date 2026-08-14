@@ -14,6 +14,15 @@ fn artifacts_are_project_scoped_append_only_and_resumable() {
     let manifest = manifest(project, run_id);
     store.create_run(&manifest).unwrap();
     store.create_run(&manifest).unwrap();
+    assert!(store.run_dir().join("commands.jsonl").is_file());
+    let command = store
+        .append_command(
+            "preflight",
+            vec!["brain".to_owned(), "benchmark".to_owned()],
+        )
+        .unwrap();
+    assert_eq!(store.commands().unwrap(), vec![command]);
+    assert!(store.run_dir().join("checksums.sha256").is_file());
     let sample = sample();
     store.append_sample(&sample).unwrap();
     store.append_sample(&sample).unwrap();
@@ -113,6 +122,8 @@ fn sample() -> SampleRecord {
             total_tokens: 16,
             native_records: 1,
         }),
+        elapsed_ms: Some(100),
+        native_trace: None,
         answer: "answer".to_owned(),
         automated_test_passed: None,
         stdout_sha256: "e".repeat(64),

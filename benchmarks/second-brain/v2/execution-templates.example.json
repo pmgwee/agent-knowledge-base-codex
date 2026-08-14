@@ -1,0 +1,33 @@
+{
+  "schema_version": 2,
+  "max_attempts": 2,
+  "brain_service_program": "C:\\absolute\\path\\to\\brain-service.exe",
+  "launcher_environment": {
+    "BENCHMARK_CLAUDE_EXECUTABLE": "C:\\absolute\\path\\to\\claude.exe",
+    "BENCHMARK_CODEX_EXECUTABLE": "C:\\absolute\\path\\to\\codex.exe",
+    "BENCHMARK_CODEGRAPH_NODE": "C:\\absolute\\path\\to\\node.exe",
+    "BENCHMARK_CODEGRAPH_SCRIPT": "C:\\absolute\\path\\to\\codegraph\\npm-shim.js",
+    "BENCHMARK_BRAIN_HOOK": "C:\\absolute\\path\\to\\brain-hook.exe",
+    "BENCHMARK_BRAIN_MCP": "C:\\absolute\\path\\to\\brain-mcp.exe",
+    "BENCHMARK_CLAUDE_CREDENTIALS": "C:\\absolute\\path\\to\\.credentials.json",
+    "BENCHMARK_CODEX_AUTH": "C:\\absolute\\path\\to\\auth.json"
+  },
+  "claude_code": {
+    "conditions": {
+      "c0": { "program": "C:\\absolute\\path\\to\\claude-benchmark-launcher.exe", "args": ["--condition-config", "{{condition_config}}", "--checkout", "{{checkout}}", "--sample-root", "{{sample_root}}", "--harness-home", "{{sample_harness_home}}", "--codegraph-home", "{{sample_codegraph_home}}", "--max-turns", "{{max_turns}}", "--max-tool-calls", "{{max_tool_calls}}", "--prompt", "{{prompt}}"], "environment": {}, "timeout_seconds": 900 },
+      "c1": { "program": "C:\\absolute\\path\\to\\claude-benchmark-launcher.exe", "args": ["--condition-config", "{{condition_config}}", "--checkout", "{{checkout}}", "--sample-root", "{{sample_root}}", "--harness-home", "{{sample_harness_home}}", "--codegraph-home", "{{sample_codegraph_home}}", "--max-turns", "{{max_turns}}", "--max-tool-calls", "{{max_tool_calls}}", "--prompt", "{{prompt}}"], "environment": {}, "timeout_seconds": 900 },
+      "c2": { "program": "C:\\absolute\\path\\to\\claude-benchmark-launcher.exe", "args": ["--condition-config", "{{condition_config}}", "--checkout", "{{checkout}}", "--sample-root", "{{sample_root}}", "--harness-home", "{{sample_harness_home}}", "--codegraph-home", "{{sample_codegraph_home}}", "--max-turns", "{{max_turns}}", "--max-tool-calls", "{{max_tool_calls}}", "--prompt", "{{prompt}}"], "environment": { "BRAIN_HOME": "{{sample_brain_home}}", "BRAIN_PIPE_NAME": "{{pipe_name}}" }, "timeout_seconds": 900 },
+      "c3": { "program": "C:\\absolute\\path\\to\\claude-benchmark-launcher.exe", "args": ["--condition-config", "{{condition_config}}", "--checkout", "{{checkout}}", "--sample-root", "{{sample_root}}", "--harness-home", "{{sample_harness_home}}", "--codegraph-home", "{{sample_codegraph_home}}", "--max-turns", "{{max_turns}}", "--max-tool-calls", "{{max_tool_calls}}", "--prompt", "{{prompt}}"], "environment": { "BRAIN_HOME": "{{sample_brain_home}}", "BRAIN_PIPE_NAME": "{{pipe_name}}" }, "timeout_seconds": 900 },
+      "c4": { "program": "C:\\absolute\\path\\to\\claude-benchmark-launcher.exe", "args": ["--condition-config", "{{condition_config}}", "--checkout", "{{checkout}}", "--sample-root", "{{sample_root}}", "--harness-home", "{{sample_harness_home}}", "--codegraph-home", "{{sample_codegraph_home}}", "--max-turns", "{{max_turns}}", "--max-tool-calls", "{{max_tool_calls}}", "--prompt", "{{prompt}}"], "environment": { "BRAIN_HOME": "{{sample_brain_home}}", "BRAIN_PIPE_NAME": "{{pipe_name}}" }, "timeout_seconds": 900 }
+    }
+  },
+  "codex": {
+    "conditions": {
+      "c0": { "program": "C:\\absolute\\path\\to\\codex-benchmark-launcher.exe", "args": ["--condition-config", "{{condition_config}}", "--checkout", "{{checkout}}", "--sample-root", "{{sample_root}}", "--harness-home", "{{sample_harness_home}}", "--codegraph-home", "{{sample_codegraph_home}}", "--max-turns", "{{max_turns}}", "--max-tool-calls", "{{max_tool_calls}}", "--prompt", "{{prompt}}"], "environment": {}, "timeout_seconds": 900 },
+      "c1": { "program": "C:\\absolute\\path\\to\\codex-benchmark-launcher.exe", "args": ["--condition-config", "{{condition_config}}", "--checkout", "{{checkout}}", "--sample-root", "{{sample_root}}", "--harness-home", "{{sample_harness_home}}", "--codegraph-home", "{{sample_codegraph_home}}", "--max-turns", "{{max_turns}}", "--max-tool-calls", "{{max_tool_calls}}", "--prompt", "{{prompt}}"], "environment": {}, "timeout_seconds": 900 },
+      "c2": { "program": "C:\\absolute\\path\\to\\codex-benchmark-launcher.exe", "args": ["--condition-config", "{{condition_config}}", "--checkout", "{{checkout}}", "--sample-root", "{{sample_root}}", "--harness-home", "{{sample_harness_home}}", "--codegraph-home", "{{sample_codegraph_home}}", "--max-turns", "{{max_turns}}", "--max-tool-calls", "{{max_tool_calls}}", "--prompt", "{{prompt}}"], "environment": { "BRAIN_HOME": "{{sample_brain_home}}", "BRAIN_PIPE_NAME": "{{pipe_name}}" }, "timeout_seconds": 900 },
+      "c3": { "program": "C:\\absolute\\path\\to\\codex-benchmark-launcher.exe", "args": ["--condition-config", "{{condition_config}}", "--checkout", "{{checkout}}", "--sample-root", "{{sample_root}}", "--harness-home", "{{sample_harness_home}}", "--codegraph-home", "{{sample_codegraph_home}}", "--max-turns", "{{max_turns}}", "--max-tool-calls", "{{max_tool_calls}}", "--prompt", "{{prompt}}"], "environment": { "BRAIN_HOME": "{{sample_brain_home}}", "BRAIN_PIPE_NAME": "{{pipe_name}}" }, "timeout_seconds": 900 },
+      "c4": { "program": "C:\\absolute\\path\\to\\codex-benchmark-launcher.exe", "args": ["--condition-config", "{{condition_config}}", "--checkout", "{{checkout}}", "--sample-root", "{{sample_root}}", "--harness-home", "{{sample_harness_home}}", "--codegraph-home", "{{sample_codegraph_home}}", "--max-turns", "{{max_turns}}", "--max-tool-calls", "{{max_tool_calls}}", "--prompt", "{{prompt}}"], "environment": { "BRAIN_HOME": "{{sample_brain_home}}", "BRAIN_PIPE_NAME": "{{pipe_name}}" }, "timeout_seconds": 900 }
+    }
+  }
+}

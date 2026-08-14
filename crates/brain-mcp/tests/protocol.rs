@@ -80,10 +80,65 @@ fn tool_calls_return_structured_content_and_missing_scope_is_a_tool_error() {
     );
 }
 
+#[test]
+fn every_scoped_tool_call_records_request_and_terminal_mcp_stages() {
+    let fixture = Fixture::new();
+    let tools = BrainTools::new(
+        BrainQueryService::from_config(&fixture.brain_home, fixture.config.clone()).unwrap(),
+    );
+    tools
+        .call(
+            "brain_status",
+            serde_json::json!({"project": fixture.project_id.to_string()}),
+        )
+        .expect("successful tool call");
+    assert!(
+        tools
+            .call(
+                "brain_search",
+                serde_json::json!({"project": fixture.project_id.to_string(), "text": ""}),
+            )
+            .is_err()
+    );
+
+    let ledger = EventLedger::open(
+        &fixture.ledger_path,
+        brain_domain::ProjectId(fixture.project_id),
+    )
+    .unwrap();
+    let events = ledger
+        .lifecycle_events(&brain_store::TelemetryQuery {
+            project_id: brain_domain::ProjectId(fixture.project_id),
+            session: Some(brain_store::SessionAttribution::Unattributed),
+            start: time::OffsetDateTime::UNIX_EPOCH,
+            end: time::OffsetDateTime::now_utc() + time::Duration::minutes(1),
+            limit: 20,
+        })
+        .unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.stage == brain_store::LifecycleStage::McpRequest)
+            .count(),
+        2
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event.stage == brain_store::LifecycleStage::McpSucceeded)
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event.stage == brain_store::LifecycleStage::McpFailed)
+    );
+}
+
 struct Fixture {
     _temp: tempfile::TempDir,
     brain_home: std::path::PathBuf,
     project_id: uuid::Uuid,
+    ledger_path: std::path::PathBuf,
     config: ServiceLaunchConfig,
 }
 
@@ -107,7 +162,7 @@ impl Fixture {
             project_root: identity.root,
             project_id: identity.project_id,
             worktree_id: identity.worktree_id,
-            ledger_path,
+            ledger_path: ledger_path.clone(),
             claude_sources: Vec::new(),
             codex_sources: Vec::new(),
             hermes_database: None,
@@ -116,6 +171,7 @@ impl Fixture {
             _temp: temp,
             brain_home,
             project_id: identity.project_id.0,
+            ledger_path,
             config,
         }
     }

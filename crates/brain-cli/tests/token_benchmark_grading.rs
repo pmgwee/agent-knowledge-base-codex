@@ -89,6 +89,8 @@ fn sample() -> SampleRecord {
         status: SampleStatus::Completed,
         attempt: 1,
         native_usage: None,
+        elapsed_ms: Some(100),
+        native_trace: None,
         answer: "The answer.".to_owned(),
         automated_test_passed: None,
         stdout_sha256: "a".repeat(64),

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use brain_adapters::{ClaudeAdapter, NormalizeContext, SourceDescriptor};
 use brain_domain::{ProjectId, WorktreeId};
 use brain_service::{CaptureBinding, CaptureSupervisor, source_health_key};
+use brain_store::{EventLedger, LifecycleStage, SessionAttribution, TelemetryQuery};
 use time::format_description::well_known::Rfc3339;
 
 #[tokio::test]
@@ -51,6 +52,22 @@ async fn a_rotated_source_creates_a_visible_unresolved_capture_gap() {
         project_health.last_event_at,
         Some(timestamp("2026-08-01T01:02:03Z"))
     );
+    let captured = EventLedger::open(&ledger, project_id)
+        .expect("open telemetry ledger")
+        .lifecycle_events(&TelemetryQuery {
+            project_id,
+            session: Some(SessionAttribution::Attributed("health-a".to_owned())),
+            start: time::OffsetDateTime::UNIX_EPOCH,
+            end: time::OffsetDateTime::now_utc() + time::Duration::minutes(1),
+            limit: 10,
+        })
+        .expect("capture lifecycle");
+    assert!(
+        captured
+            .iter()
+            .any(|event| event.stage == LifecycleStage::CaptureCaughtUp)
+    );
+    assert_eq!(captured[0].detail["source_may_grow"], true);
 
     std::fs::remove_file(&transcript).expect("remove first source");
     std::fs::write(

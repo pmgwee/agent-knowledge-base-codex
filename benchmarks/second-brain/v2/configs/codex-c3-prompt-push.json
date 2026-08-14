@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "harness": "codex",
+  "condition": "c3",
+  "model": "native_default",
+  "effort": "native_default",
+  "permissions": "native_default",
+  "native_memory": "native_default",
+  "skills": "native_default",
+  "providers": {},
+  "tools": { "codegraph": { "enabled": true, "command": "codegraph", "state": "{{sample_codegraph_home}}" } },
+  "hooks": { "agent_brain": { "transport": "{{sample_brain_home}}/bin/brain-hook.exe", "events": ["SessionStart", "SessionEnd", "UserPromptSubmit"] } },
+  "mcp": {},
+  "environment": { "BRAIN_HOME": "{{sample_brain_home}}", "BRAIN_PIPE_NAME": "{{pipe_name}}" },
+  "instructions": "instructions/AGENTS.md"
+}

@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use brain_context::{
-    ContextCompiler, ContextQuery, LiveState, ProviderConfig, ProviderResult, token_count,
+    CompiledContext, ContextCompiler, ContextQuery, LiveState, ProviderConfig, ProviderResult,
+    token_count,
 };
 use brain_coordination::{
     CoordinationStore, LeaseError, Overlap, RENEWAL_INTERVAL, SessionIdentity, overlap,
@@ -41,6 +42,8 @@ pub struct HookOutcome {
     /// `Some` only when an orientation was compiled. Recording it before the client has the reply
     /// is what made `context_deliveries` count compilations instead of receipts.
     pub delivery: Option<PendingDelivery>,
+    /// Receipt staged for the pipe boundary. It becomes true only after write + flush succeeds.
+    pub flush_receipt: Option<PendingLifecycleReceipt>,
 }
 
 impl HookOutcome {
@@ -49,6 +52,7 @@ impl HookOutcome {
         Self {
             reply,
             delivery: None,
+            flush_receipt: None,
         }
     }
 }
@@ -99,6 +103,20 @@ pub struct PendingDelivery {
     ledger_path: PathBuf,
     project_id: ProjectId,
     delivery: brain_store::ContextDelivery,
+}
+
+pub struct PendingLifecycleReceipt {
+    ledger_path: PathBuf,
+    project_id: ProjectId,
+    event: brain_store::LifecycleEvent,
+}
+
+impl PendingLifecycleReceipt {
+    pub fn record(self) -> Result<()> {
+        let ledger = EventLedger::open(&self.ledger_path, self.project_id)?;
+        ledger.record_lifecycle_event(&self.event)?;
+        Ok(())
+    }
 }
 
 impl PendingDelivery {
@@ -216,17 +234,21 @@ impl ProjectHookHandler {
         let Some(binding) = self.resolve_binding(&normalized_cwd) else {
             return Ok(HookOutcome::bare(HookReply::default()));
         };
+        record_hook_received_fail_open(&binding, envelope);
+        let flush_receipt = Some(staged_flush_receipt(&binding, envelope));
         let lease_warning = manage_lease_lifecycle(&binding, envelope)?;
         if envelope.event_name == "UserPromptSubmit" {
             // Fail-open, and silent when there is nothing worth saying. A push that fires on every
             // prompt must be willing to return nothing far more often than it returns something.
-            let pushed = match mid_session_push(&binding, envelope) {
-                Ok(text) => text,
+            let push = match mid_session_push(&binding, envelope) {
+                Ok(decision) => decision,
                 Err(error) => {
                     tracing::warn!(%error, "mid-session push failed; the session continues without it");
-                    None
+                    PushDecision::failed()
                 }
             };
+            record_retrieval_decision_fail_open(&binding, envelope, &push);
+            let pushed = push.text;
             let additional_context = [lease_warning, pushed]
                 .into_iter()
                 .flatten()
@@ -247,6 +269,7 @@ impl ProjectHookHandler {
                     diagnostics_id: Some(envelope.nonce.to_string()),
                 },
                 delivery,
+                flush_receipt,
             });
         }
         if envelope.event_name == "SessionEnd" {
@@ -265,13 +288,18 @@ impl ProjectHookHandler {
                     diagnostics_id: Some(envelope.nonce.to_string()),
                 },
                 delivery,
+                flush_receipt,
             });
         }
         if envelope.event_name != "SessionStart" {
-            return Ok(HookOutcome::bare(HookReply {
-                additional_context: lease_warning,
-                diagnostics_id: Some(envelope.nonce.to_string()),
-            }));
+            return Ok(HookOutcome {
+                reply: HookReply {
+                    additional_context: lease_warning,
+                    diagnostics_id: Some(envelope.nonce.to_string()),
+                },
+                delivery: None,
+                flush_receipt,
+            });
         }
 
         // Timed in four stages, and the reason is that none of this was observable. The hook's
@@ -280,22 +308,51 @@ impl ProjectHookHandler {
         // orientation and nothing logged how long one took. A stage that is slow should say so in
         // the log the next person already reads.
         let started = std::time::Instant::now();
-        let ledger = EventLedger::open(&binding.ledger_path, binding.project_id)?;
+        let ledger = match EventLedger::open(&binding.ledger_path, binding.project_id) {
+            Ok(ledger) => ledger,
+            Err(error) => {
+                record_session_start_failure_fail_open(&binding, envelope, started.elapsed());
+                tracing::warn!(%error, "orientation ledger unavailable; continuing without context");
+                return Ok(HookOutcome {
+                    reply: HookReply::default(),
+                    delivery: None,
+                    flush_receipt,
+                });
+            }
+        };
         let opened_ms = started.elapsed().as_millis();
         let live_state = LiveState::inspect(&binding.project_root, binding.worktree_id);
         let live_ms = started.elapsed().as_millis() - opened_ms;
-        let mut compiler =
-            ContextCompiler::from_ledger(&ledger, binding.project_id, ORIENTATION_EVENT_LIMIT)?
-                .with_live_state(live_state);
+        let mut compiler = match ContextCompiler::from_ledger(
+            &ledger,
+            binding.project_id,
+            ORIENTATION_EVENT_LIMIT,
+        ) {
+            Ok(compiler) => compiler.with_live_state(live_state),
+            Err(error) => {
+                record_session_start_failure_fail_open(&binding, envelope, started.elapsed());
+                tracing::warn!(%error, "orientation evidence load failed; continuing without context");
+                return Ok(HookOutcome {
+                    reply: HookReply::default(),
+                    delivery: None,
+                    flush_receipt,
+                });
+            }
+        };
         let loaded_ms = started.elapsed().as_millis() - opened_ms - live_ms;
         if let Some(path) = binding
             .global_preferences_path
             .as_ref()
             .filter(|path| path.is_file())
         {
-            let preferences =
-                brain_store::GlobalPreferenceStore::open(path)?.current_preferences()?;
-            compiler = compiler.with_global_preferences(preferences);
+            match brain_store::GlobalPreferenceStore::open(path)
+                .and_then(|store| store.current_preferences())
+            {
+                Ok(preferences) => compiler = compiler.with_global_preferences(preferences),
+                Err(error) => {
+                    tracing::warn!(%error, "global preferences unavailable for orientation")
+                }
+            }
         }
         if let Ok(results) = cached_wiki_context(&binding, envelope.received_at)
             && !results.is_empty()
@@ -316,7 +373,18 @@ impl ProjectHookHandler {
             .map(str::to_owned);
         query.native_session_id = native_session_id.clone();
         let before_compile = started.elapsed().as_millis();
-        let compiled = compiler.compile(query)?;
+        let compiled = match compiler.compile(query) {
+            Ok(compiled) => compiled,
+            Err(error) => {
+                record_session_start_failure_fail_open(&binding, envelope, started.elapsed());
+                tracing::warn!(%error, "orientation compilation failed; continuing without context");
+                return Ok(HookOutcome {
+                    reply: HookReply::default(),
+                    delivery: None,
+                    flush_receipt,
+                });
+            }
+        };
         let compile_ms = started.elapsed().as_millis() - before_compile;
         // `info`, not `debug`. The whole point is that it is present in the log somebody reads
         // when a session starts slowly, without anyone having to raise a level first.
@@ -332,7 +400,19 @@ impl ProjectHookHandler {
         );
         if compiled.citations.is_empty() && coordination.is_none() && lease_warning.is_none() {
             // Nothing was compiled, so there is nothing to have delivered.
-            return Ok(HookOutcome::bare(HookReply::default()));
+            record_session_start_decision_fail_open(
+                &binding,
+                envelope,
+                &compiled,
+                brain_store::RetrievalOutcome::HealthySilence,
+                brain_store::RetrievalReasonCode::NoRelevantCandidate,
+                started.elapsed(),
+            );
+            return Ok(HookOutcome {
+                reply: HookReply::default(),
+                delivery: None,
+                flush_receipt,
+            });
         }
         let coordination = [lease_warning, coordination]
             .into_iter()
@@ -343,6 +423,14 @@ impl ProjectHookHandler {
         let memory_tokens = token_count(&compiled.text) as u64;
         let coordination_tokens = token_count(&coordination) as u64;
         let citation_count = compiled.citations.len() as u64;
+        record_session_start_decision_fail_open(
+            &binding,
+            envelope,
+            &compiled,
+            brain_store::RetrievalOutcome::Delivered,
+            brain_store::RetrievalReasonCode::Selected,
+            started.elapsed(),
+        );
         let additional_context = if coordination.is_empty() {
             compiled.text
         } else {
@@ -373,6 +461,7 @@ impl ProjectHookHandler {
                 diagnostics_id: Some(envelope.nonce.to_string()),
             },
             delivery: Some(delivery),
+            flush_receipt,
         })
     }
 
@@ -468,7 +557,49 @@ const MAX_PUSHED_MEMORIES: usize = 4;
 ///
 /// Twenty is roughly five pushes. Past that the session has had a fair share and the honest answer
 /// is silence; anything still missing can be asked for.
-const MAX_SESSION_PUSHES: usize = 20;
+const MAX_SESSION_PUSHED_MEMORIES: usize = 20;
+
+struct PushDecision {
+    text: Option<String>,
+    outcome: brain_store::RetrievalOutcome,
+    reason_code: brain_store::RetrievalReasonCode,
+    candidate_count: u32,
+    selected_count: u32,
+    dropped_count: u32,
+    token_count: u32,
+    selected_evidence_ids: Vec<String>,
+    latency_ms: u64,
+}
+
+impl PushDecision {
+    fn silence(reason_code: brain_store::RetrievalReasonCode, started: std::time::Instant) -> Self {
+        Self {
+            text: None,
+            outcome: brain_store::RetrievalOutcome::HealthySilence,
+            reason_code,
+            candidate_count: 0,
+            selected_count: 0,
+            dropped_count: 0,
+            token_count: 0,
+            selected_evidence_ids: Vec::new(),
+            latency_ms: elapsed_ms(started),
+        }
+    }
+
+    fn failed() -> Self {
+        Self {
+            text: None,
+            outcome: brain_store::RetrievalOutcome::Failed,
+            reason_code: brain_store::RetrievalReasonCode::RetrievalError,
+            candidate_count: 0,
+            selected_count: 0,
+            dropped_count: 0,
+            token_count: 0,
+            selected_evidence_ids: Vec::new(),
+            latency_ms: 0,
+        }
+    }
+}
 
 /// Content terms a memory must share with the prompt before it may be pushed.
 ///
@@ -503,10 +634,8 @@ const MIN_PROMPT_CHARACTERS: usize = 24;
 ///    above the floor all return `None` rather than something.
 /// 3. **Always meter.** Every push ends with what it cost and how many memories it carried, because
 ///    a per-message injection that nobody can measure is exactly how a token contract stops holding.
-fn mid_session_push(
-    binding: &HookProjectBinding,
-    envelope: &HookEnvelope,
-) -> Result<Option<String>> {
+fn mid_session_push(binding: &HookProjectBinding, envelope: &HookEnvelope) -> Result<PushDecision> {
+    let started = std::time::Instant::now();
     let Some(prompt) = envelope
         .payload
         .get("prompt")
@@ -515,7 +644,10 @@ fn mid_session_push(
         .map(str::trim)
         .filter(|text| text.chars().count() >= MIN_PROMPT_CHARACTERS)
     else {
-        return Ok(None);
+        return Ok(PushDecision::silence(
+            brain_store::RetrievalReasonCode::ShortPrompt,
+            started,
+        ));
     };
     let Some(session_id) = envelope
         .payload
@@ -526,7 +658,10 @@ fn mid_session_push(
     else {
         // With no session id there is no way to avoid repeating ourselves, and a push that repeats
         // is worse than no push.
-        return Ok(None);
+        return Ok(PushDecision::silence(
+            brain_store::RetrievalReasonCode::MissingSessionId,
+            started,
+        ));
     };
 
     let mut ledger = EventLedger::open(&binding.ledger_path, binding.project_id)?;
@@ -535,10 +670,13 @@ fn mid_session_push(
     ledger.enable_vector_search(&binding.brain_home);
 
     let already = ledger.session_pushed_ids(session_id)?;
-    if already.len() >= MAX_SESSION_PUSHES {
-        return Ok(None);
+    if already.len() >= MAX_SESSION_PUSHED_MEMORIES {
+        return Ok(PushDecision::silence(
+            brain_store::RetrievalReasonCode::SessionMemoryCap,
+            started,
+        ));
     }
-    let room = MAX_PUSHED_MEMORIES.min(MAX_SESSION_PUSHES - already.len());
+    let room = MAX_PUSHED_MEMORIES.min(MAX_SESSION_PUSHED_MEMORIES - already.len());
     let hits = ledger.search(
         &brain_store::SearchQuery::text(binding.project_id, prompt)
             .memories_only()
@@ -549,6 +687,7 @@ fn mid_session_push(
     let mut pushed_ids = Vec::new();
     let mut dropped = 0_usize;
     let mut spent = 0_usize;
+    let mut candidate_count = 0_u32;
     for hit in hits {
         let Some(memory_id) = hit.memory_id else {
             continue;
@@ -561,6 +700,7 @@ fn mid_session_push(
             // it would overstate what the budget cost.
             continue;
         }
+        candidate_count = candidate_count.saturating_add(1);
         if pushed_ids.len() >= room {
             dropped += 1;
             continue;
@@ -581,7 +721,16 @@ fn mid_session_push(
     }
 
     if lines.is_empty() {
-        return Ok(None);
+        let reason_code = if candidate_count == 0 {
+            brain_store::RetrievalReasonCode::NoRelevantCandidate
+        } else {
+            brain_store::RetrievalReasonCode::BudgetDrop
+        };
+        return Ok(PushDecision {
+            candidate_count,
+            dropped_count: u32::try_from(dropped).unwrap_or(u32::MAX),
+            ..PushDecision::silence(reason_code, started)
+        });
     }
 
     // The meter is the last line, always, and it names what it dropped. A silent loss is worse than
@@ -615,7 +764,189 @@ fn mid_session_push(
 
     // Recorded only once the text is built, so a push that failed to render records nothing.
     ledger.record_session_push(session_id, &pushed_ids, envelope.received_at)?;
-    Ok(Some(body))
+    Ok(PushDecision {
+        text: Some(body),
+        outcome: brain_store::RetrievalOutcome::Delivered,
+        reason_code: brain_store::RetrievalReasonCode::Selected,
+        candidate_count,
+        selected_count: u32::try_from(pushed_ids.len()).unwrap_or(u32::MAX),
+        dropped_count: u32::try_from(dropped).unwrap_or(u32::MAX),
+        token_count: u32::try_from(spent).unwrap_or(u32::MAX),
+        selected_evidence_ids: pushed_ids
+            .iter()
+            .map(|memory_id| format!("memory:{memory_id}"))
+            .collect(),
+        latency_ms: elapsed_ms(started),
+    })
+}
+
+fn record_hook_received_fail_open(binding: &HookProjectBinding, envelope: &HookEnvelope) {
+    let event = brain_store::LifecycleEvent {
+        event_id: uuid::Uuid::now_v7(),
+        project_id: binding.project_id,
+        harness: envelope.harness.clone(),
+        session: session_attribution(envelope),
+        correlation_id: Some(envelope.nonce.to_string()),
+        channel: lifecycle_channel(envelope),
+        stage: brain_store::LifecycleStage::HookReceived,
+        occurred_at: envelope.received_at,
+        detail: serde_json::json!({"event_name": envelope.event_name}),
+    };
+    if let Err(error) = EventLedger::open(&binding.ledger_path, binding.project_id)
+        .and_then(|ledger| ledger.record_lifecycle_event(&event).map(|_| ()))
+    {
+        tracing::warn!(%error, "could not record hook lifecycle receipt");
+    }
+}
+
+fn staged_flush_receipt(
+    binding: &HookProjectBinding,
+    envelope: &HookEnvelope,
+) -> PendingLifecycleReceipt {
+    PendingLifecycleReceipt {
+        ledger_path: binding.ledger_path.clone(),
+        project_id: binding.project_id,
+        event: brain_store::LifecycleEvent {
+            event_id: uuid::Uuid::now_v7(),
+            project_id: binding.project_id,
+            harness: envelope.harness.clone(),
+            session: session_attribution(envelope),
+            correlation_id: Some(envelope.nonce.to_string()),
+            channel: lifecycle_channel(envelope),
+            stage: brain_store::LifecycleStage::ReplyFlushed,
+            occurred_at: time::OffsetDateTime::now_utc(),
+            detail: serde_json::json!({"event_name": envelope.event_name}),
+        },
+    }
+}
+
+fn record_retrieval_decision_fail_open(
+    binding: &HookProjectBinding,
+    envelope: &HookEnvelope,
+    push: &PushDecision,
+) {
+    let prompt = envelope
+        .payload
+        .get("prompt")
+        .or_else(|| envelope.payload.get("user_prompt"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let decision = brain_store::RetrievalDecision {
+        decision_id: uuid::Uuid::now_v7(),
+        project_id: binding.project_id,
+        harness: envelope.harness.clone(),
+        session: session_attribution(envelope),
+        correlation_id: Some(envelope.nonce.to_string()),
+        channel: brain_store::LifecycleChannel::UserPromptSubmit,
+        outcome: push.outcome.clone(),
+        reason_code: push.reason_code.clone(),
+        candidate_count: push.candidate_count,
+        selected_count: push.selected_count,
+        dropped_count: push.dropped_count,
+        token_count: push.token_count,
+        latency_ms: push.latency_ms,
+        query_sha256: hex::encode(sha2::Sha256::digest(prompt.as_bytes())),
+        selected_evidence_ids: push.selected_evidence_ids.clone(),
+        occurred_at: time::OffsetDateTime::now_utc(),
+    };
+    record_decision_fail_open(binding, &decision);
+}
+
+fn record_session_start_decision_fail_open(
+    binding: &HookProjectBinding,
+    envelope: &HookEnvelope,
+    compiled: &CompiledContext,
+    outcome: brain_store::RetrievalOutcome,
+    reason_code: brain_store::RetrievalReasonCode,
+    latency: std::time::Duration,
+) {
+    let selected_evidence_ids = compiled
+        .citations
+        .iter()
+        .map(|citation| citation.key.clone())
+        .collect::<Vec<_>>();
+    let decision = brain_store::RetrievalDecision {
+        decision_id: uuid::Uuid::now_v7(),
+        project_id: binding.project_id,
+        harness: envelope.harness.clone(),
+        session: session_attribution(envelope),
+        correlation_id: Some(envelope.nonce.to_string()),
+        channel: brain_store::LifecycleChannel::SessionStart,
+        outcome,
+        reason_code,
+        candidate_count: u32::try_from(selected_evidence_ids.len()).unwrap_or(u32::MAX),
+        selected_count: u32::try_from(selected_evidence_ids.len()).unwrap_or(u32::MAX),
+        dropped_count: 0,
+        token_count: u32::try_from(compiled.token_count).unwrap_or(u32::MAX),
+        latency_ms: u64::try_from(latency.as_millis()).unwrap_or(u64::MAX),
+        query_sha256: hex::encode(sha2::Sha256::digest(b"session_start")),
+        selected_evidence_ids,
+        occurred_at: time::OffsetDateTime::now_utc(),
+    };
+    record_decision_fail_open(binding, &decision);
+}
+
+fn record_session_start_failure_fail_open(
+    binding: &HookProjectBinding,
+    envelope: &HookEnvelope,
+    latency: std::time::Duration,
+) {
+    let decision = brain_store::RetrievalDecision {
+        decision_id: uuid::Uuid::now_v7(),
+        project_id: binding.project_id,
+        harness: envelope.harness.clone(),
+        session: session_attribution(envelope),
+        correlation_id: Some(envelope.nonce.to_string()),
+        channel: brain_store::LifecycleChannel::SessionStart,
+        outcome: brain_store::RetrievalOutcome::Failed,
+        reason_code: brain_store::RetrievalReasonCode::RetrievalError,
+        candidate_count: 0,
+        selected_count: 0,
+        dropped_count: 0,
+        token_count: 0,
+        latency_ms: u64::try_from(latency.as_millis()).unwrap_or(u64::MAX),
+        query_sha256: hex::encode(sha2::Sha256::digest(b"session_start")),
+        selected_evidence_ids: Vec::new(),
+        occurred_at: time::OffsetDateTime::now_utc(),
+    };
+    record_decision_fail_open(binding, &decision);
+}
+
+fn record_decision_fail_open(
+    binding: &HookProjectBinding,
+    decision: &brain_store::RetrievalDecision,
+) {
+    if let Err(error) = EventLedger::open(&binding.ledger_path, binding.project_id)
+        .and_then(|ledger| ledger.record_retrieval_decision(decision).map(|_| ()))
+    {
+        tracing::warn!(%error, "could not record retrieval decision");
+    }
+}
+
+fn session_attribution(envelope: &HookEnvelope) -> brain_store::SessionAttribution {
+    envelope
+        .payload
+        .get("session_id")
+        .or_else(|| envelope.payload.get("sessionId"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|session_id| !session_id.trim().is_empty())
+        .map_or(
+            brain_store::SessionAttribution::Unattributed,
+            |session_id| brain_store::SessionAttribution::Attributed(session_id.to_owned()),
+        )
+}
+
+fn lifecycle_channel(envelope: &HookEnvelope) -> brain_store::LifecycleChannel {
+    match envelope.event_name.as_str() {
+        "SessionStart" => brain_store::LifecycleChannel::SessionStart,
+        "UserPromptSubmit" => brain_store::LifecycleChannel::UserPromptSubmit,
+        "SessionEnd" => brain_store::LifecycleChannel::SessionEnd,
+        _ => brain_store::LifecycleChannel::Capture,
+    }
+}
+
+fn elapsed_ms(started: std::time::Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 /// How many content-bearing terms the prompt and a memory have in common.
@@ -726,6 +1057,20 @@ fn record_session_end(binding: &HookProjectBinding, envelope: &HookEnvelope) -> 
     // `MAX_JOB_EVENTS` and `MAX_JOB_PAYLOAD_BYTES`, and the one time those bounds were bypassed a
     // single job covered 65,000 events.
     ledger.enqueue_through_event_job(event_id, brain_store::ConsolidationReason::SessionStopped)?;
+    let lifecycle = brain_store::LifecycleEvent {
+        event_id: uuid::Uuid::now_v7(),
+        project_id: binding.project_id,
+        harness: envelope.harness.clone(),
+        session: brain_store::SessionAttribution::Attributed(session_id.to_owned()),
+        correlation_id: Some(envelope.nonce.to_string()),
+        channel: brain_store::LifecycleChannel::SessionEnd,
+        stage: brain_store::LifecycleStage::SessionEndPersisted,
+        occurred_at: envelope.received_at,
+        detail: serde_json::json!({"event_id": event_id, "reason": reason}),
+    };
+    if let Err(error) = ledger.record_lifecycle_event(&lifecycle) {
+        tracing::warn!(%error, "could not record persisted session-end receipt");
+    }
     Ok(())
 }
 

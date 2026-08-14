@@ -1,7 +1,7 @@
 use super::{BenchmarkCondition, BenchmarkHarness, PlannedSample};
 
 pub fn plan_matrix(task_ids: &[String], repeats: u32, seed: u64) -> Vec<PlannedSample> {
-    let mut pairs = Vec::new();
+    let mut blocks = Vec::new();
     for (task_index, task_id) in task_ids.iter().enumerate() {
         for repeat in 1..=repeats {
             let harnesses = if (task_index + repeat as usize) % 2 == 0 {
@@ -10,27 +10,28 @@ pub fn plan_matrix(task_ids: &[String], repeats: u32, seed: u64) -> Vec<PlannedS
                 [BenchmarkHarness::Codex, BenchmarkHarness::ClaudeCode]
             };
             for harness in harnesses {
-                pairs.push((task_id.clone(), harness, repeat));
+                blocks.push((task_id.clone(), harness, repeat));
             }
         }
     }
     let mut rng = DeterministicRng::new(seed);
-    for index in (1..pairs.len()).rev() {
+    for index in (1..blocks.len()).rev() {
         let other = rng.index(index + 1);
-        pairs.swap(index, other);
+        blocks.swap(index, other);
     }
-    let mut samples = Vec::with_capacity(pairs.len() * 2);
-    for (pair_index, (task_id, harness, repeat)) in pairs.into_iter().enumerate() {
-        let first = if pair_index % 2 == 0 {
-            BenchmarkCondition::BrainOff
-        } else {
-            BenchmarkCondition::BrainOn
-        };
-        let pair_id = format!("{task_id}-{}-r{repeat:02}", harness.as_str());
-        for (order, condition) in [first, first.opposite()].into_iter().enumerate() {
+    let mut samples = Vec::with_capacity(blocks.len() * BenchmarkCondition::ALL.len());
+    let mut latin_base = BenchmarkCondition::ALL;
+    for (block_index, (task_id, harness, repeat)) in blocks.into_iter().enumerate() {
+        if block_index % BenchmarkCondition::ALL.len() == 0 {
+            shuffle(&mut latin_base, &mut rng);
+        }
+        let rotation = block_index % BenchmarkCondition::ALL.len();
+        let block_id = format!("{task_id}-{}-r{repeat:02}", harness.as_str());
+        for order in 0..BenchmarkCondition::ALL.len() {
+            let condition = latin_base[(order + rotation) % BenchmarkCondition::ALL.len()];
             samples.push(PlannedSample {
-                sample_id: format!("{pair_id}-{}", condition_name(condition)),
-                pair_id: pair_id.clone(),
+                sample_id: format!("{block_id}-{}", condition.as_str()),
+                pair_id: block_id.clone(),
                 task_id: task_id.clone(),
                 harness,
                 repeat,
@@ -42,10 +43,10 @@ pub fn plan_matrix(task_ids: &[String], repeats: u32, seed: u64) -> Vec<PlannedS
     samples
 }
 
-const fn condition_name(condition: BenchmarkCondition) -> &'static str {
-    match condition {
-        BenchmarkCondition::BrainOff => "off",
-        BenchmarkCondition::BrainOn => "on",
+fn shuffle<T>(values: &mut [T], rng: &mut DeterministicRng) {
+    for index in (1..values.len()).rev() {
+        let other = rng.index(index + 1);
+        values.swap(index, other);
     }
 }
 

@@ -8,12 +8,16 @@ use crate::benchmark::directory_bytes;
 use crate::config_panel::{ConfigDashboard, read_config_panel};
 use crate::deployment::{DeploymentDashboard, read_deployment};
 use crate::providers::provider_status;
+use crate::session_status::{
+    ChannelState, SessionFilter, SessionLifecycleState, SessionStatus, SessionStatusOptions,
+    read_session_status,
+};
 use crate::status::read_status;
 use crate::token_benchmark::{
     BenchmarkSummary, ProductionTokenTrend, latest_summary, production_token_trend,
 };
 
-pub const DASHBOARD_SCHEMA_VERSION: u32 = 2;
+pub const DASHBOARD_SCHEMA_VERSION: u32 = 3;
 
 // ---------------------------------------------------------------------------
 // Snapshot structs — the single JSON document the dashboard consumes
@@ -36,6 +40,27 @@ pub struct DashboardSnapshot {
     pub retrieval: RetrievalDashboard,
     /// What the brain is wired to do, and whether each wire reaches anything.
     pub config: ConfigDashboard,
+    /// Actionable failures only. Healthy silence and MCP not-requested never appear here.
+    pub active_alerts: Vec<BrainAlert>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BrainAlert {
+    pub code: String,
+    pub severity: String,
+    pub project_id: Option<ProjectId>,
+    pub native_session_id: Option<String>,
+    pub message: String,
+    pub repair: String,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct SessionDashboard {
+    pub active: Vec<SessionStatus>,
+    pub stale_open: Vec<SessionStatus>,
+    pub recent_closed: Vec<SessionStatus>,
+    pub historical_uninstrumented: Vec<SessionStatus>,
+    pub truncated: bool,
 }
 
 /// How retrieval is actually configured, and which of its stages can run.
@@ -139,6 +164,9 @@ pub struct ProjectDashboard {
     pub delivery_channels: Vec<DeliveryChannel>,
     /// Latest non-retired controlled result. Missing means no benchmark, never zero savings.
     pub token_benchmark: Option<BenchmarkSummary>,
+    /// Schema-v3 three-goal summary; absent means Not measured, never zero.
+    pub benchmark_goals: Option<crate::token_benchmark::ThreeGoalBenchmarkReport>,
+    pub sessions: SessionDashboard,
     /// Native production counters with no counterfactual. Always explicitly observational.
     pub production_tokens: ProductionTokenTrend,
 }
@@ -296,6 +324,29 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
     let service_running = tasks.first().map(|t| t.running).unwrap_or(false);
     let any_binary_missing = !binaries_present.service || !binaries_present.brain;
 
+    let deployment = read_deployment(brain_home);
+    let mut active_alerts = Vec::new();
+    if !service_running {
+        active_alerts.push(BrainAlert {
+            code: "service_stopped".to_owned(),
+            severity: "critical".to_owned(),
+            project_id: None,
+            native_session_id: None,
+            message: "Agent Brain service is not running; new sessions are operating without shared context.".to_owned(),
+            repair: "Run `brain service status`, then `brain service start`; verify a fresh hook_received receipt.".to_owned(),
+        });
+    }
+    if deployment.configured && !deployment.up_to_date {
+        active_alerts.push(BrainAlert {
+            code: "binary_drift".to_owned(),
+            severity: "warning".to_owned(),
+            project_id: None,
+            native_session_id: None,
+            message: "Installed Agent Brain binaries do not match the recorded deployment.".to_owned(),
+            repair: "Run scripts/deploy.ps1 only when deployment is authorized, then verify `brain dashboard` deployment.up_to_date.".to_owned(),
+        });
+    }
+
     // Per-project data
     let mut projects = Vec::with_capacity(config.projects.len());
     let mut healthy_count = 0usize;
@@ -368,6 +419,23 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
         let deliveries_30d = delivery_summary(&ledger, now - time::Duration::days(30));
         let delivery_channels = delivery_channels(&ledger, now - time::Duration::days(7));
         let token_benchmark = latest_summary(brain_home, project_id).unwrap_or(None);
+        let benchmark_goals = token_benchmark
+            .as_ref()
+            .and_then(|summary| summary.three_goal.clone());
+        let sessions = read_session_status(
+            &ledger,
+            project_id,
+            SessionStatusOptions {
+                filter: SessionFilter::All,
+                limit: 200,
+                cursor: None,
+                now,
+                stale_after: time::Duration::minutes(30),
+            },
+        )
+        .map(session_dashboard)
+        .unwrap_or_default();
+        active_alerts.extend(session_alerts(project_id, &sessions));
         let production_tokens = production_token_trend(&ledger, project_id, now).unwrap_or_else(
             |_| ProductionTokenTrend {
                 observational: true,
@@ -410,6 +478,8 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
             deliveries_30d,
             delivery_channels,
             token_benchmark,
+            benchmark_goals,
+            sessions,
             production_tokens,
         });
     }
@@ -438,7 +508,7 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
             drill_root,
             recovery_command,
         },
-        deployment: read_deployment(brain_home),
+        deployment,
         projects,
         retrieval,
         config: config_panel,
@@ -455,12 +525,128 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
             service_running,
             any_binary_missing,
         },
+        active_alerts,
     })
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+fn session_dashboard(page: crate::session_status::SessionStatusPage) -> SessionDashboard {
+    let mut dashboard = SessionDashboard {
+        truncated: page.truncated,
+        ..SessionDashboard::default()
+    };
+    for session in page.sessions {
+        match session.state {
+            SessionLifecycleState::Active => dashboard.active.push(session),
+            SessionLifecycleState::StaleOpen => dashboard.stale_open.push(session),
+            SessionLifecycleState::Closed => dashboard.recent_closed.push(session),
+            SessionLifecycleState::HistoricalUninstrumented => {
+                dashboard.historical_uninstrumented.push(session)
+            }
+        }
+    }
+    dashboard.active.truncate(50);
+    dashboard.stale_open.truncate(50);
+    dashboard.recent_closed.truncate(50);
+    dashboard.historical_uninstrumented.truncate(50);
+    dashboard
+}
+
+fn session_alerts(project_id: ProjectId, sessions: &SessionDashboard) -> Vec<BrainAlert> {
+    let mut alerts = Vec::new();
+    for session in sessions
+        .active
+        .iter()
+        .chain(&sessions.stale_open)
+        .chain(&sessions.recent_closed)
+    {
+        let repair = if session.harness == Harness::Codex {
+            "Check Codex `[hooks.state]` trust first. An untrusted hook is never dispatched and cannot spool; approve it in the Codex CLI hook-review prompt."
+        } else {
+            "Verify the harness hook configuration and compare the service log's `hook received` entries; delivery counts are not invocation counts."
+        };
+        if matches!(
+            session.startup.state,
+            ChannelState::Missing | ChannelState::Failed
+        ) {
+            alerts.push(BrainAlert {
+                code: "startup_context_unavailable".to_owned(),
+                severity: "critical".to_owned(),
+                project_id: Some(project_id),
+                native_session_id: Some(session.native_session_id.clone()),
+                message: format!(
+                    "{} startup orientation is {:?}.",
+                    session.harness.as_str(),
+                    session.startup.state
+                ),
+                repair: repair.to_owned(),
+            });
+        }
+        for (channel, status) in [
+            ("SessionStart", &session.startup),
+            ("UserPromptSubmit", &session.prompt_push),
+        ] {
+            if status.state == ChannelState::Pending {
+                alerts.push(BrainAlert {
+                    code: "reply_flush_unconfirmed".to_owned(),
+                    severity: "critical".to_owned(),
+                    project_id: Some(project_id),
+                    native_session_id: Some(session.native_session_id.clone()),
+                    message: format!(
+                        "{channel} reached the service, but its reply was not confirmed flushed."
+                    ),
+                    repair: "Inspect the service pipe write and flush path for the correlation. A hook_received receipt without reply_flushed means delivery was not confirmed; context_deliveries alone cannot diagnose this.".to_owned(),
+                });
+            }
+        }
+        if session.prompt_push.state == ChannelState::Failed {
+            alerts.push(BrainAlert {
+                code: "prompt_push_failed".to_owned(),
+                severity: "warning".to_owned(),
+                project_id: Some(project_id),
+                native_session_id: Some(session.native_session_id.clone()),
+                message: "Current-session prompt retrieval failed.".to_owned(),
+                repair: "Inspect the retrieval decision reason code and service log; healthy_silence is not a failure.".to_owned(),
+            });
+        }
+        if session.mcp_pull.state == ChannelState::Failed {
+            alerts.push(BrainAlert {
+                code: "mcp_pull_failed".to_owned(),
+                severity: "warning".to_owned(),
+                project_id: Some(project_id),
+                native_session_id: Some(session.native_session_id.clone()),
+                message: "An on-demand Brain MCP request failed.".to_owned(),
+                repair: "Inspect the paired mcp_request/mcp_failed correlation and verify the project argument and installed brain-mcp binary.".to_owned(),
+            });
+        }
+        if session.state == SessionLifecycleState::StaleOpen {
+            alerts.push(BrainAlert {
+                code: "stale_open_session".to_owned(),
+                severity: "warning".to_owned(),
+                project_id: Some(project_id),
+                native_session_id: Some(session.native_session_id.clone()),
+                message: "Session has no persisted SessionEnd boundary after the stale window.".to_owned(),
+                repair: "Verify SessionEnd hook trust/wiring; do not infer failure from a missing delivery row.".to_owned(),
+            });
+        }
+        if session.state == SessionLifecycleState::Closed
+            && session.capture.state == ChannelState::Pending
+        {
+            alerts.push(BrainAlert {
+                code: "capture_lag".to_owned(),
+                severity: "warning".to_owned(),
+                project_id: Some(project_id),
+                native_session_id: Some(session.native_session_id.clone()),
+                message: "Session boundary is stored but capture has not reported caught up.".to_owned(),
+                repair: "Check source backlog, capture gaps, and capture_caught_up receipts. A growing source is not EOF.".to_owned(),
+            });
+        }
+    }
+    alerts
+}
 
 /// Build the per-channel list, filling in the pairs the ledger has no rows for.
 fn delivery_channels(

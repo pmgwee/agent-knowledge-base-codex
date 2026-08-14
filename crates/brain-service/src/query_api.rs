@@ -338,6 +338,23 @@ pub struct BrainQueryService {
     config: ServiceLaunchConfig,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum McpLifecycleStage {
+    Request,
+    Succeeded,
+    Failed,
+}
+
+impl McpLifecycleStage {
+    fn store_stage(self) -> brain_store::LifecycleStage {
+        match self {
+            Self::Request => brain_store::LifecycleStage::McpRequest,
+            Self::Succeeded => brain_store::LifecycleStage::McpSucceeded,
+            Self::Failed => brain_store::LifecycleStage::McpFailed,
+        }
+    }
+}
+
 impl BrainQueryService {
     pub fn open(brain_home: impl AsRef<Path>) -> Result<Self> {
         let brain_home = brain_home.as_ref().to_path_buf();
@@ -351,6 +368,55 @@ impl BrainQueryService {
             brain_home: brain_home.as_ref().to_path_buf(),
             config,
         })
+    }
+
+    /// Append an MCP lifecycle receipt when the request names a registered project.
+    ///
+    /// This is deliberately best-effort at the caller: telemetry must never change a tool result.
+    pub fn record_mcp_lifecycle(
+        &self,
+        tool_name: &str,
+        arguments: &serde_json::Value,
+        stage: McpLifecycleStage,
+        error: Option<&str>,
+    ) -> Result<()> {
+        let project_alias = arguments
+            .get("project")
+            .and_then(serde_json::Value::as_str)
+            .context("MCP telemetry request has no project")?;
+        let project = self.project(project_alias)?;
+        let session = arguments
+            .get("native_session_id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|session_id| !session_id.trim().is_empty())
+            .map_or(
+                brain_store::SessionAttribution::Unattributed,
+                |session_id| brain_store::SessionAttribution::Attributed(session_id.to_owned()),
+            );
+        let event = brain_store::LifecycleEvent {
+            event_id: uuid::Uuid::now_v7(),
+            project_id: project.project_id,
+            harness: arguments
+                .get("harness")
+                .and_then(serde_json::Value::as_str)
+                .map(parse_harness_name)
+                .unwrap_or(Harness::Other("mcp".to_owned())),
+            session,
+            correlation_id: arguments
+                .get("correlation_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            channel: brain_store::LifecycleChannel::BrainMcp,
+            stage: stage.store_stage(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+            detail: serde_json::json!({
+                "tool": tool_name,
+                "query_sha256": hex::encode(Sha256::digest(serde_json::to_vec(arguments)?)),
+                "error": error.map(|message| message.chars().take(500).collect::<String>()),
+            }),
+        };
+        self.ledger(project)?.record_lifecycle_event(&event)?;
+        Ok(())
     }
 
     pub fn search(&self, request: BrainSearchRequest) -> Result<BrainItemsResponse> {
@@ -668,8 +734,7 @@ impl BrainQueryService {
         if let Some(max_tokens) = request.max_tokens {
             query.max_tokens = max_tokens;
         }
-        // Codex reaches the brain through `brain_checkpoint` because its desktop app does not
-        // fire the SessionStart hook that delivers this view to Claude Code. Compute the same
+        // MCP checkpoint retrieval is an on-demand depth path for either harness. Compute the same
         // coordination state the hook prepends — active leases, path claims, overlaps, and the
         // "no active task" warning — so a Codex session can see whether it is safe to edit
         // before it touches anything. Read-only by design: pulling orientation must never
@@ -1233,6 +1298,15 @@ impl BrainQueryService {
             ledger.enable_reranking(&self.brain_home);
         }
         Ok(ledger)
+    }
+}
+
+fn parse_harness_name(value: &str) -> Harness {
+    match value {
+        "claude-code" | "claude_code" => Harness::ClaudeCode,
+        "codex" => Harness::Codex,
+        "hermes" => Harness::Hermes,
+        other => Harness::Other(other.to_owned()),
     }
 }
 
