@@ -388,7 +388,10 @@ fn prepare_codex(
             "codegraph",
             require_path(&paths.codegraph_node, "node")?,
             &[
-                path_text(require_path(&paths.codegraph_script, "CodeGraph script")?),
+                path_text(&codegraph_cli_path(require_path(
+                    &paths.codegraph_script,
+                    "CodeGraph script",
+                )?)),
                 "serve".to_owned(),
                 "--mcp".to_owned(),
             ],
@@ -471,7 +474,10 @@ fn codegraph_mcp(paths: &LauncherPaths) -> Result<Value> {
     Ok(json!({
         "command": require_path(&paths.codegraph_node, "BENCHMARK_CODEGRAPH_NODE")?,
         "args": [
-            require_path(&paths.codegraph_script, "BENCHMARK_CODEGRAPH_SCRIPT")?,
+            codegraph_cli_path(require_path(
+                &paths.codegraph_script,
+                "BENCHMARK_CODEGRAPH_SCRIPT",
+            )?),
             "serve",
             "--mcp"
         ]
@@ -512,7 +518,10 @@ fn initialize_codegraph(
     paths: &LauncherPaths,
 ) -> Result<()> {
     let status = Command::new(require_path(&paths.codegraph_node, "CodeGraph node")?)
-        .arg(require_path(&paths.codegraph_script, "CodeGraph script")?)
+        .arg(codegraph_cli_path(require_path(
+            &paths.codegraph_script,
+            "CodeGraph script",
+        )?))
         .arg("init")
         .arg(codegraph_cli_path(checkout))
         .current_dir(checkout)

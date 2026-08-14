@@ -199,6 +199,15 @@ pub fn execute_benchmark_run_with(
                 break;
             }
         }
+        ensure!(
+            !repeated_zero_usage_infrastructure_failure(
+                &samples,
+                &planned.sample_id,
+                templates.max_attempts
+            ),
+            "benchmark infrastructure stop: sample {} exhausted retries with zero native usage and zero turns",
+            planned.sample_id
+        );
     }
 
     Ok(BenchmarkRunPreview {
@@ -497,6 +506,26 @@ fn enforce_sample_limits(record: &mut SampleRecord, max_turns: u32, max_tool_cal
             violations.join("; ")
         ));
     }
+}
+
+fn repeated_zero_usage_infrastructure_failure(
+    records: &[SampleRecord],
+    sample_id: &str,
+    max_attempts: u32,
+) -> bool {
+    let attempts = records
+        .iter()
+        .filter(|record| record.sample.sample_id == sample_id)
+        .collect::<Vec<_>>();
+    attempts.len() >= max_attempts as usize
+        && attempts.iter().all(|record| {
+            record.status != SampleStatus::Completed
+                && record.native_usage.is_none()
+                && record
+                    .native_trace
+                    .as_ref()
+                    .is_none_or(|trace| trace.turns == 0)
+        })
 }
 
 fn prepare_sample_brain(
@@ -904,7 +933,8 @@ mod tests {
         BenchmarkArtifacts, BenchmarkHarness, ExecutionTemplate, PlanContext, PlannedSample,
         ProcessOutput, SampleStatus, command_plan, copy_tree_writable, enforce_sample_limits,
         normalize_process_output, remove_completed_sample_brain_home, repair_missing_sample_ledger,
-        sanitize_sample_checkout, sqlite_compatible_path, validate_condition_exposure,
+        repeated_zero_usage_infrastructure_failure, sanitize_sample_checkout,
+        sqlite_compatible_path, validate_condition_exposure,
     };
 
     fn sample(harness: BenchmarkHarness) -> PlannedSample {
@@ -1089,6 +1119,42 @@ mod tests {
         assert_eq!(record.status, SampleStatus::InvalidUsage);
         assert_eq!(record.attempt, 2);
         assert!(record.error.expect("error").contains("usage"));
+    }
+
+    #[test]
+    fn repeated_zero_turn_failures_trigger_the_infrastructure_stop_rule() {
+        let temp = tempfile::tempdir().expect("temp");
+        let artifacts = BenchmarkArtifacts::new(
+            temp.path(),
+            ProjectId(uuid::Uuid::now_v7()),
+            uuid::Uuid::now_v7(),
+        )
+        .expect("artifacts");
+        let planned = sample(BenchmarkHarness::ClaudeCode);
+        let records = [1, 2]
+            .map(|attempt| {
+                normalize_process_output(
+                    &artifacts,
+                    &planned,
+                    attempt,
+                    ProcessOutput {
+                        exit_code: Some(1),
+                        stdout: Vec::new(),
+                        stderr: b"billing or launcher failure".to_vec(),
+                        timed_out: false,
+                        elapsed_ms: Some(100),
+                    },
+                    None,
+                )
+                .expect("record")
+            })
+            .to_vec();
+
+        assert!(repeated_zero_usage_infrastructure_failure(
+            &records,
+            &planned.sample_id,
+            2
+        ));
     }
 
     #[test]
