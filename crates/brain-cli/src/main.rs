@@ -478,9 +478,9 @@ enum SessionsCommand {
     Status {
         #[arg(long)]
         project: String,
-        #[arg(long, conflicts_with = "closed")]
+        #[arg(long)]
         active: bool,
-        #[arg(long, conflicts_with = "active")]
+        #[arg(long)]
         closed: bool,
         #[arg(long, default_value_t = 50)]
         limit: usize,
@@ -975,13 +975,7 @@ fn run() -> Result<()> {
                 &ledger,
                 project_id,
                 SessionStatusOptions {
-                    filter: if active {
-                        SessionFilter::Active
-                    } else if closed {
-                        SessionFilter::Closed
-                    } else {
-                        SessionFilter::All
-                    },
+                    filter: selected_session_filter(active, closed),
                     limit,
                     cursor,
                     now: time::OffsetDateTime::now_utc(),
@@ -2441,6 +2435,18 @@ fn owner(harness: CliHarness, native_session_id: String) -> SessionIdentity {
     }
 }
 
+fn selected_session_filter(active: bool, closed: bool) -> SessionFilter {
+    if active && closed {
+        SessionFilter::All
+    } else if active {
+        SessionFilter::Active
+    } else if closed {
+        SessionFilter::Closed
+    } else {
+        SessionFilter::All
+    }
+}
+
 fn parse_project_id(value: &str) -> Result<ProjectId> {
     Ok(ProjectId(
         uuid::Uuid::parse_str(value).with_context(|| format!("invalid project ID {value}"))?,
@@ -2501,4 +2507,41 @@ fn default_hook_executable() -> Result<PathBuf> {
         "brain-hook"
     };
     Ok(current.with_file_name(name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sessions_status_accepts_active_and_closed_together() {
+        let cli = Cli::try_parse_from([
+            "brain",
+            "sessions",
+            "status",
+            "--project",
+            "019fcd85-f41b-77b2-a4c0-618c28fe1d6b",
+            "--active",
+            "--closed",
+            "--json",
+        ])
+        .expect("active and closed are cumulative status selections");
+
+        assert!(matches!(
+            cli.command,
+            Command::Sessions {
+                action: SessionsCommand::Status {
+                    active: true,
+                    closed: true,
+                    json: true,
+                    ..
+                }
+            }
+        ));
+    }
+
+    #[test]
+    fn active_and_closed_select_the_combined_session_view() {
+        assert_eq!(selected_session_filter(true, true), SessionFilter::All);
+    }
 }
