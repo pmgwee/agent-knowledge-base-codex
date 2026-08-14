@@ -522,7 +522,7 @@ fn prepare_sample_brain(
             .context("frozen ledger escaped frozen brain home")?;
         let target_ledger = target.join(relative);
         repair_missing_sample_ledger(&project.ledger_path, &target_ledger)?;
-        project.ledger_path = target_ledger;
+        project.ledger_path = sqlite_compatible_path(&target_ledger)?;
         project.project_root = checkout.to_path_buf();
         project.claude_sources.clear();
         project.codex_sources.clear();
@@ -559,6 +559,12 @@ fn path_with_suffix(path: &Path, suffix: &str) -> PathBuf {
     let mut value = path.as_os_str().to_os_string();
     value.push(suffix);
     PathBuf::from(value)
+}
+
+fn sqlite_compatible_path(path: &Path) -> Result<PathBuf> {
+    let parent = path.parent().context("sample ledger parent")?;
+    let file_name = path.file_name().context("sample ledger filename")?;
+    Ok(parent.canonicalize()?.join(file_name))
 }
 
 fn remove_completed_sample_brain_home(sample_root: &Path, brain_home: &Path) -> Result<()> {
@@ -898,7 +904,7 @@ mod tests {
         BenchmarkArtifacts, BenchmarkHarness, ExecutionTemplate, PlanContext, PlannedSample,
         ProcessOutput, SampleStatus, command_plan, copy_tree_writable, enforce_sample_limits,
         normalize_process_output, remove_completed_sample_brain_home, repair_missing_sample_ledger,
-        sanitize_sample_checkout, validate_condition_exposure,
+        sanitize_sample_checkout, sqlite_compatible_path, validate_condition_exposure,
     };
 
     fn sample(harness: BenchmarkHarness) -> PlannedSample {
@@ -922,7 +928,8 @@ mod tests {
             .join("evidence/hot/events.sqlite");
         let source_ledger = source.join(&ledger_relative);
         std::fs::create_dir_all(source_ledger.parent().unwrap()).expect("source dirs");
-        std::fs::write(&source_ledger, b"fixture ledger").expect("source ledger");
+        let project_id = ProjectId(uuid::Uuid::now_v7());
+        drop(brain_store::EventLedger::open(&source_ledger, project_id).expect("source ledger"));
         let target = temp
             .path()
             .join("attempts")
@@ -932,16 +939,16 @@ mod tests {
 
         copy_tree_writable(&source, &target).expect("copy frozen brain");
 
-        // The paid smoke exposed a Windows copy in which the project directory arrived but its
-        // nested SQLite ledger did not. Preparation must repair that state before service launch.
+        // The paid smoke's 285-character target existed, but SQLite could not open the ordinary
+        // Windows path. Keep the missing-file repair and then use the canonical verbatim path.
         let target_ledger = target.join(&ledger_relative);
         std::fs::remove_file(&target_ledger).expect("simulate skipped ledger");
         repair_missing_sample_ledger(&source_ledger, &target_ledger).expect("repair ledger");
+        let sqlite_path = sqlite_compatible_path(&target_ledger).expect("sqlite path");
 
-        assert_eq!(
-            std::fs::read(target.join(ledger_relative)).expect("copied ledger"),
-            b"fixture ledger"
-        );
+        drop(brain_store::EventLedger::open(&sqlite_path, project_id).expect("open copied ledger"));
+        #[cfg(windows)]
+        assert!(sqlite_path.to_string_lossy().starts_with(r"\\?\"));
     }
 
     #[test]
