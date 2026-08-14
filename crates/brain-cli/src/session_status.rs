@@ -160,6 +160,11 @@ pub fn fold_session_status(
         .map_err(|_| anyhow::anyhow!("invalid session cursor"))?
         .unwrap_or(0);
     let mut keys = BTreeSet::new();
+    let instrumentation_started_at = lifecycle
+        .iter()
+        .map(|event| event.occurred_at)
+        .chain(decisions.iter().map(|decision| decision.occurred_at))
+        .min();
     for item in activity {
         keys.insert((
             item.harness.as_str().to_owned(),
@@ -236,6 +241,18 @@ pub fn fold_session_status(
             .max()
             .unwrap_or(first);
         let historical = session_events.is_empty() && session_decisions.is_empty();
+        let predates_instrumentation = instrumentation_started_at.is_some_and(|started_at| {
+            observed
+                .iter()
+                .any(|item| item.first_observed_at < started_at)
+        });
+        let channel_is_uninstrumented = |channel: LifecycleChannel| {
+            predates_instrumentation
+                && !session_events.iter().any(|event| event.channel == channel)
+                && !session_decisions
+                    .iter()
+                    .any(|decision| decision.channel == channel)
+        };
         let closed = has_stage(
             &session_events,
             LifecycleChannel::SessionEnd,
@@ -270,13 +287,13 @@ pub fn fold_session_status(
                 LifecycleChannel::SessionStart,
                 &session_events,
                 &session_decisions,
-                historical,
+                historical || channel_is_uninstrumented(LifecycleChannel::SessionStart),
             ),
             prompt_push: channel_status(
                 LifecycleChannel::UserPromptSubmit,
                 &session_events,
                 &session_decisions,
-                historical,
+                historical || channel_is_uninstrumented(LifecycleChannel::UserPromptSubmit),
             ),
             mcp_pull: channel_status(
                 LifecycleChannel::BrainMcp,
