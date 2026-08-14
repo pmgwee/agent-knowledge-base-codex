@@ -192,6 +192,9 @@ pub fn execute_benchmark_run_with(
             );
             verify_frozen_snapshot(project_id, &preflight)?;
             if record.status == SampleStatus::Completed {
+                if planned.condition.requires_brain_service() {
+                    remove_completed_sample_brain_home(&sample_root, &sample_brain_home)?;
+                }
                 completed.insert(planned.sample_id.clone());
                 break;
             }
@@ -517,7 +520,9 @@ fn prepare_sample_brain(
             .ledger_path
             .strip_prefix(&preflight.frozen_brain_home)
             .context("frozen ledger escaped frozen brain home")?;
-        project.ledger_path = target.join(relative);
+        let target_ledger = target.join(relative);
+        repair_missing_sample_ledger(&project.ledger_path, &target_ledger)?;
+        project.ledger_path = target_ledger;
         project.project_root = checkout.to_path_buf();
         project.claude_sources.clear();
         project.codex_sources.clear();
@@ -526,6 +531,46 @@ fn prepare_sample_brain(
     fs::create_dir_all(config_path.parent().context("service config parent")?)?;
     fs::write(config_path, serde_json::to_vec_pretty(&config)?)?;
     Ok((target, pipe_name))
+}
+
+fn repair_missing_sample_ledger(source: &Path, target: &Path) -> Result<()> {
+    ensure!(source.is_file(), "frozen sample ledger is missing");
+    fs::create_dir_all(target.parent().context("sample ledger parent")?)?;
+    for suffix in ["", "-wal", "-shm"] {
+        let source_file = path_with_suffix(source, suffix);
+        let target_file = path_with_suffix(target, suffix);
+        if source_file.is_file() && !target_file.is_file() {
+            fs::copy(&source_file, &target_file).with_context(|| {
+                format!(
+                    "repair missing sample ledger file {}",
+                    target_file.display()
+                )
+            })?;
+        }
+        if target_file.is_file() {
+            make_file_writable(&target_file)?;
+        }
+    }
+    ensure!(target.is_file(), "sample ledger copy is missing");
+    Ok(())
+}
+
+fn path_with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    PathBuf::from(value)
+}
+
+fn remove_completed_sample_brain_home(sample_root: &Path, brain_home: &Path) -> Result<()> {
+    ensure!(
+        brain_home.parent() == Some(sample_root)
+            && brain_home.file_name() == Some(std::ffi::OsStr::new("brain-home")),
+        "refusing to remove a benchmark brain home outside its exact sample root"
+    );
+    if brain_home.is_dir() {
+        fs::remove_dir_all(brain_home)?;
+    }
+    Ok(())
 }
 
 struct ServiceGuard(Child);
@@ -851,7 +896,8 @@ mod tests {
 
     use super::{
         BenchmarkArtifacts, BenchmarkHarness, ExecutionTemplate, PlanContext, PlannedSample,
-        ProcessOutput, SampleStatus, command_plan, enforce_sample_limits, normalize_process_output,
+        ProcessOutput, SampleStatus, command_plan, copy_tree_writable, enforce_sample_limits,
+        normalize_process_output, remove_completed_sample_brain_home, repair_missing_sample_ledger,
         sanitize_sample_checkout, validate_condition_exposure,
     };
 
@@ -865,6 +911,52 @@ mod tests {
             condition: BenchmarkCondition::BrainOff,
             order: 0,
         }
+    }
+
+    #[test]
+    fn copies_nested_ledger_into_a_long_attempt_path() {
+        let temp = tempfile::tempdir().expect("temp");
+        let source = temp.path().join("frozen-brain");
+        let ledger_relative = std::path::Path::new("projects")
+            .join("019fcd85-f41b-77b2-a4c0-618c28fe1d6b")
+            .join("evidence/hot/events.sqlite");
+        let source_ledger = source.join(&ledger_relative);
+        std::fs::create_dir_all(source_ledger.parent().unwrap()).expect("source dirs");
+        std::fs::write(&source_ledger, b"fixture ledger").expect("source ledger");
+        let target = temp
+            .path()
+            .join("attempts")
+            .join("memory-01-claude_code-r01-c3")
+            .join(format!("1-{}", "a".repeat(160)))
+            .join("brain-home");
+
+        copy_tree_writable(&source, &target).expect("copy frozen brain");
+
+        // The paid smoke exposed a Windows copy in which the project directory arrived but its
+        // nested SQLite ledger did not. Preparation must repair that state before service launch.
+        let target_ledger = target.join(&ledger_relative);
+        std::fs::remove_file(&target_ledger).expect("simulate skipped ledger");
+        repair_missing_sample_ledger(&source_ledger, &target_ledger).expect("repair ledger");
+
+        assert_eq!(
+            std::fs::read(target.join(ledger_relative)).expect("copied ledger"),
+            b"fixture ledger"
+        );
+    }
+
+    #[test]
+    fn completed_sample_cleanup_removes_only_the_isolated_brain_home() {
+        let temp = tempfile::tempdir().expect("temp");
+        let sample_root = temp.path().join("sample");
+        let brain_home = sample_root.join("brain-home");
+        let retained = sample_root.join("raw-output.json");
+        std::fs::create_dir_all(brain_home.join("projects")).expect("brain dirs");
+        std::fs::write(&retained, b"keep").expect("raw output");
+
+        remove_completed_sample_brain_home(&sample_root, &brain_home).expect("cleanup");
+
+        assert!(!brain_home.exists());
+        assert_eq!(std::fs::read(retained).expect("retained output"), b"keep");
     }
 
     #[test]
