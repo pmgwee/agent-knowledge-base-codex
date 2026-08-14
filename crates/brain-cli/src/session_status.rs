@@ -163,17 +163,23 @@ pub fn fold_session_status(
     for item in activity {
         keys.insert((
             item.harness.as_str().to_owned(),
-            item.native_session_id.clone(),
+            canonical_session_id(&item.harness, &item.native_session_id),
         ));
     }
     for event in lifecycle {
         if let SessionAttribution::Attributed(session_id) = &event.session {
-            keys.insert((event.harness.as_str().to_owned(), session_id.clone()));
+            keys.insert((
+                event.harness.as_str().to_owned(),
+                canonical_session_id(&event.harness, session_id),
+            ));
         }
     }
     for decision in decisions {
         if let SessionAttribution::Attributed(session_id) = &decision.session {
-            keys.insert((decision.harness.as_str().to_owned(), session_id.clone()));
+            keys.insert((
+                decision.harness.as_str().to_owned(),
+                canonical_session_id(&decision.harness, session_id),
+            ));
         }
     }
     let mut sessions = Vec::new();
@@ -182,19 +188,31 @@ pub fn fold_session_status(
             .iter()
             .filter(|event| {
                 event.harness.as_str() == harness_name
-                    && event.session == SessionAttribution::Attributed(session_id.clone())
+                    && matches!(
+                        &event.session,
+                        SessionAttribution::Attributed(value)
+                            if canonical_session_id(&event.harness, value) == session_id
+                    )
             })
             .collect::<Vec<_>>();
         let session_decisions = decisions
             .iter()
             .filter(|decision| {
                 decision.harness.as_str() == harness_name
-                    && decision.session == SessionAttribution::Attributed(session_id.clone())
+                    && matches!(
+                        &decision.session,
+                        SessionAttribution::Attributed(value)
+                            if canonical_session_id(&decision.harness, value) == session_id
+                    )
             })
             .collect::<Vec<_>>();
-        let observed = activity.iter().find(|item| {
-            item.harness.as_str() == harness_name && item.native_session_id == session_id
-        });
+        let observed = activity
+            .iter()
+            .filter(|item| {
+                item.harness.as_str() == harness_name
+                    && canonical_session_id(&item.harness, &item.native_session_id) == session_id
+            })
+            .collect::<Vec<_>>();
         let first = session_events
             .iter()
             .map(|event| event.occurred_at)
@@ -203,7 +221,7 @@ pub fn fold_session_status(
                     .iter()
                     .map(|decision| decision.occurred_at),
             )
-            .chain(observed.map(|item| item.first_observed_at))
+            .chain(observed.iter().map(|item| item.first_observed_at))
             .min()
             .unwrap_or(options.now);
         let last = session_events
@@ -214,7 +232,7 @@ pub fn fold_session_status(
                     .iter()
                     .map(|decision| decision.occurred_at),
             )
-            .chain(observed.map(|item| item.last_observed_at))
+            .chain(observed.iter().map(|item| item.last_observed_at))
             .max()
             .unwrap_or(first);
         let historical = session_events.is_empty() && session_decisions.is_empty();
@@ -240,7 +258,7 @@ pub fn fold_session_status(
                     .first()
                     .map(|decision| decision.harness.clone())
             })
-            .or_else(|| observed.map(|item| item.harness.clone()))
+            .or_else(|| observed.first().map(|item| item.harness.clone()))
             .unwrap_or_else(|| Harness::Other(harness_name.clone()));
         sessions.push(SessionStatus {
             harness,
@@ -300,6 +318,17 @@ pub fn fold_session_status(
         next_cursor: truncated.then(|| consumed.to_string()),
         truncated,
     })
+}
+
+fn canonical_session_id(harness: &Harness, native_session_id: &str) -> String {
+    if !matches!(harness, Harness::Codex) {
+        return native_session_id.to_owned();
+    }
+    native_session_id
+        .get(native_session_id.len().saturating_sub(36)..)
+        .and_then(|suffix| uuid::Uuid::parse_str(suffix).ok())
+        .map(|session_id| session_id.to_string())
+        .unwrap_or_else(|| native_session_id.to_owned())
 }
 
 fn channel_status(

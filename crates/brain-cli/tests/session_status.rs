@@ -225,3 +225,49 @@ fn pagination_is_bounded_and_cross_project_rows_are_refused() {
         .is_err()
     );
 }
+
+#[test]
+fn codex_rollout_alias_and_hook_uuid_fold_into_one_session() {
+    let project_id = ProjectId(uuid::Uuid::now_v7());
+    let session_id = "019ff705-aad7-7373-94b3-932a9b15a323";
+    let page = fold_session_status(
+        project_id,
+        &[
+            event(
+                project_id,
+                session_id,
+                LifecycleChannel::SessionStart,
+                LifecycleStage::HookReceived,
+                1,
+            ),
+            event(
+                project_id,
+                session_id,
+                LifecycleChannel::SessionStart,
+                LifecycleStage::ReplyFlushed,
+                2,
+            ),
+        ],
+        &[],
+        &[SessionActivity {
+            harness: Harness::Codex,
+            native_session_id: format!("rollout-2026-08-13T01-29-31-{session_id}"),
+            first_observed_at: at(0),
+            last_observed_at: at(3),
+        }],
+        SessionStatusOptions {
+            filter: SessionFilter::All,
+            limit: 50,
+            cursor: None,
+            now: at(4),
+            stale_after: time::Duration::minutes(30),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(page.sessions.len(), 1);
+    assert_eq!(page.sessions[0].native_session_id, session_id);
+    assert_eq!(page.sessions[0].startup.state, ChannelState::Delivered);
+    assert_eq!(page.sessions[0].first_observed_at, at(0));
+    assert_eq!(page.sessions[0].last_observed_at, at(3));
+}

@@ -296,11 +296,14 @@ fn select_fields(value: &serde_json::Value, keys: &[&str]) -> serde_json::Value 
 }
 
 fn source_session_id(record: &RawRecord) -> String {
-    Path::new(&record.source_locator)
+    let stem = Path::new(&record.source_locator)
         .file_stem()
         .and_then(|value| value.to_str())
-        .unwrap_or("unknown-codex-session")
-        .to_owned()
+        .unwrap_or("unknown-codex-session");
+    stem.get(stem.len().saturating_sub(36)..)
+        .and_then(|suffix| uuid::Uuid::parse_str(suffix).ok())
+        .map(|session_id| session_id.to_string())
+        .unwrap_or_else(|| stem.to_owned())
 }
 
 fn idempotency_key(record: &RawRecord, ordinal: u32) -> [u8; 32] {
