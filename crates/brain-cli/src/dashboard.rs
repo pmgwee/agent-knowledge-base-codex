@@ -60,7 +60,36 @@ pub struct SessionDashboard {
     pub stale_open: Vec<SessionStatus>,
     pub recent_closed: Vec<SessionStatus>,
     pub historical_uninstrumented: Vec<SessionStatus>,
+    /// Successful and failed Brain MCP calls whose stdio transport did not expose a native
+    /// harness session ID. They are deliberately not timestamp-guessed onto a session row.
+    pub unattributed_mcp: UnattributedMcpSummary,
     pub truncated: bool,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct UnattributedMcpSummary {
+    pub requests: u64,
+    pub succeeded: u64,
+    pub failed: u64,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub last_observed_at: Option<time::OffsetDateTime>,
+    pub window_days: u16,
+    pub truncated: bool,
+    pub detail: String,
+}
+
+impl Default for UnattributedMcpSummary {
+    fn default() -> Self {
+        Self {
+            requests: 0,
+            succeeded: 0,
+            failed: 0,
+            last_observed_at: None,
+            window_days: 7,
+            truncated: false,
+            detail: "MCP transport did not provide a native session ID; these on-demand pulls cannot be assigned to a session row without guessing.".to_owned(),
+        }
+    }
 }
 
 /// How retrieval is actually configured, and which of its stages can run.
@@ -422,7 +451,7 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
         let benchmark_goals = token_benchmark
             .as_ref()
             .and_then(|summary| summary.three_goal.clone());
-        let sessions = read_session_status(
+        let mut sessions = read_session_status(
             &ledger,
             project_id,
             SessionStatusOptions {
@@ -435,6 +464,8 @@ pub fn read_dashboard(brain_home: &Path) -> Result<DashboardSnapshot> {
         )
         .map(session_dashboard)
         .unwrap_or_default();
+        sessions.unattributed_mcp =
+            read_unattributed_mcp(&ledger, project_id, now).unwrap_or_default();
         active_alerts.extend(session_alerts(project_id, &sessions));
         let production_tokens = production_token_trend(&ledger, project_id, now).unwrap_or_else(
             |_| ProductionTokenTrend {
@@ -553,6 +584,41 @@ fn session_dashboard(page: crate::session_status::SessionStatusPage) -> SessionD
     dashboard.recent_closed.truncate(50);
     dashboard.historical_uninstrumented.truncate(50);
     dashboard
+}
+
+fn read_unattributed_mcp(
+    ledger: &brain_store::EventLedger,
+    project_id: ProjectId,
+    now: time::OffsetDateTime,
+) -> Result<UnattributedMcpSummary> {
+    let events = ledger.lifecycle_events(&brain_store::TelemetryQuery {
+        project_id,
+        session: Some(brain_store::SessionAttribution::Unattributed),
+        start: now - time::Duration::days(7),
+        end: now + time::Duration::seconds(1),
+        limit: 10_000,
+    })?;
+    let mut summary = UnattributedMcpSummary {
+        truncated: events.len() == 10_000,
+        ..UnattributedMcpSummary::default()
+    };
+    for event in events
+        .iter()
+        .filter(|event| event.channel == brain_store::LifecycleChannel::BrainMcp)
+    {
+        match event.stage {
+            brain_store::LifecycleStage::McpRequest => summary.requests += 1,
+            brain_store::LifecycleStage::McpSucceeded => summary.succeeded += 1,
+            brain_store::LifecycleStage::McpFailed => summary.failed += 1,
+            _ => {}
+        }
+        summary.last_observed_at = Some(
+            summary
+                .last_observed_at
+                .map_or(event.occurred_at, |last| last.max(event.occurred_at)),
+        );
+    }
+    Ok(summary)
 }
 
 fn session_alerts(project_id: ProjectId, sessions: &SessionDashboard) -> Vec<BrainAlert> {

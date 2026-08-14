@@ -13,6 +13,8 @@ fn dashboard_schema_v3_carries_sessions_alerts_and_three_separate_goal_contracts
         )
     );
     assert!(source.contains("pub sessions: SessionDashboard"));
+    assert!(source.contains("pub unattributed_mcp: UnattributedMcpSummary"));
+    assert!(source.contains("MCP transport did not provide a native session ID"));
     assert!(source.contains("pub active_alerts: Vec<BrainAlert>"));
     assert!(source.contains("healthy_silence is not a failure"));
     assert!(source.contains("An untrusted hook is never dispatched"));

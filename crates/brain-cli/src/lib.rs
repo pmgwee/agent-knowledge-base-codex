@@ -37,7 +37,7 @@ pub use config_panel::{
 };
 pub use dashboard::{
     BrainAlert, DASHBOARD_SCHEMA_VERSION, DashboardSnapshot, ProjectDashboard, SessionDashboard,
-    read_dashboard,
+    UnattributedMcpSummary, read_dashboard,
 };
 pub use deployment::{
     DEPLOY_MANIFEST, DEPLOYED_BINARIES, DeployManifest, DeployStatus, DeployedBinary,
