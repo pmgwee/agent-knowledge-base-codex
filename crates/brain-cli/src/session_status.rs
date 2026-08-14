@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use anyhow::{Result, ensure};
 use brain_domain::{Harness, ProjectId};
@@ -106,32 +106,24 @@ pub fn read_session_status(
     };
     let lifecycle = ledger.lifecycle_events(&query)?;
     let decisions = ledger.retrieval_decisions(&query)?;
-    let mut activity: BTreeMap<(String, String), SessionActivity> = BTreeMap::new();
-    for event in ledger.recent_events_as_of(project_id, options.now, 500)? {
-        let key = (
-            event.harness.as_str().to_owned(),
-            event.native_session_id.clone(),
-        );
-        activity
-            .entry(key)
-            .and_modify(|current| {
-                current.first_observed_at = current.first_observed_at.min(event.observed_at);
-                current.last_observed_at = current.last_observed_at.max(event.observed_at);
-            })
-            .or_insert(SessionActivity {
-                harness: event.harness,
-                native_session_id: event.native_session_id,
-                first_observed_at: event.observed_at,
-                last_observed_at: event.observed_at,
-            });
-    }
-    fold_session_status(
-        project_id,
-        &lifecycle,
-        &decisions,
-        &activity.into_values().collect::<Vec<_>>(),
-        options,
-    )
+    let activity = ledger
+        .captured_session_activity(10_000)?
+        .into_iter()
+        .map(
+            |(harness, native_session_id, first_observed_at, last_observed_at)| SessionActivity {
+                harness: match harness.as_str() {
+                    "claude-code" => Harness::ClaudeCode,
+                    "codex" => Harness::Codex,
+                    "hermes" => Harness::Hermes,
+                    _ => Harness::Other(harness),
+                },
+                native_session_id,
+                first_observed_at,
+                last_observed_at,
+            },
+        )
+        .collect::<Vec<_>>();
+    fold_session_status(project_id, &lifecycle, &decisions, &activity, options)
 }
 
 pub fn fold_session_status(

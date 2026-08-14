@@ -1,11 +1,13 @@
 use brain_cli::{
     ChannelState, SessionActivity, SessionFilter, SessionLifecycleState, SessionStatusOptions,
-    fold_session_status,
+    fold_session_status, read_session_status,
 };
-use brain_domain::{Harness, ProjectId};
+use brain_domain::{
+    EventBatch, EventType, Harness, NormalizedEvent, ProjectId, SourceCursor, WorktreeId,
+};
 use brain_store::{
-    LifecycleChannel, LifecycleEvent, LifecycleStage, RetrievalDecision, RetrievalOutcome,
-    RetrievalReasonCode, SessionAttribution,
+    EventLedger, LifecycleChannel, LifecycleEvent, LifecycleStage, RetrievalDecision,
+    RetrievalOutcome, RetrievalReasonCode, SessionAttribution,
 };
 
 fn at(minutes: i64) -> time::OffsetDateTime {
@@ -316,4 +318,110 @@ fn a_session_that_predates_telemetry_does_not_raise_missing_hook_channels() {
         page.sessions[0].capture.state,
         ChannelState::CaptureCaughtUp
     );
+}
+
+#[test]
+fn session_history_is_not_lost_behind_the_recent_event_cap() {
+    let project_id = ProjectId(uuid::Uuid::now_v7());
+    let worktree_id = WorktreeId(uuid::Uuid::now_v7());
+    let session_id = "019ff705-aad7-7373-94b3-932a9b15a323";
+    let mut events = Vec::new();
+    events.push(normalized_event(
+        project_id,
+        worktree_id,
+        Harness::Codex,
+        session_id,
+        0,
+    ));
+    for sequence in 1_u64..=501 {
+        events.push(normalized_event(
+            project_id,
+            worktree_id,
+            Harness::ClaudeCode,
+            "newer-session",
+            i64::try_from(sequence + 100).unwrap(),
+        ));
+    }
+    let mut ledger = EventLedger::open_in_memory(project_id).unwrap();
+    ledger
+        .append_batch(&EventBatch {
+            source_id: "session-status-cap-fixture".to_owned(),
+            events,
+            quarantined: Vec::new(),
+            capture_gaps: Vec::new(),
+            next_cursor: SourceCursor::byte_offset(1),
+        })
+        .unwrap();
+    ledger
+        .record_lifecycle_event(&event(
+            project_id,
+            session_id,
+            LifecycleChannel::Capture,
+            LifecycleStage::CaptureCaughtUp,
+            700,
+        ))
+        .unwrap();
+
+    let page = read_session_status(
+        &ledger,
+        project_id,
+        SessionStatusOptions {
+            filter: SessionFilter::All,
+            limit: 50,
+            cursor: None,
+            now: at(800),
+            stale_after: time::Duration::minutes(30),
+        },
+    )
+    .unwrap();
+    let session = page
+        .sessions
+        .iter()
+        .find(|session| session.native_session_id == session_id)
+        .unwrap();
+
+    assert_eq!(
+        session.startup.state,
+        ChannelState::HistoricalUninstrumented
+    );
+    assert_eq!(
+        session.prompt_push.state,
+        ChannelState::HistoricalUninstrumented
+    );
+}
+
+fn normalized_event(
+    project_id: ProjectId,
+    worktree_id: WorktreeId,
+    harness: Harness,
+    session_id: &str,
+    minute: i64,
+) -> NormalizedEvent {
+    let mut idempotency_key = [0_u8; 32];
+    idempotency_key[..8].copy_from_slice(&minute.to_le_bytes());
+    idempotency_key[8] = match harness {
+        Harness::Codex => 1,
+        _ => 2,
+    };
+    NormalizedEvent {
+        event_id: uuid::Uuid::now_v7(),
+        project_id,
+        worktree_id,
+        task_id: None,
+        harness,
+        native_session_id: session_id.to_owned(),
+        native_turn_id: None,
+        event_type: EventType::AgentResponded,
+        occurred_at: at(minute),
+        observed_at: at(minute),
+        source_locator: "fixture.jsonl".to_owned(),
+        source_offset: minute,
+        source_schema: "fixture:v1".to_owned(),
+        raw_hash: [3; 32],
+        idempotency_key,
+        git_head: None,
+        git_branch: None,
+        payload: serde_json::json!({}),
+        raw: serde_json::json!({}),
+    }
 }

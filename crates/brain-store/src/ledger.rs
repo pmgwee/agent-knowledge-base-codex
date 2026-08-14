@@ -1031,6 +1031,43 @@ impl EventLedger {
         })
         .collect()
     }
+
+    pub fn captured_session_activity(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<(String, String, time::OffsetDateTime, time::OffsetDateTime)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT harness, native_session_id, MIN(occurred_at_ns), MAX(observed_at_ns)
+             FROM events WHERE project_id = ?1
+             GROUP BY harness, native_session_id
+             ORDER BY MAX(observed_at_ns) DESC
+             LIMIT ?2",
+        )?;
+        let rows = statement.query_map(
+            params![
+                self.project_scope.0.to_string(),
+                i64::try_from(limit).unwrap_or(i64::MAX)
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )?;
+        rows.map(|row| {
+            let (harness, native_session_id, first_at, last_at) = row?;
+            Ok((
+                harness,
+                native_session_id,
+                time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(first_at))?,
+                time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(last_at))?,
+            ))
+        })
+        .collect()
+    }
 }
 
 #[cfg(test)]
