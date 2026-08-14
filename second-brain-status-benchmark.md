@@ -38,13 +38,23 @@ This checklist distinguishes implementation from experiments that deliberately r
 |---|---|---|
 | Tasks 1–9 benchmark, telemetry, evaluator, five-condition launcher, and session-status implementation | **Implemented and locally verified** | Fresh 14 August release gate: `cargo fmt --all -- --check`, `cargo test --workspace --no-fail-fast`, and `cargo clippy --workspace --all-targets -- -D warnings` all exited 0 |
 | Retrieval evaluator calibration fixture | **Evaluator calibrated; not a native-agent result** | 120/120 calibration records valid; precision/recall/faithfulness/healthy-silence metrics were 100.0%, harmful-push and leakage were 0.0%. The report declares `fixture_generated=true`, so these numbers prove evaluator/fixture consistency only |
-| Native C0–C4 smoke preflight | **Dry/preflight only** | Run `019ffa60-0000-7000-8000-000000000002` launched 0 paid sessions; all isolation/profile/counter checks passed except `brain_source_clean=false`, expected for this uncommitted implementation worktree |
-| Task 10 Claude Brain MCP | **Installer implemented; live user-scope install pending explicit operator action** | Idempotent supported-CLI install/uninstall tests pass; no live Claude configuration was changed and no paid fresh-session discovery run was launched |
-| Task 11 dashboard | **Implemented and locally verified** | Fresh 14 August release gate: 4 test files/16 tests pass; ESLint exits 0; Next.js production build exits 0 |
+| Native C0–C4 smoke preflight | **Valid preflight; provider execution blocked before a valid sample** | Run `01a00019-2e91-7d53-af0e-0507d7b753e4` passed isolation, profile, condition, and native-auth checks. Claude then returned `Credit balance is too low` before a turn or token counter existed. The controller was stopped and its exact run process tree removed; no zero-turn record is treated as a benchmark result. |
+| Task 10 Claude Brain MCP | **Installed and verified in both native harnesses** | Fresh Claude session `0c11459c-4721-4adc-99c2-6808f0e9e955` and fresh Codex session `019fffe2-24f0-74e3-8997-a375c9dce2d9` each discovered 16 tools and completed read-only status/search/timeline/evidence calls. All 8 MCP requests succeeded; native stdio supplied no session id, so telemetry honestly records them as `unattributed`. |
+| Task 11 dashboard | **Integrated, running, and live-data verified** | Dashboard repository commits `6df7e14`, `d470953`, `cacbbe5`, and `92311da`; 6 test files/27 tests pass, ESLint exits 0 (one unrelated warning), and the production build exits 0. `http://127.0.0.1:3000/api/snapshot` returned schema v3, all three projects, seven recent closed sessions, and the 8/8 MCP summary. A 68.017 s cold request now succeeds under the 90 s ceiling; after fixing the completion-time cache clock, the measured pair was 32.906 s generation followed by a 0.140 s cache hit. The UI labels polling separately from generation latency. |
 | LongMemEval-S, 500 questions | **Matched hybrid gate passed** | BM25+vector RRF: R@5 96.0%, R@10 98.2%, MRR 92.2%, 243,657 vectors, 500/500 in 13,214.1 s. Change from frozen baseline: 0.0 percentage points / 0.0% relative. BM25-only diagnostic: R@5 93.2%, R@10 96.6%, MRR 89.2% in 151.8 s. Raw logs: `target/benchmark-evidence/longmemeval-current-hybrid-release/` and `longmemeval-current/` |
 | AgentMemory reference and final comparison surface | **Pinned and implemented** | Six supplied Markdown references exactly match AgentMemory commit `2973e4ec4c40d323a08daa34220118010e73a2c3`; `suite.json` pins their claims, evidence classes, URLs, and SHA-256 values. `FINAL-OUTCOMES.md` presents retrieval, token-model, and competitor tables without converting external estimates into local results |
-| 20-session smoke, 240-session pilot, triggered C2e/C3e experiments, and 1,600-session claimable matrix | **Approved for gated execution on 14 August 2026; not yet run** | Execute in order. Native goal percentages remain `Not measured` until artifacts validate; C2e/C3e remain conditional on the preregistered pilot triggers |
-| Commit, install, service restart, and deployment | **Approved for execution on 14 August 2026; in progress** | Release gates passed before the deployment-triggering commit; installed commit and live service still require post-deploy verification |
+| 20-session smoke, 240-session pilot, triggered C2e/C3e experiments, and 1,600-session claimable matrix | **Blocked before the first valid paid sample** | Claude authentication succeeds in the isolated benchmark home, but the provider account reports insufficient credit. Therefore all three native goal percentages and all trigger decisions remain `Not measured`; the pilot, C2e/C3e, and claimable matrix must not run until a valid 20-session smoke passes. |
+| Commit, install, service restart, and deployment | **Completed and live-verified** | Brain commit `cf60360108b200c53e7c24ddb1f731a80b98fd4a` is installed; deployment succeeded and restarted the service. Real Claude and Codex lifecycle receipts were captured after deployment. |
+
+### Resume boundary for the quantitative native benchmark
+
+The implementation is ready, but the C0–C4 experiment cannot produce real percentages until the
+Claude account can execute native turns. After credit is restored, rebuild
+`brain-benchmark-launcher`, generate fresh run templates, create a new smoke run, execute it, and
+grade it. Do not reuse an aborted run id. Proceed to the 240-session pilot only if all 20 smoke
+sessions have non-zero native usage, valid lifecycle evidence, and passing isolation hashes; proceed
+to Priority 2/4 experiments only if their preregistered triggers fire. The 1,600-session matrix still
+requires its separate explicit approval.
 
 Evidence SHA-256 values: LongMemEval dataset `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442`; matched hybrid stdout `ba79120da5f18586d28a607475a2703edf58f1ee08d9d77f2e78d76dab85cb34`; release benchmark binary `a9cfc6d8fe8da8da5ca5d4193789bb060a8be9ca7a0d98bc326f7a594dc68e70`; BM25-only stdout `76674e67db4c08cc42d4579bfb8bfa67a3c3a207ce91d4cf32b30f86a5540d8c`; calibration summary `56af4651513a21d3bcb25ef7db2f0b6ea562b310c02243026faa9721ee8629ab`; smoke preflight `73c4f4772271a1e7007a88ec664ca6b7a9c3b36a00e3e94ba161c20e4baa6b10`.
 
@@ -611,7 +621,7 @@ The installed state at plan creation is asymmetric: Codex has `[mcp_servers.brai
 - [x] Resolve and pin the installed `BRAIN_HOME/bin/brain-mcp.exe`; reject `target/release` and a missing/stale binary.
 - [x] Add a symmetric uninstall path that removes only the server named `brain` after confirming its command matches Agent Brain.
 - [x] Extend the config panel to inspect Claude’s effective MCP wiring as well as Codex’s and report configured, approved/connected, command path, and binary-present states without reading secrets.
-- [ ] Verify all 16 tools are discoverable in a fresh Claude Code session and run read-only smoke calls for `brain_status`, `brain_search`, `brain_timeline`, and `brain_evidence` against a fixture project.
+- [x] Verify all 16 tools are discoverable in a fresh Claude Code session and run read-only smoke calls for `brain_status`, `brain_search`, `brain_timeline`, and `brain_evidence` against a fixture project.
 - [x] Prove Claude search results remain project-scoped and that an unknown/foreign project or evidence UUID is refused.
 - [x] Record MCP request/success/failure telemetry with Claude harness and exact session correlation when available; use the explicit `unattributed` state otherwise.
 - [x] Keep installation an explicit operator action. Project registration remains one local-path command because the user-scoped MCP server is global and project selection happens inside every tool request.
@@ -700,7 +710,7 @@ The installed state at plan creation is asymmetric: Codex has `[mcp_servers.brai
 - [ ] Export blind grades, run automated checks, adjudicate disagreements, and verify kappa at least 80%.
 - [ ] Generate all contrasts, adjusted intervals, per-harness/stratum tables, lifecycle reliability, and retrieval locked-test results.
 - [x] Run `cargo fmt --all -- --check`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings`.
-- [ ] If deployment is authorized, deploy through `scripts/deploy.ps1`, then verify the installed commit and binaries in `brain dashboard` rather than assuming the build shipped.
+- [x] If deployment is authorized, deploy through `scripts/deploy.ps1`, then verify the installed commit and binaries in `brain dashboard` rather than assuming the build shipped.
 - [ ] Publish only the statements generated by the report evaluator.
 
 ### Task 17: Reconcile architecture and operating documentation with measured truth

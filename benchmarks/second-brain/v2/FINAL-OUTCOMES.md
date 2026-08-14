@@ -1,8 +1,8 @@
 # Secondary Brain benchmark outcomes and competitor context
 
-**Evidence cutoff:** 13 August 2026  
+**Evidence cutoff:** 14 August 2026
 **Architecture label:** `current_state`  
-**Native C0-C4 execution status:** not run
+**Native C0-C4 execution status:** blocked before the first valid sample by insufficient Claude credit
 
 This is the compact outcome surface for the three-goal benchmark. It separates local measurements,
 external published measurements, modeled estimates, and unmeasured claims. An external number never
@@ -16,9 +16,19 @@ fills a Secondary Brain result cell.
 | End-to-end coding time | Not measured | Not measured | Not measured | Not measured | Not measured | Not measured | at least 10% speedup, adjusted lower bound above 0 | Not run |
 | Final-answer pass rate | Not measured | Not measured | Not measured | Not measured | Not measured | Not measured | +5 pp on historical tasks and -2 pp overall safety | Not run |
 
-The zero-cost implementation and retrieval gates are green, but no paid native five-condition block
-has run. Therefore the Secondary Brain has no defensible token-saving, coding-speed, or final-answer
-quality percentage yet.
+The implementation and retrieval gates are green. A valid isolated preflight reached the native
+Claude provider, which returned `Credit balance is too low` before any turn or token counter existed.
+Therefore the Secondary Brain still has no defensible token-saving, coding-speed, or final-answer
+quality percentage. Zero-turn attempts are excluded, not scored as zero.
+
+## Native execution evidence available now
+
+| Evidence | Result | What it proves | What it does not prove |
+|---|---|---|---|
+| Isolated C0-C4 preflight, run `01a00019-2e91-7d53-af0e-0507d7b753e4` | Isolation/profile/condition/native-auth checks passed; provider stopped at insufficient credit | The launcher reaches the real native harness with isolated state and refuses invalid zero-turn samples | Any goal percentage or condition comparison |
+| Fresh Claude session `0c11459c-4721-4adc-99c2-6808f0e9e955` | 16 tools discovered; status/search/timeline/evidence succeeded | Claude Brain MCP is installed and useful on demand | Net token, time, or answer-quality lift |
+| Fresh Codex session `019fffe2-24f0-74e3-8997-a375c9dce2d9` | 16 tools discovered; status/search/timeline/evidence succeeded | Codex Brain MCP remains operational | Net token, time, or answer-quality lift |
+| Lifecycle dashboard | Schema v3; both harnesses visible; 8/8 unattributed MCP requests succeeded | Hook/MCP/capture observability and honest unattributed-session handling | Causal performance improvement |
 
 ## Token-savings benchmark context
 
@@ -70,12 +80,12 @@ strong evidence of general coding-agent superiority.
 
 | Decision dimension | Secondary Brain evidence | AgentMemory evidence | Honest conclusion |
 |---|---|---|---|
-| Net native tokens | Exact C0-C4 accounting is implemented; native run not executed | Annual and dashboard numbers are context models/heuristics | Neither system's supplied evidence proves a causal net native-token saving for this workload |
+| Net native tokens | Exact C0-C4 accounting is implemented; provider billing blocked the first valid sample | Annual and dashboard numbers are context models/heuristics | Neither system's supplied evidence proves a causal net native-token saving for this workload |
 | Public retrieval | 96.0% R@5, 98.2% R@10, 92.2% MRR locally reproduced | 95.2%, 98.6%, 88.2% published on the same corpus | Secondary Brain leads R@5/MRR and trails R@10; not a controlled adapter head-to-head |
 | Small coding-memory fixture | Not run | Hybrid beats grep on one temporal gold session; both hit 15/15 queries | Do not infer broad coding quality from this fixture |
 | Retrieval latency | LongMemEval total is measured; no comparable query p50 is published here | 14 ms p50 on coding-agent-life-v1 | Different corpora and timing boundaries; no speed winner |
 | Final coding answers | Blind C0-C4 grader and quality gates implemented; native run pending | Supplied benchmarks are retrieval-only or concept-matched synthetic retrieval | Neither source proves superior final coding answers |
-| Cross-harness delivery | Three hooks work on Claude and Codex; Claude MCP installer is implemented but not live-installed | MCP/cross-agent support is claimed, not evaluated by these scorecards | Treat integration capability separately from performance evidence |
+| Cross-harness delivery | Three hooks work on Claude and Codex; Brain MCP is installed and read-only-smoked in fresh sessions on both harnesses | MCP/cross-agent support is claimed, not evaluated by these scorecards | Integration is proven operational; performance lift remains unmeasured |
 | Auditability | Exact native traces, command log, immutable artifacts, hashes, and confidence intervals | Public corpus/scripts and vendor scorecards; annual-token derivation is absent | Secondary Brain's experiment is stricter, but its three outcome cells remain unmeasured |
 
 ## Evidence and provenance
