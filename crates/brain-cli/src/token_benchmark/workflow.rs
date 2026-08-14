@@ -373,7 +373,7 @@ fn validate_and_pin_execution_templates(
         "max_attempts must be between one and three"
     );
     templates.brain_service_program = canonical_executable(&templates.brain_service_program)?;
-    const LAUNCHER_PATHS: [&str; 8] = [
+    const LAUNCHER_PATHS: [&str; 9] = [
         "BENCHMARK_CLAUDE_EXECUTABLE",
         "BENCHMARK_CODEX_EXECUTABLE",
         "BENCHMARK_CODEGRAPH_NODE",
@@ -381,6 +381,7 @@ fn validate_and_pin_execution_templates(
         "BENCHMARK_BRAIN_HOOK",
         "BENCHMARK_BRAIN_MCP",
         "BENCHMARK_CLAUDE_CREDENTIALS",
+        "BENCHMARK_CLAUDE_STATE",
         "BENCHMARK_CODEX_AUTH",
     ];
     let actual_launcher_keys = templates
@@ -391,7 +392,7 @@ fn validate_and_pin_execution_templates(
     let expected_launcher_keys = LAUNCHER_PATHS.into_iter().collect::<BTreeSet<_>>();
     ensure!(
         actual_launcher_keys == expected_launcher_keys,
-        "launcher_environment must contain exactly the eight benchmark-scoped path bindings"
+        "launcher_environment must contain exactly the nine benchmark-scoped path bindings"
     );
     for key in LAUNCHER_PATHS {
         let path = PathBuf::from(

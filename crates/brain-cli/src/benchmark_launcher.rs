@@ -58,6 +58,7 @@ struct LauncherPaths {
     brain_hook: Option<PathBuf>,
     brain_mcp: Option<PathBuf>,
     credential: Option<PathBuf>,
+    claude_state: Option<PathBuf>,
     brain_home: Option<PathBuf>,
 }
 
@@ -146,6 +147,15 @@ impl LauncherPaths {
                 optional(credential_key)?
             } else {
                 Some(required(credential_key)?)
+            },
+            claude_state: if harness == BenchmarkHarness::ClaudeCode {
+                if prepare_only {
+                    optional("BENCHMARK_CLAUDE_STATE")?
+                } else {
+                    Some(required("BENCHMARK_CLAUDE_STATE")?)
+                }
+            } else {
+                None
             },
             brain_home: std::env::var_os("BRAIN_HOME").map(PathBuf::from),
         })
@@ -276,6 +286,15 @@ fn prepare(
         let target = credential_path(profile.harness, &args.harness_home);
         fs::copy(source, &target)
             .with_context(|| format!("copy credential into {}", target.display()))?;
+        if profile.harness == BenchmarkHarness::ClaudeCode {
+            copy_claude_auth_state(
+                paths
+                    .claude_state
+                    .as_deref()
+                    .context("BENCHMARK_CLAUDE_STATE is required")?,
+                &args.harness_home.join(".claude.json"),
+            )?;
+        }
         true
     } else {
         false
@@ -495,7 +514,7 @@ fn initialize_codegraph(
     let status = Command::new(require_path(&paths.codegraph_node, "CodeGraph node")?)
         .arg(require_path(&paths.codegraph_script, "CodeGraph script")?)
         .arg("init")
-        .arg(checkout)
+        .arg(codegraph_cli_path(checkout))
         .current_dir(checkout)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -518,6 +537,35 @@ fn initialize_codegraph(
             "checkout": checkout
         }))?,
     )?;
+    Ok(())
+}
+
+fn codegraph_cli_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(plain) = path.to_string_lossy().strip_prefix(r"\\?\") {
+        return PathBuf::from(plain);
+    }
+    path.to_path_buf()
+}
+
+fn copy_claude_auth_state(source: &Path, target: &Path) -> Result<()> {
+    let state: Value = serde_json::from_slice(
+        &fs::read(source).with_context(|| format!("read {}", source.display()))?,
+    )?;
+    let mut isolated = serde_json::Map::new();
+    for key in ["oauthAccount", "primaryApiKey"] {
+        if let Some(value) = state.get(key) {
+            isolated.insert(key.to_owned(), value.clone());
+        }
+    }
+    ensure!(
+        !isolated.is_empty(),
+        "Claude state contains no supported login material"
+    );
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(target, serde_json::to_vec_pretty(&Value::Object(isolated))?)?;
     Ok(())
 }
 
@@ -606,17 +654,23 @@ fn credential_path(harness: BenchmarkHarness, home: &Path) -> PathBuf {
     }
 }
 
-struct CredentialGuard(PathBuf);
+struct CredentialGuard(Vec<PathBuf>);
 
 impl CredentialGuard {
     fn new(harness: BenchmarkHarness, home: &Path) -> Self {
-        Self(credential_path(harness, home))
+        let mut paths = vec![credential_path(harness, home)];
+        if harness == BenchmarkHarness::ClaudeCode {
+            paths.push(home.join(".claude.json"));
+        }
+        Self(paths)
     }
 }
 
 impl Drop for CredentialGuard {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        for path in &self.0 {
+            let _ = fs::remove_file(path);
+        }
     }
 }
 
@@ -657,6 +711,42 @@ mod tests {
                 validate_profile_capabilities(&profile(harness, condition)).expect("valid profile");
             }
         }
+    }
+
+    #[test]
+    fn claude_auth_state_copy_keeps_only_login_material() {
+        let temp = tempfile::tempdir().expect("temp");
+        let source = temp.path().join("operator-claude.json");
+        let target = temp.path().join("isolated/.claude.json");
+        fs::write(
+            &source,
+            serde_json::to_vec(&json!({
+                "oauthAccount": { "accountUuid": "fixture" },
+                "primaryApiKey": "managed-fixture",
+                "mcpServers": { "forbidden": { "command": "outside.exe" } },
+                "projects": { "C:/private": { "memory": "forbidden" } }
+            }))
+            .unwrap(),
+        )
+        .expect("source state");
+
+        copy_claude_auth_state(&source, &target).expect("copy auth state");
+
+        let copied: Value = serde_json::from_slice(&fs::read(target).unwrap()).unwrap();
+        assert!(copied.get("oauthAccount").is_some());
+        assert!(copied.get("primaryApiKey").is_some());
+        assert!(copied.get("mcpServers").is_none());
+        assert!(copied.get("projects").is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn codegraph_cli_path_strips_the_windows_verbatim_prefix() {
+        let path = Path::new(r"\\?\C:\benchmark\checkout");
+        assert_eq!(
+            codegraph_cli_path(path),
+            PathBuf::from(r"C:\benchmark\checkout")
+        );
     }
 
     #[test]
@@ -701,6 +791,7 @@ mod tests {
             brain_hook: Some(file("brain-hook.exe")),
             brain_mcp: Some(file("brain-mcp.exe")),
             credential: None,
+            claude_state: None,
             brain_home: None,
         };
         for condition in BenchmarkCondition::ALL {

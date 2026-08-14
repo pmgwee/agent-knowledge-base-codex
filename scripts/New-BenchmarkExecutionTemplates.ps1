@@ -9,6 +9,7 @@ param(
     [string]$NodeExecutable,
     [string]$CodeGraphScript,
     [string]$ClaudeCredentials,
+    [string]$ClaudeState,
     [string]$CodexAuth
 )
 
@@ -52,6 +53,9 @@ if (-not $CodexExecutable) {
 if (-not $ClaudeCredentials) {
     $ClaudeCredentials = Join-Path $env:USERPROFILE '.claude\.credentials.json'
 }
+if (-not $ClaudeState) {
+    $ClaudeState = Join-Path $env:USERPROFILE '.claude.json'
+}
 if (-not $CodexAuth) {
     $CodexAuth = Join-Path $env:USERPROFILE '.codex\auth.json'
 }
@@ -66,6 +70,7 @@ $paths = [ordered]@{
     node = $NodeExecutable
     codegraph = $CodeGraphScript
     claudeCredentials = $ClaudeCredentials
+    claudeState = $ClaudeState
     codexAuth = $CodexAuth
 }
 foreach ($key in @($paths.Keys)) {
@@ -85,6 +90,7 @@ $template.launcher_environment.BENCHMARK_CODEGRAPH_SCRIPT = $paths.codegraph
 $template.launcher_environment.BENCHMARK_BRAIN_HOOK = $paths.hook
 $template.launcher_environment.BENCHMARK_BRAIN_MCP = $paths.mcp
 $template.launcher_environment.BENCHMARK_CLAUDE_CREDENTIALS = $paths.claudeCredentials
+$template.launcher_environment.BENCHMARK_CLAUDE_STATE = $paths.claudeState
 $template.launcher_environment.BENCHMARK_CODEX_AUTH = $paths.codexAuth
 foreach ($harness in @($template.claude_code, $template.codex)) {
     foreach ($condition in @('c0', 'c1', 'c2', 'c3', 'c4')) {

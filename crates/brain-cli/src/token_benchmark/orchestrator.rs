@@ -460,7 +460,7 @@ fn sanitize_sample_checkout(checkout: &Path, instructions: &Path) -> Result<()> 
 }
 
 fn scrub_sample_credentials(harness_home: &Path) -> Result<()> {
-    for name in [".credentials.json", "auth.json"] {
+    for name in [".credentials.json", ".claude.json", "auth.json"] {
         let path = harness_home.join(name);
         if path.is_file() {
             fs::remove_file(&path)

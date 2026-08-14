@@ -10,6 +10,7 @@
     "BENCHMARK_BRAIN_HOOK": "C:\\absolute\\path\\to\\brain-hook.exe",
     "BENCHMARK_BRAIN_MCP": "C:\\absolute\\path\\to\\brain-mcp.exe",
     "BENCHMARK_CLAUDE_CREDENTIALS": "C:\\absolute\\path\\to\\.credentials.json",
+    "BENCHMARK_CLAUDE_STATE": "C:\\absolute\\path\\to\\.claude.json",
     "BENCHMARK_CODEX_AUTH": "C:\\absolute\\path\\to\\auth.json"
   },
   "claude_code": {
