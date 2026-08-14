@@ -3,8 +3,11 @@ use std::path::{Path, PathBuf};
 
 use brain_domain::{ProjectId, WorktreeId};
 use brain_service::{
-    ServiceProjectConfig, TranscriptRoots, apply_discovered_sources, discover_new_sources,
+    CaptureSupervisor, ServiceLaunchConfig, ServiceProjectConfig, TranscriptRoots,
+    apply_discovered_sources, build_capture_bindings, discover_new_sources,
+    rediscover_and_activate_once,
 };
+use brain_store::EventLedger;
 
 /// Write a Claude transcript whose recorded working directory is `cwd`.
 fn write_claude_transcript(path: &Path, cwd: &Path, text: &str) {
@@ -207,4 +210,60 @@ fn discovery_is_disabled_when_no_roots_are_configured() {
     let found = discover_new_sources(&config, &TranscriptRoots::none()).expect("discover");
 
     assert!(found.is_empty());
+}
+
+#[tokio::test]
+async fn a_discovered_transcript_is_activated_without_restarting_the_service() {
+    let temp = tempfile::tempdir().expect("temp");
+    let project_root = temp.path().join("project");
+    fs::create_dir_all(&project_root).expect("project root");
+    let claude_root = temp.path().join("claude-projects");
+    let initial = claude_root.join("encoded").join("initial.jsonl");
+    write_claude_transcript(&initial, &project_root, "initial session");
+    let project = project(
+        &project_root,
+        &temp.path().join("ledger.sqlite"),
+        vec![fs::canonicalize(&initial).expect("canonical initial")],
+    );
+    let project_id = project.project_id;
+    let ledger_path = project.ledger_path.clone();
+    let mut config = ServiceLaunchConfig::new("rediscovery-fixture");
+    config.projects.push(project);
+    let config_path = temp.path().join("service.json");
+    fs::write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("serialize service config"),
+    )
+    .expect("write service config");
+    let supervisor = std::sync::Arc::new(
+        CaptureSupervisor::new(build_capture_bindings(&config).expect("initial bindings"))
+            .expect("capture supervisor"),
+    );
+    supervisor
+        .capture_once()
+        .await
+        .expect("capture initial source");
+
+    let fresh = claude_root.join("encoded").join("fresh.jsonl");
+    write_claude_transcript(&fresh, &project_root, "fresh session");
+    let activated = rediscover_and_activate_once(
+        &config_path,
+        &TranscriptRoots {
+            claude_projects_root: Some(claude_root),
+            codex_sessions_root: None,
+        },
+        &supervisor,
+    )
+    .await
+    .expect("rediscover and activate");
+
+    assert_eq!(activated, 1);
+    assert_eq!(
+        EventLedger::open(&ledger_path, project_id)
+            .expect("open ledger")
+            .event_count()
+            .expect("event count"),
+        2,
+        "the running supervisor must capture the newly discovered transcript"
+    );
 }

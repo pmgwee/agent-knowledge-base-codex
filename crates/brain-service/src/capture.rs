@@ -13,6 +13,7 @@ use brain_store::EventLedger;
 use crate::CaptureServiceConfig;
 use crate::health::{BatchHealthUpdate, ServiceHealth, source_health_key};
 
+#[derive(Clone)]
 pub struct CaptureBinding {
     pub adapter: Arc<dyn SourceAdapter>,
     pub source: SourceDescriptor,
@@ -41,9 +42,9 @@ impl CaptureBinding {
 }
 
 pub struct CaptureSupervisor {
-    bindings: Vec<CaptureBinding>,
+    bindings: Mutex<Vec<CaptureBinding>>,
     stores: HashMap<ProjectId, Mutex<EventLedger>>,
-    source_locks: HashMap<String, tokio::sync::Mutex<()>>,
+    source_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     config: CaptureServiceConfig,
     health: Mutex<ServiceHealth>,
     pressure: Mutex<crate::PressureController>,
@@ -156,7 +157,7 @@ impl CaptureSupervisor {
         }
         let source_locks = bindings
             .iter()
-            .map(|binding| (binding.source_key(), tokio::sync::Mutex::new(())))
+            .map(|binding| (binding.source_key(), Arc::new(tokio::sync::Mutex::new(()))))
             .collect();
         let mut storage_roots = bindings
             .iter()
@@ -166,9 +167,9 @@ impl CaptureSupervisor {
         storage_roots.dedup();
         let (degradation_tx, _) = tokio::sync::watch::channel(crate::DegradationState::default());
         Ok(Self {
-            bindings,
+            bindings: Mutex::new(bindings),
             stores,
-            source_locks,
+            source_locks: Mutex::new(source_locks),
             config,
             health: Mutex::new(health),
             pressure: Mutex::new(crate::PressureController::new(pressure_policy)?),
@@ -182,14 +183,21 @@ impl CaptureSupervisor {
         if self.evaluate_pressure()? {
             return Ok(());
         }
-        for binding in &self.bindings {
+        let bindings = self
+            .bindings
+            .lock()
+            .map_err(|_| anyhow::anyhow!("capture binding lock is poisoned"))?
+            .clone();
+        for binding in &bindings {
             let source_key = binding.source_key();
-            let _source_guard = self
+            let source_lock = self
                 .source_locks
-                .get(&source_key)
-                .expect("every binding has a source lock")
                 .lock()
-                .await;
+                .map_err(|_| anyhow::anyhow!("source lock map is poisoned"))?
+                .get(&source_key)
+                .cloned()
+                .expect("every binding has a source lock");
+            let _source_guard = source_lock.lock().await;
             let store = self.store(binding.context.project_id)?;
             let cursor = store
                 .lock()
@@ -484,6 +492,82 @@ impl CaptureSupervisor {
             .with_context(|| format!("project {} has no event ledger", project_id.0))
     }
 
+    pub fn activate_bindings(&self, candidates: Vec<CaptureBinding>) -> Result<usize> {
+        let existing = self
+            .bindings
+            .lock()
+            .map_err(|_| anyhow::anyhow!("capture binding lock is poisoned"))?
+            .iter()
+            .map(CaptureBinding::source_key)
+            .collect::<std::collections::HashSet<_>>();
+        let additions = candidates
+            .into_iter()
+            .filter(|binding| !existing.contains(&binding.source_key()))
+            .collect::<Vec<_>>();
+
+        for binding in &additions {
+            let store = self.store(binding.context.project_id)?;
+            let store = store
+                .lock()
+                .map_err(|_| anyhow::anyhow!("event ledger lock is poisoned"))?;
+            let cursor = store.cursor(&binding.source.source_id)?;
+            let quarantined_count = store.quarantine_count(&binding.source.source_id)?;
+            let capture_gaps = store.unresolved_capture_gap_count(&binding.source.source_id)?;
+            let active_drift = store.active_schema_drift(&binding.source.source_id)?;
+            drop(store);
+            let fingerprint = binding
+                .adapter
+                .fingerprint(&binding.source)
+                .map(|fingerprint| fingerprint.0);
+            let (schema_fingerprint, fingerprint_error) = match fingerprint {
+                Ok(fingerprint) => (Some(fingerprint), None),
+                Err(error) => (None, Some(error.to_string())),
+            };
+            let last_error = active_drift
+                .as_ref()
+                .map(|drift| {
+                    format!(
+                        "schema drift [{}]: expected {}, observed {}",
+                        drift.diagnostic_id, drift.expected_fingerprint, drift.observed_fingerprint
+                    )
+                })
+                .or(fingerprint_error);
+            self.health
+                .lock()
+                .map_err(|_| anyhow::anyhow!("service health lock is poisoned"))?
+                .register_source(
+                    binding.source_key(),
+                    binding.source.source_id.clone(),
+                    binding.source.path.clone(),
+                    binding.context.project_id,
+                    cursor.clone(),
+                    quarantined_count,
+                    capture_gaps,
+                    backlog_bytes(&binding.source.path, &cursor),
+                    schema_fingerprint,
+                    active_drift.map(|drift| drift.diagnostic_id),
+                    last_error,
+                );
+        }
+
+        let added = additions.len();
+        if added > 0 {
+            let mut source_locks = self
+                .source_locks
+                .lock()
+                .map_err(|_| anyhow::anyhow!("source lock map is poisoned"))?;
+            let mut bindings = self
+                .bindings
+                .lock()
+                .map_err(|_| anyhow::anyhow!("capture binding lock is poisoned"))?;
+            for binding in additions {
+                source_locks.insert(binding.source_key(), Arc::new(tokio::sync::Mutex::new(())));
+                bindings.push(binding);
+            }
+        }
+        Ok(added)
+    }
+
     fn record_error(&self, source_id: &str, error: String) -> Result<()> {
         self.health
             .lock()
@@ -492,10 +576,13 @@ impl CaptureSupervisor {
         Ok(())
     }
 
-    pub(crate) fn watched_paths(&self) -> impl Iterator<Item = &Path> {
+    pub(crate) fn watched_paths(&self) -> Vec<PathBuf> {
         self.bindings
+            .lock()
+            .expect("capture binding lock is not poisoned")
             .iter()
-            .map(|binding| binding.source.path.as_path())
+            .map(|binding| binding.source.path.clone())
+            .collect()
     }
 
     pub(crate) fn config(&self) -> CaptureServiceConfig {

@@ -71,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
     let consolidation_shutdown = shutdown_rx.clone();
     let projection_shutdown = shutdown_rx.clone();
     let rediscovery_shutdown = shutdown_rx.clone();
+    let rediscovery_capture = Arc::clone(&capture);
     let embedding_shutdown = shutdown_rx.clone();
     let embedding_pressure = capture.degradation_receiver();
     let embedding_config = config.clone();
@@ -157,6 +158,7 @@ async fn main() -> anyhow::Result<()> {
             run_rediscovery(
                 config_path.clone(),
                 transcript_roots.clone(),
+                Arc::clone(&rediscovery_capture),
                 rediscovery_shutdown.clone(),
             )
         }),

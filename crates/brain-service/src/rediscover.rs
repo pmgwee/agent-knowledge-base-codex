@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use brain_adapters::{ClaudeAdapter, CodexAdapter, SourceAdapter};
 
-use crate::{ServiceLaunchConfig, ServiceProjectConfig};
+use crate::{CaptureSupervisor, ServiceLaunchConfig, ServiceProjectConfig, build_capture_bindings};
 
 /// Transcript lines inspected when deciding whether a session belongs to a project.
 /// Session metadata carrying `cwd` appears in the first record, so a small bound is
@@ -169,6 +170,7 @@ pub const REDISCOVERY_INTERVAL: std::time::Duration = std::time::Duration::from_
 pub async fn run_rediscovery(
     config_path: PathBuf,
     roots: TranscriptRoots,
+    supervisor: Arc<CaptureSupervisor>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let mut ticker = tokio::time::interval(REDISCOVERY_INTERVAL);
@@ -185,12 +187,27 @@ pub async fn run_rediscovery(
             _ = ticker.tick() => {
                 // Never propagate: a discovery failure must not stop capture of the
                 // sources already known.
-                if let Err(error) = rediscover_once(&config_path, &roots) {
+                if let Err(error) = rediscover_and_activate_once(&config_path, &roots, &supervisor).await {
                     tracing::warn!(%error, "source rediscovery failed");
                 }
             }
         }
     }
+}
+
+pub async fn rediscover_and_activate_once(
+    config_path: &Path,
+    roots: &TranscriptRoots,
+    supervisor: &CaptureSupervisor,
+) -> Result<usize> {
+    rediscover_once(config_path, roots)?;
+    let config = ServiceLaunchConfig::load(config_path)?;
+    let activated = supervisor.activate_bindings(build_capture_bindings(&config)?)?;
+    if activated > 0 {
+        supervisor.capture_once().await?;
+        tracing::info!(activated, "activated newly discovered transcript sources");
+    }
+    Ok(activated)
 }
 
 /// One rediscovery pass. Returns how many sources were added.

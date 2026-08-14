@@ -17,6 +17,7 @@ pub(crate) async fn run(
     })?;
     let parents = supervisor
         .watched_paths()
+        .into_iter()
         .filter_map(|path| path.parent().map(PathBuf::from))
         .collect::<HashSet<_>>();
     // A source directory that has since been removed must not stop the service.
