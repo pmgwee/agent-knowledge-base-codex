@@ -43,6 +43,10 @@ pub struct BackupInventory {
 pub struct BackupReport {
     pub backup_path: PathBuf,
     pub inventory: BackupInventory,
+    /// Walked source files the snapshot omits because they vanished or stayed unreadable
+    /// while being copied. Reported, never silently dropped.
+    #[serde(default)]
+    pub omitted: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -158,13 +162,26 @@ impl BackupManager {
             excluded.extend(rebuildable_exclusions(&brain_home));
             let source_files = collect_files(&brain_home, &excluded)?;
             let mut files = Vec::with_capacity(source_files.len());
+            let mut omitted = Vec::new();
             for source in source_files {
                 let relative = source.strip_prefix(&brain_home)?.to_path_buf();
                 validate_relative(&relative)?;
-                if let Some(file) = copy_walked_file(&source, &staging, &relative)? {
+                if let Some(file) = copy_walked_file(&source, &staging, &relative, &mut omitted)? {
                     files.push(file);
                 }
             }
+            // Churn omits a handful of files; a brain this unreadable is broken, not busy,
+            // and a snapshot of it would be quietly hollow. The cap also bounds the wall
+            // clock: every omission costs 400 ms of retries, so 1 000 is ~7 minutes.
+            ensure!(
+                omitted.len() <= 1_000,
+                "backup could not read {} files under the brain home (first: {}) — a brain this unreadable is broken, not churning",
+                omitted.len(),
+                omitted
+                    .first()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default()
+            );
             files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
             let inventory_sha256 = inventory_hash(&files)?;
             let inventory = BackupInventory {
@@ -184,6 +201,7 @@ impl BackupManager {
             Ok(BackupReport {
                 backup_path: published,
                 inventory,
+                omitted,
             })
         })();
         if result.is_err() && staging.exists() {
@@ -641,6 +659,7 @@ fn copy_walked_file(
     source: &Path,
     staging: &Path,
     relative: &Path,
+    omitted: &mut Vec<PathBuf>,
 ) -> Result<Option<InventoryFile>> {
     let destination = staging.join(relative);
     if let Some(parent) = destination.parent() {
@@ -657,7 +676,7 @@ fn copy_walked_file(
                 connection.backup(DatabaseName::Main, &destination, None)?;
             }
             _ => {
-                if !copy_synced_if_present(source, &destination)? {
+                if !copy_synced_if_present(source, &destination, omitted)? {
                     return Ok(None);
                 }
             }
@@ -671,10 +690,26 @@ fn copy_walked_file(
 }
 
 /// `copy_synced`, except a source that no longer exists copies nothing and reports false.
-fn copy_synced_if_present(source: &Path, destination: &Path) -> Result<bool> {
-    let mut input = match OpenOptions::new().read(true).open(source) {
+/// `copy_synced`, except a source that no longer exists copies nothing and reports false.
+///
+/// A source that stays unreadable past the retry window is also omitted — recorded in
+/// `omitted`, so the report can say what the snapshot is missing instead of hiding it.
+/// Measured live on 2026-08-16: the vault projection regenerates its trees while a backup
+/// walks them, and files being replaced or deleted mid-open surface as PermissionDenied
+/// (`os error 5`) just as vanished files surface as NotFound (`os error 2`). Both are
+/// churn; neither may kill the snapshot.
+fn copy_synced_if_present(
+    source: &Path,
+    destination: &Path,
+    omitted: &mut Vec<PathBuf>,
+) -> Result<bool> {
+    let mut input = match open_read_with_retry(source) {
         Ok(input) => input,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) if is_transient_lock(&error) => {
+            omitted.push(source.to_path_buf());
+            return Ok(false);
+        }
         Err(error) => return Err(error.into()),
     };
     let mut output = OpenOptions::new()
@@ -684,6 +719,36 @@ fn copy_synced_if_present(source: &Path, destination: &Path) -> Result<bool> {
     std::io::copy(&mut input, &mut output)?;
     output.sync_all()?;
     Ok(true)
+}
+
+/// Open a file for reading, riding out the transient denials a busy brain produces.
+///
+/// A projection replacing this very file, a scanner holding it, a sibling draining it —
+/// all clear within milliseconds, but Windows reports them as two different errors:
+/// ACCESS_DENIED (5, mapped by std to PermissionDenied) and SHARING_VIOLATION (32,
+/// unmapped, the signature of a replace-by-rename in flight). Three attempts 200 ms
+/// apart strips that noise; a lock that outlasts the window is the caller's to
+/// interpret. NotFound is returned immediately: a vanished file is not coming back.
+fn open_read_with_retry(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut last = None;
+    for _ in 0..3 {
+        match OpenOptions::new().read(true).open(path) {
+            Ok(file) => return Ok(file),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Err(error),
+            Err(error) if is_transient_lock(&error) => {
+                last = Some(error);
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last.expect("the retry loop runs at least once"))
+}
+
+/// The two Windows error codes a live writer produces on a file it is touching right now.
+fn is_transient_lock(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::PermissionDenied
+        || (cfg!(windows) && error.raw_os_error() == Some(32))
 }
 
 fn copy_synced(source: &Path, destination: &Path) -> Result<()> {
@@ -730,6 +795,62 @@ fn table_exists(connection: &Connection, table: &str) -> Result<bool> {
 mod copy_walked_file_tests {
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    fn a_file_locked_across_retries_is_omitted_and_recorded_not_fatal() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let temp = tempfile::tempdir().expect("temp");
+        let source = temp.path().join("vault/page.json");
+        fs::create_dir_all(source.parent().expect("source parent")).expect("source dir");
+        fs::write(&source, b"{}").expect("source");
+        let destination = temp.path().join("staging/vault/page.json");
+        fs::create_dir_all(destination.parent().expect("parent")).expect("dir");
+        // share_mode(0) denies concurrent readers exactly like a projection replacing the
+        // file or a scanner holding it: every open surfaces as PermissionDenied.
+        let _lock = OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&source)
+            .expect("lock");
+        let mut omitted = Vec::new();
+        let copied =
+            copy_synced_if_present(&source, &destination, &mut omitted).expect("not fatal");
+        assert!(!copied, "a locked file is churn, not an error");
+        assert_eq!(omitted, vec![source.clone()], "the omission is recorded");
+        assert!(!destination.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_lock_that_clears_within_the_retry_window_still_copies() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let temp = tempfile::tempdir().expect("temp");
+        let source = temp.path().join("vault/page.json");
+        fs::create_dir_all(source.parent().expect("source parent")).expect("source dir");
+        fs::write(&source, b"{\"page\":1}").expect("source");
+        let destination = temp.path().join("staging/vault/page.json");
+        fs::create_dir_all(destination.parent().expect("parent")).expect("dir");
+        let lock = OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&source)
+            .expect("lock");
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            drop(lock);
+        });
+        let mut omitted = Vec::new();
+        let copied =
+            copy_synced_if_present(&source, &destination, &mut omitted).expect("not fatal");
+        release.join().expect("release");
+        assert!(
+            copied,
+            "a lock that clears mid-retry must not lose the file"
+        );
+        assert!(omitted.is_empty());
+        assert_eq!(fs::read(&destination).expect("copy"), b"{\"page\":1}");
+    }
+
     #[test]
     fn a_vanished_source_is_omitted_rather_than_failing_the_backup() {
         let temp = tempfile::tempdir().expect("temp");
@@ -742,6 +863,7 @@ mod copy_walked_file_tests {
             &temp.path().join("runtime/spool/drained.jsonl"),
             &staging,
             Path::new("runtime/spool/drained.jsonl"),
+            &mut Vec::new(),
         )
         .expect("vanished files are churn, not errors");
         assert!(copied.is_none());
@@ -756,9 +878,14 @@ mod copy_walked_file_tests {
         fs::write(&source, b"{\"pipe\":\"x\"}").expect("source");
         let staging = temp.path().join("staging");
         fs::create_dir_all(&staging).expect("staging");
-        let file = copy_walked_file(&source, &staging, Path::new("runtime/service.json"))
-            .expect("copy")
-            .expect("inventoried");
+        let file = copy_walked_file(
+            &source,
+            &staging,
+            Path::new("runtime/service.json"),
+            &mut Vec::new(),
+        )
+        .expect("copy")
+        .expect("inventoried");
         assert_eq!(file.relative_path, Path::new("runtime/service.json"));
         assert_eq!(file.bytes, 12);
         assert_eq!(
@@ -776,6 +903,7 @@ mod copy_walked_file_tests {
             &temp.path().join("projects/p1/ledger.sqlite"),
             &staging,
             Path::new("projects/p1/ledger.sqlite"),
+            &mut Vec::new(),
         );
         assert!(
             result.is_err(),
