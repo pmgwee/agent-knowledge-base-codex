@@ -331,6 +331,39 @@ fn apply_retention_sweeps_abandoned_staging_directories_by_age() {
     );
 }
 
+#[test]
+fn backups_verify_against_the_schema_the_live_population_actually_runs() {
+    // The benchmark-era branch (b5e6e4e, agent/implement-second-brain-status-benchmark-*)
+    // stamped an additive v10 onto the live ledgers while this branch carries byte-identical
+    // DDL under the v9 stamp. A binary that refuses v10 therefore refuses to back up the
+    // real brain — observed live on 2026-08-16, 213 seconds into a maintain that had
+    // otherwise completed, failing only at the verify gate. The supported version tracks
+    // the population; the schema is identical either way.
+    let fixture = fixture();
+    let connection = rusqlite::Connection::open(&fixture.ledger_path).expect("raw connection");
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (10, datetime('now'))",
+            [],
+        )
+        .expect("stamp v10, as the benchmark-era binary did to the live brain");
+    drop(connection);
+
+    let backup = BackupManager::create(
+        &fixture.brain_home,
+        fixture.temp.path().join("backups"),
+        fixture.now,
+    )
+    .expect("a backup of the live population's schema must verify");
+    assert!(
+        backup
+            .inventory
+            .files
+            .iter()
+            .any(|file| file.relative_path.ends_with("ledger.sqlite"))
+    );
+}
+
 struct Fixture {
     temp: tempfile::TempDir,
     brain_home: std::path::PathBuf,

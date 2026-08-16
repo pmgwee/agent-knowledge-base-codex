@@ -613,6 +613,14 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
             VALUES (8, datetime('now'));
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
             VALUES (9, datetime('now'));
+        -- v10 exists only as a stamp. The benchmark-era branch (b5e6e4e) shipped the
+        -- archived/segment-catalog columns below under a v10 number, and its binaries
+        -- stamped the live ledgers before this branch merged the identical DDL under v9.
+        -- The population therefore carries MAX(version) = 10; this branch stamps it too so
+        -- fresh and restored ledgers converge with the live brain instead of forking the
+        -- version sequence a second time.
+        INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+            VALUES (10, datetime('now'));
         "#,
     )?;
     apply_fts_data_migration(connection)?;

@@ -8,7 +8,10 @@ use rusqlite::{Connection, DatabaseName};
 use sha2::{Digest, Sha256};
 
 pub const BACKUP_FORMAT_VERSION: u32 = 1;
-const LEDGER_SCHEMA_VERSION: u32 = 9;
+// v10 is a stamp-only fork: the benchmark-era branch shipped the segment-catalog columns
+// under v10 and stamped the live ledgers before this branch merged identical DDL under v9.
+// The supported version tracks the live population.
+const LEDGER_SCHEMA_VERSION: u32 = 10;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]

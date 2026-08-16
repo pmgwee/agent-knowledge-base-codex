@@ -15,7 +15,9 @@ pub struct FormatVersions {
 pub const SUPPORTED_FORMATS: FormatVersions = FormatVersions {
     hook_protocol: 1,
     project_registry: 1,
-    ledger: 9,
+    // v10 is a stamp-only fork of v9 (identical DDL; see brain-store migrations). The
+    // live ledgers carry MAX(version) = 10 from the benchmark-era binary that applied it.
+    ledger: 10,
     normalized_event: 1,
     memory: 1,
     markdown_projection: 1,
