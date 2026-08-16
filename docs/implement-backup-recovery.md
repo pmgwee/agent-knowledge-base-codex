@@ -33,10 +33,18 @@ snapshot another 24.3 GB. One pre-fix fat snapshot (24.3 GB) is retained deliber
 rollback point — delete it once a few clean snapshots have accumulated.
 
 Dashboard: a fresh snapshot was pushed to Upstash manually (41 s, just inside the 45 s push
-ceiling — future walks are faster with the fat snapshot gone). The UI's Backups number is now
-real. **The `AgentBrain.PushSnapshot` task is still Disabled: re-enabling requires an elevated
-terminal** (`schtasks /Change /TN "AgentBrain.PushSnapshot" /ENABLE`) — non-elevated attempts
-get Access denied.
+ceiling). The UI's Backups number is real again, and the owner re-enabled
+`AgentBrain.PushSnapshot` from an elevated terminal at 00:36 on 2026-08-17 — Status Ready,
+~60 s cadence — so the number now refreshes itself.
+
+**A fuse the re-enable lit:** the push walk is O(retained files). One clean snapshot walks
+~9k files; the retained fat one ~192k. At ~25 snapshots the walk is ~30 s (fine); at the full
+66-snapshot retention (~600k files) it is ~75 s — past the 45 s push ceiling and the 90 s API
+route ceiling, freezing the number again in roughly two to three days of machine-on hours.
+Deleting the fat snapshot (watch item 3) buys the walk a 75% cut, but the durable fix is the
+inventory-sum already planned under Step 5. The cheap stopgap is raising both timeouts
+(`SPAWN_TIMEOUT_MS` in `push-snapshot.mjs`, `SPAWN_TIMEOUT_MS` in `app/api/snapshot/route.ts`)
+— one-line edits in the dashboard repo, no deploy pipeline.
 
 Watch items:
 - The 00:54 hourly maintain is the first *scheduled* clean run (the 23:54 trigger died at
@@ -44,8 +52,20 @@ Watch items:
 - The `.staging-01a00b11-*` orphan (1.77 GB) from the first failed attempt is under the 6 h
   sweep threshold; the next maintain past ~05:00 should sweep it — a live validation of the
   sweeper.
-- Step 5's durable halves (inventory-sum instead of the 150 s walk; staleness badge; alarms)
-  are still open, as are Steps 4 and 6–8.
+- The retained fat snapshot is the pre-fix rollback point; delete it mid-week once a few clean
+  days have accumulated. Deleting it also cuts the dashboard push walk by ~75%.
+
+Remaining work, ranked by when it actually matters:
+1. **Step 5's push ceilings — this week.** The walk re-crosses 45 s at roughly full retention
+   (see the fuse above). Stopgap: raise both `SPAWN_TIMEOUT_MS` values. Durable: the
+   inventory-sum, staleness badge, alarms.
+2. **Step 4 (benchmark prune) — before the next benchmark run.** It is the only remaining
+   growth source: ~5.6 GB today, ~0.7 GB+ per future run, on a C: drive with ~53 GB free.
+3. **Watch items above — tomorrow morning** (scheduled-run health, sweeper validation) and
+   **mid-week** (fat snapshot).
+4. **Phase C — not now.** Steady state without it is ~145 GB against 378 GB free. Revisit when
+   the backup root passes ~200 GB, or when there is appetite for the sealing project on its
+   own merits. Step 0b is moot and closed.
 
 ---
 
@@ -105,7 +125,7 @@ Safety facts established during the audit (why the steps below are safe):
 **Accept:** D: free ~70 → ~400 GB; `brain.exe dashboard` backup_root_bytes ≈ 25–50 GB;
 remaining snapshots all carry `backup.json`.
 
-### Step 0b — optional stopgap (only if Step 1 cannot ship the same day)
+### Step 0b — optional stopgap — MOOT (Step 1 shipped the same night this plan was written)
 
 Manually prune graded runs' `frozen-brain/` + `checkout/` + `attempts/` on C: (same `\\?\`
 deletion). The next hourly snapshot drops to ~2.3 GB with zero code changes. ⚠️ Ends those
@@ -173,12 +193,17 @@ drops ~26.3 → ~2.5 GB (frees C: too — 53.6 GB free there).
 
 ### Step 5 — make the dashboard honest and alarming 🔶
 
-Re-enable `AgentBrain.PushSnapshot`; replace the ~150 s full-tree walk in the push path with a
-sum of per-snapshot inventory `total_bytes` (cheap, immune to the timeout that froze it twice);
-surface `generated_at`/`pushed_at` staleness on the tiles so a frozen number cannot impersonate
-a live one; add a free-space / brain-home-size alarm (the doc's own 1.5 GB trigger was passed
-16× silently). Mirror any new snapshot fields in `lib/snapshot-types.ts` (dashboard repo) and
-refresh the stale figures in `docs/storage-and-backup.md`.
+✅ Re-enabled `AgentBrain.PushSnapshot` (owner, elevated terminal, 2026-08-17 00:36) and pushed
+a fresh snapshot manually — the UI number is real and self-refreshing again. ⬜ Still open:
+replace the full-tree walk in the push path with a sum of per-snapshot inventory `total_bytes`
+(cheap, immune to the timeout that froze it twice — and see the walk-growth fuse in the
+execution log: the 45 s/90 s ceilings are re-crossed at roughly full retention); surface
+`generated_at`/`pushed_at` staleness on the tiles so a frozen number cannot impersonate a live
+one; add a free-space / brain-home-size alarm (the doc's own 1.5 GB trigger was passed 16×
+silently). Interim stopgap worth taking this week: raise `SPAWN_TIMEOUT_MS` in
+`push-snapshot.mjs` and `app/api/snapshot/route.ts`. Mirror any new snapshot fields in
+`lib/snapshot-types.ts` (dashboard repo) and refresh the stale figures in
+`docs/storage-and-backup.md`.
 
 **Accept:** UI number tracks disk within one push cycle; a stale snapshot shows a visible badge.
 
