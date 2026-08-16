@@ -9,6 +9,46 @@ Status legend: ⬜ not started · 🔶 in progress · ✅ done
 
 ---
 
+## Execution log — night of 2026-08-16/17
+
+Executed the same night the plan was written. Five deploys, each commit auto-shipped by
+the post-commit hook; four of them chased live failures the first clean maintain exposed,
+one after another, each pinned by a test that was watched red first.
+
+| Commit | What | Result |
+|---|---|---|
+| `f4eea50` | This plan | — |
+| `0b360d5` | Step 1 + Step 2: exclusion, upgrade-walk scoping, staging sweeper, prune flags | Snapshot 24.3 GB → 2.20 GB, 192,214 → 9,009 files |
+| `2ebbe41` | Tolerate files that vanish between walk and copy (live `os error 2`, 67 s in: a drained spool file) | Vanished non-ledger files are omitted |
+| `3b3372a` | Name the file in every copy-stage IO error (the bare errors cost a full diagnostic cycle) | Failures now carry their path |
+| `fa94ce7` | Ride out files locked or replaced mid-copy (live `os error 5`, 97 s in: a vault page whose parent directory was deleted between walk and copy) | 3×200 ms retries on errors 5 and 32; persistent locks omitted and recorded in `BackupReport.omitted`; >1 000 omissions fails |
+| `327e642` | Acknowledge the v10 ledger stamp (live `backup ledger schema is newer than this binary` at the verify gate, 213 s in) | `b5e6e4e` on the benchmark branch stamped identical DDL as v10 onto the live ledgers; both version anchors now say 10 |
+
+**First clean maintain: 163 s, 2.202 GB, 9,009 files, 0 omissions, 4 databases integrity-checked.**
+**First production restore drill ever: SUCCESS — 55.6 s, 9,009 files hash-verified, report filed,
+no restore copies left behind.** (The `AgentBrain.RestoreDrill` task had never fired before.)
+
+Disk: D: 62.0 GB free → **378.0 GB free**. Step 0 reclaimed 308.5 GB; the redundant older fat
+snapshot another 24.3 GB. One pre-fix fat snapshot (24.3 GB) is retained deliberately as a
+rollback point — delete it once a few clean snapshots have accumulated.
+
+Dashboard: a fresh snapshot was pushed to Upstash manually (41 s, just inside the 45 s push
+ceiling — future walks are faster with the fat snapshot gone). The UI's Backups number is now
+real. **The `AgentBrain.PushSnapshot` task is still Disabled: re-enabling requires an elevated
+terminal** (`schtasks /Change /TN "AgentBrain.PushSnapshot" /ENABLE`) — non-elevated attempts
+get Access denied.
+
+Watch items:
+- The 00:54 hourly maintain is the first *scheduled* clean run (the 23:54 trigger died at
+  launch, `0x800710E0`, colliding with the manual maintain and binary swap).
+- The `.staging-01a00b11-*` orphan (1.77 GB) from the first failed attempt is under the 6 h
+  sweep threshold; the next maintain past ~05:00 should sweep it — a live validation of the
+  sweeper.
+- Step 5's durable halves (inventory-sum instead of the 150 s walk; staleness badge; alarms)
+  are still open, as are Steps 4 and 6–8.
+
+---
+
 ## What happened
 
 The backup root `D:\AgentBrainBackups` reached **346.2 GB** with D: at **~70 GB free**, and the
@@ -54,7 +94,7 @@ Safety facts established during the audit (why the steps below are safe):
 
 ## Phase A — stop the bleeding (manual, no code)
 
-### Step 0 — emergency reclaim (~330 GB) 🔶
+### Step 0 — emergency reclaim (~330 GB) ✅
 
 1. `schtasks /Change /TN "AgentBrain.Backup" /DISABLE` — don't race an in-flight run.
 2. Delete the 10 `.staging-*` dirs (~110 GB) and all but the newest **2** published snapshots
@@ -73,7 +113,7 @@ runs' resumability and post-hoc hash verification — only for runs already grad
 
 ## Phase B — fix the machine (code; each commit auto-deploys via `.githooks/post-commit`)
 
-### Step 1 — stop copying rebuildable scaffolding 🔶
+### Step 1 — stop copying rebuildable scaffolding ✅
 
 `REBUILDABLE_DIRECTORIES += "runtime/token-benchmarks"` in `crates/brain-store/src/backup.rs`.
 Three verified implementation constraints:
@@ -98,7 +138,7 @@ restore runbook.
 **Effect:** kills the 2-hour-timeout failure mode at its root — a 2.3 GB copy finishes in
 minutes, so no more killed runs and no more staging orphans.
 
-### Step 2 — self-healing: staging sweeper + prune policy flags 🔶
+### Step 2 — self-healing: staging sweeper + prune policy flags ✅
 
 - Age-based `.staging-*` sweep in `backup maintain`/`prune` — the markdown projection already
   has the identical pattern for its own staging dirs (`crates/brain-store/src/markdown.rs`,
@@ -112,7 +152,7 @@ minutes, so no more killed runs and no more staging orphans.
 **Accept:** kill a backup mid-run → next maintain sweeps the orphan; `prune --hourly 2 --apply`
 deletes down to 2 hourly points.
 
-### Step 3 — first production restore drill ⬜
+### Step 3 — first production restore drill ✅
 
 Run `backup drill-latest` once. The `AgentBrain.RestoreDrill` task has **never fired**
 (Last Run 30/11/1999) — the restore path is completely untested in production. At 2.3 GB this
@@ -131,7 +171,7 @@ cleans this tree today — `brain benchmark retire` writes a marker and deletes 
 **Accept:** `runtime/token-benchmarks/` ≤ ~20 MB per retained run; dashboard brain_home_bytes
 drops ~26.3 → ~2.5 GB (frees C: too — 53.6 GB free there).
 
-### Step 5 — make the dashboard honest and alarming ⬜
+### Step 5 — make the dashboard honest and alarming 🔶
 
 Re-enable `AgentBrain.PushSnapshot`; replace the ~150 s full-tree walk in the push path with a
 sum of per-snapshot inventory `total_bytes` (cheap, immune to the timeout that froze it twice);
