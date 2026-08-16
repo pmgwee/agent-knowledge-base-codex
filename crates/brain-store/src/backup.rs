@@ -161,18 +161,9 @@ impl BackupManager {
             for source in source_files {
                 let relative = source.strip_prefix(&brain_home)?.to_path_buf();
                 validate_relative(&relative)?;
-                let destination = staging.join(&relative);
-                if let Some(parent) = destination.parent() {
-                    fs::create_dir_all(parent)?;
+                if let Some(file) = copy_walked_file(&source, &staging, &relative)? {
+                    files.push(file);
                 }
-                let kind = classify(&relative);
-                if kind == InventoryKind::Sqlite {
-                    let connection = Connection::open(&source)?;
-                    connection.backup(DatabaseName::Main, &destination, None)?;
-                } else {
-                    copy_synced(&source, &destination)?;
-                }
-                files.push(inventory_file(&staging, &relative, kind)?);
             }
             files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
             let inventory_sha256 = inventory_hash(&files)?;
@@ -632,6 +623,61 @@ fn validate_relative(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Copy one walked file into staging, tolerating a source that vanished since the walk.
+///
+/// The brain home is live while a backup runs: the hook spool drains, vault projections
+/// rotate, consolidation rewrites state. A file the walk listed that no longer opens was
+/// deleted from the brain's current state mid-backup — it is not part of the brain any
+/// more, so the snapshot simply omits it. Failing the whole run for it would make every
+/// backup of a busy brain fail, which is exactly what was observed on 2026-08-16: a
+/// spool file listed by the walk was drained seconds later, and `os error 2` killed a
+/// snapshot 67 seconds in.
+///
+/// Ledgers are exempt: a vanished `.sqlite` is a catastrophe, not churn, and — opened
+/// read-only — surfaces as an error rather than being fabricated as an empty database
+/// (the default open flags include CREATE, which would have published an empty ledger
+/// as a valid one).
+fn copy_walked_file(
+    source: &Path,
+    staging: &Path,
+    relative: &Path,
+) -> Result<Option<InventoryFile>> {
+    let destination = staging.join(relative);
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let kind = classify(relative);
+    match kind {
+        InventoryKind::Sqlite => {
+            let connection =
+                Connection::open_with_flags(source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            connection.backup(DatabaseName::Main, &destination, None)?;
+        }
+        _ => {
+            if !copy_synced_if_present(source, &destination)? {
+                return Ok(None);
+            }
+        }
+    }
+    Ok(Some(inventory_file(staging, relative, kind)?))
+}
+
+/// `copy_synced`, except a source that no longer exists copies nothing and reports false.
+fn copy_synced_if_present(source: &Path, destination: &Path) -> Result<bool> {
+    let mut input = match OpenOptions::new().read(true).open(source) {
+        Ok(input) => input,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    let mut output = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(destination)?;
+    std::io::copy(&mut input, &mut output)?;
+    output.sync_all()?;
+    Ok(true)
+}
+
 fn copy_synced(source: &Path, destination: &Path) -> Result<()> {
     let mut input = OpenOptions::new().read(true).open(source)?;
     let mut output = OpenOptions::new()
@@ -670,4 +716,66 @@ fn table_exists(connection: &Connection, table: &str) -> Result<bool> {
         [table],
         |row| row.get(0),
     )?)
+}
+
+#[cfg(test)]
+mod copy_walked_file_tests {
+    use super::*;
+
+    #[test]
+    fn a_vanished_source_is_omitted_rather_than_failing_the_backup() {
+        let temp = tempfile::tempdir().expect("temp");
+        let staging = temp.path().join("staging");
+        fs::create_dir_all(&staging).expect("staging");
+        // The walk listed this spool file; the live brain drained it before the copy
+        // reached it. Observed 2026-08-16: exactly this killed a snapshot 67 s in with
+        // a bare `os error 2`.
+        let copied = copy_walked_file(
+            &temp.path().join("runtime/spool/drained.jsonl"),
+            &staging,
+            Path::new("runtime/spool/drained.jsonl"),
+        )
+        .expect("vanished files are churn, not errors");
+        assert!(copied.is_none());
+        assert!(!staging.join("runtime/spool/drained.jsonl").exists());
+    }
+
+    #[test]
+    fn a_present_source_is_copied_and_inventoried() {
+        let temp = tempfile::tempdir().expect("temp");
+        let source = temp.path().join("runtime/service.json");
+        fs::create_dir_all(source.parent().expect("parent")).expect("dir");
+        fs::write(&source, b"{\"pipe\":\"x\"}").expect("source");
+        let staging = temp.path().join("staging");
+        fs::create_dir_all(&staging).expect("staging");
+        let file = copy_walked_file(&source, &staging, Path::new("runtime/service.json"))
+            .expect("copy")
+            .expect("inventoried");
+        assert_eq!(file.relative_path, Path::new("runtime/service.json"));
+        assert_eq!(file.bytes, 12);
+        assert_eq!(
+            fs::read(staging.join("runtime/service.json")).expect("copy"),
+            b"{\"pipe\":\"x\"}"
+        );
+    }
+
+    #[test]
+    fn a_vanished_ledger_fails_loudly_instead_of_publishing_an_empty_database() {
+        let temp = tempfile::tempdir().expect("temp");
+        let staging = temp.path().join("staging");
+        fs::create_dir_all(&staging).expect("staging");
+        let result = copy_walked_file(
+            &temp.path().join("projects/p1/ledger.sqlite"),
+            &staging,
+            Path::new("projects/p1/ledger.sqlite"),
+        );
+        assert!(
+            result.is_err(),
+            "a vanished ledger is a catastrophe, not churn"
+        );
+        assert!(
+            !staging.join("projects/p1/ledger.sqlite").exists(),
+            "the CREATE flag must never fabricate an empty ledger into a snapshot"
+        );
+    }
 }
