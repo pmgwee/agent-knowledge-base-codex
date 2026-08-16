@@ -647,19 +647,27 @@ fn copy_walked_file(
         fs::create_dir_all(parent)?;
     }
     let kind = classify(relative);
-    match kind {
-        InventoryKind::Sqlite => {
-            let connection =
-                Connection::open_with_flags(source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-            connection.backup(DatabaseName::Main, &destination, None)?;
-        }
-        _ => {
-            if !copy_synced_if_present(source, &destination)? {
-                return Ok(None);
+    let result = (|| -> Result<Option<InventoryFile>> {
+        match kind {
+            InventoryKind::Sqlite => {
+                let connection = Connection::open_with_flags(
+                    source,
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                )?;
+                connection.backup(DatabaseName::Main, &destination, None)?;
+            }
+            _ => {
+                if !copy_synced_if_present(source, &destination)? {
+                    return Ok(None);
+                }
             }
         }
-    }
-    Ok(Some(inventory_file(staging, relative, kind)?))
+        Ok(Some(inventory_file(staging, relative, kind)?))
+    })();
+    // Two live failures on 2026-08-16 arrived as bare `os error 2` and `os error 5` with no
+    // hint of which of 38,000 files was involved. Every IO error here carries its source
+    // path from now on — the next diagnosis starts at the file, not at the syscall.
+    result.with_context(|| format!("backup copy {}", source.display()))
 }
 
 /// `copy_synced`, except a source that no longer exists copies nothing and reports false.
