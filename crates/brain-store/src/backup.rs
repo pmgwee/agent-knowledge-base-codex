@@ -85,6 +85,9 @@ pub struct RetentionReport {
     pub retained: Vec<PathBuf>,
     pub pruned: Vec<PathBuf>,
     pub ignored: Vec<PathBuf>,
+    /// Abandoned `.staging-*` directories removed (or, on a dry run, queued for removal).
+    #[serde(default)]
+    pub swept_staging: Vec<PathBuf>,
     pub dry_run: bool,
 }
 
@@ -152,11 +155,7 @@ impl BackupManager {
 
         let result = (|| {
             let mut excluded = vec![backup_root.clone()];
-            excluded.extend(
-                REBUILDABLE_DIRECTORIES
-                    .iter()
-                    .map(|name| brain_home.join(name)),
-            );
+            excluded.extend(rebuildable_exclusions(&brain_home));
             let source_files = collect_files(&brain_home, &excluded)?;
             let mut files = Vec::with_capacity(source_files.len());
             for source in source_files {
@@ -250,6 +249,7 @@ impl BackupManager {
     pub fn apply_retention(
         backup_root: impl AsRef<Path>,
         policy: RetentionPolicy,
+        staging_max_age: std::time::Duration,
         dry_run: bool,
     ) -> Result<RetentionReport> {
         ensure!(
@@ -257,14 +257,22 @@ impl BackupManager {
             "backup retention counts must be positive"
         );
         let backup_root = fs::canonicalize(backup_root.as_ref())?;
+        let sweep_cutoff = std::time::SystemTime::now()
+            .checked_sub(staging_max_age)
+            .context("staging sweep cutoff underflowed the clock")?;
         let mut points = Vec::new();
         let mut ignored = Vec::new();
+        let mut swept_staging = Vec::new();
         for entry in fs::read_dir(&backup_root)? {
             let entry = entry?;
             let path = entry.path();
             let metadata = fs::symlink_metadata(&path)?;
             if metadata.file_type().is_symlink() || !metadata.is_dir() {
                 ignored.push(path);
+                continue;
+            }
+            if is_abandoned_staging(&path, &metadata, sweep_cutoff) {
+                swept_staging.push(path);
                 continue;
             }
             match load_inventory(&path) {
@@ -284,15 +292,13 @@ impl BackupManager {
             }
         }
         ignored.sort();
+        swept_staging.sort();
         if !dry_run {
             for path in &pruned {
-                let resolved = fs::canonicalize(path)?;
-                ensure!(
-                    resolved.parent() == Some(backup_root.as_path()),
-                    "retention candidate escaped the backup root: {}",
-                    resolved.display()
-                );
-                fs::remove_dir_all(&resolved)?;
+                remove_dir_within(&backup_root, path)?;
+            }
+            for path in &swept_staging {
+                remove_dir_within(&backup_root, path)?;
             }
         }
         Ok(RetentionReport {
@@ -300,6 +306,7 @@ impl BackupManager {
             retained,
             pruned,
             ignored,
+            swept_staging,
             dry_run,
         })
     }
@@ -405,6 +412,39 @@ impl BackupManager {
     }
 }
 
+/// A `.staging-*` directory older than this is abandoned and swept by retention.
+///
+/// `create` names its in-flight copy `.staging-<id>` and removes it only when the process
+/// is alive to see its own failure — a backup killed by the scheduler's execution limit or
+/// a power loss orphans it, and nothing else ever removes it: `load_inventory` classifies
+/// it `ignored` forever. Ten of them held ~110 GB on 2026-08-16. Six hours is comfortably
+/// beyond the backup task's PT2H execution limit, so a live run's staging directory is
+/// never swept, while an orphan does not outlive the day.
+pub const ABANDONED_STAGING_AGE: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+fn is_abandoned_staging(
+    path: &Path,
+    metadata: &fs::Metadata,
+    cutoff: std::time::SystemTime,
+) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with(".staging-"))
+        && metadata.modified().is_ok_and(|modified| modified <= cutoff)
+}
+
+/// Remove a whole backup-root entry, refusing anything that resolved outside the root.
+fn remove_dir_within(backup_root: &Path, path: &Path) -> Result<()> {
+    let resolved = fs::canonicalize(path)?;
+    ensure!(
+        resolved.parent() == Some(backup_root),
+        "retention candidate escaped the backup root: {}",
+        resolved.display()
+    );
+    fs::remove_dir_all(&resolved)?;
+    Ok(())
+}
+
 fn retained_indexes(
     points: &[(PathBuf, time::OffsetDateTime)],
     policy: RetentionPolicy,
@@ -435,9 +475,35 @@ fn retained_indexes(
 /// `bin` holds the installed binaries. Those are build output — reproducible from the source
 /// tree at the commit the deploy manifest records, and hash-verified against it — so copying
 /// ~39 MB of them into every snapshot spends over 2 GB across a full retention cycle to
-/// protect something `scripts/deploy.ps1` regenerates with one command. A backup exists for
-/// what cannot be rebuilt; evidence qualifies and build artefacts do not.
-const REBUILDABLE_DIRECTORIES: [&str; 1] = ["bin"];
+/// protect something `scripts/deploy.ps1` regenerates with one command.
+///
+/// `runtime/token-benchmarks` holds token-benchmark run artefacts: frozen-brain copies of
+/// ledgers that are themselves backed up, full git checkouts, and per-attempt harness homes.
+/// The benchmark workflow requires run roots beneath the brain home, and these trees are its
+/// working state, not the brain's. Measured 2026-08-16 they were 22 GB of a 24 GB snapshot,
+/// which at hourly cadence filled a 1 TB drive in ten days. The ~2 MB of audit records each
+/// run keeps (manifest, samples, grades, report) are single-copy after this exclusion; see
+/// docs/implement-backup-recovery.md for the accepted trade.
+///
+/// Entries are brain-home-relative paths joined onto the canonical home and matched by
+/// absolute prefix, so a nested path like `runtime/token-benchmarks` excludes exactly that
+/// subtree — everything else under `runtime/` (notably `service.json`, which the service
+/// refuses to start without) is still captured.
+///
+/// A backup exists for what cannot be rebuilt; evidence qualifies and build artefacts do not.
+const REBUILDABLE_DIRECTORIES: [&str; 2] = ["bin", "runtime/token-benchmarks"];
+
+/// The rebuildable directories as absolute exclusion prefixes under `brain_home`.
+///
+/// Shared with `UpgradeManager::check`, whose raw-event hash must be computed over exactly
+/// the set a backup captures — if either side excluded something the other kept, the hash
+/// comparison in `upgrade stage` would fail on a healthy brain.
+pub(crate) fn rebuildable_exclusions(brain_home: &Path) -> Vec<PathBuf> {
+    REBUILDABLE_DIRECTORIES
+        .iter()
+        .map(|name| brain_home.join(name))
+        .collect()
+}
 
 fn collect_files(root: &Path, excluded: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut pending = vec![root.to_path_buf()];

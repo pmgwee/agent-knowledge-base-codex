@@ -21,7 +21,9 @@ use brain_service::{
     BrainPreflightRequest, BrainQueryService, BrainReleaseClaimRequest, BrainSearchRequest,
     BrainTimelineRequest, ServiceLaunchConfig, SourceSelector, TimelineWindow,
 };
-use brain_store::{BackupManager, EventLedger, RetentionPolicy, UpgradeManager};
+use brain_store::{
+    ABANDONED_STAGING_AGE, BackupManager, EventLedger, RetentionPolicy, UpgradeManager,
+};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
@@ -584,12 +586,24 @@ enum BackupCommand {
     Maintain {
         #[arg(long)]
         root: PathBuf,
+        #[arg(long)]
+        hourly: Option<usize>,
+        #[arg(long)]
+        daily: Option<usize>,
+        #[arg(long)]
+        monthly: Option<usize>,
     },
     Prune {
         #[arg(long)]
         root: PathBuf,
         #[arg(long)]
         apply: bool,
+        #[arg(long)]
+        hourly: Option<usize>,
+        #[arg(long)]
+        daily: Option<usize>,
+        #[arg(long)]
+        monthly: Option<usize>,
     },
     Drill {
         #[arg(long)]
@@ -603,6 +617,22 @@ enum BackupCommand {
         #[arg(long)]
         work_root: PathBuf,
     },
+}
+
+/// Merge CLI retention overrides onto `RetentionPolicy::default()`, so a one-time reclaim
+/// (`backup prune --hourly 2 --apply`) needs no config surface. Every omitted tier keeps
+/// its default; `apply_retention` still refuses non-positive counts.
+fn retention_policy(
+    hourly: Option<usize>,
+    daily: Option<usize>,
+    monthly: Option<usize>,
+) -> RetentionPolicy {
+    let default = RetentionPolicy::default();
+    RetentionPolicy {
+        hourly: hourly.unwrap_or(default.hourly),
+        daily: daily.unwrap_or(default.daily),
+        monthly: monthly.unwrap_or(default.monthly),
+    }
 }
 
 #[derive(Subcommand)]
@@ -1829,12 +1859,22 @@ retired {retired} memories as tombstones"
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Command::Backup {
-            action: BackupCommand::Maintain { root },
+            action:
+                BackupCommand::Maintain {
+                    root,
+                    hourly,
+                    daily,
+                    monthly,
+                },
         } => {
             let backup =
                 BackupManager::create(&brain_home, &root, time::OffsetDateTime::now_utc())?;
-            let retention =
-                BackupManager::apply_retention(&root, RetentionPolicy::default(), false)?;
+            let retention = BackupManager::apply_retention(
+                &root,
+                retention_policy(hourly, daily, monthly),
+                ABANDONED_STAGING_AGE,
+                false,
+            )?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
@@ -1844,9 +1884,21 @@ retired {retired} memories as tombstones"
             );
         }
         Command::Backup {
-            action: BackupCommand::Prune { root, apply },
+            action:
+                BackupCommand::Prune {
+                    root,
+                    apply,
+                    hourly,
+                    daily,
+                    monthly,
+                },
         } => {
-            let report = BackupManager::apply_retention(root, RetentionPolicy::default(), !apply)?;
+            let report = BackupManager::apply_retention(
+                root,
+                retention_policy(hourly, daily, monthly),
+                ABANDONED_STAGING_AGE,
+                !apply,
+            )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Command::Backup {

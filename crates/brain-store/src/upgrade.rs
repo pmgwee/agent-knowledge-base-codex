@@ -6,6 +6,7 @@ use brain_domain::SUPPORTED_FORMATS;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 
+use crate::backup::rebuildable_exclusions;
 use crate::migrations::{configure, migrate};
 use crate::{BackupManager, SegmentManifest};
 
@@ -40,7 +41,11 @@ pub struct UpgradeManager;
 impl UpgradeManager {
     pub fn check(brain_home: impl AsRef<Path>) -> Result<UpgradeReport> {
         let brain_home = fs::canonicalize(brain_home.as_ref())?;
-        let files = collect_files(&brain_home)?;
+        // The raw-event hash below must aggregate exactly what a backup captures, so the
+        // rebuildable exclusions apply here too — a frozen benchmark ledger under
+        // runtime/token-benchmarks is scaffolding, and hashing it would make `stage`'s
+        // comparison against the backup-restored copy fail on a healthy brain.
+        let files = collect_files(&brain_home, &rebuildable_exclusions(&brain_home))?;
         let mut issues = Vec::new();
         let mut sqlite_databases = 0_u64;
         let mut segment_manifests = 0_u64;
@@ -162,7 +167,7 @@ impl UpgradeManager {
         let result = (|| {
             let backup = BackupManager::create(&source.brain_home, &backup_root, now)?;
             BackupManager::restore_isolated(&backup.backup_path, destination)?;
-            for path in collect_files(destination)? {
+            for path in collect_files(destination, &rebuildable_exclusions(destination))? {
                 if !is_sqlite(&path) {
                     continue;
                 }
@@ -199,7 +204,7 @@ impl UpgradeManager {
     }
 }
 
-fn collect_files(root: &Path) -> Result<Vec<PathBuf>> {
+fn collect_files(root: &Path, excluded: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut pending = vec![root.to_path_buf()];
     let mut files = Vec::new();
     while let Some(directory) = pending.pop() {
@@ -209,10 +214,14 @@ fn collect_files(root: &Path) -> Result<Vec<PathBuf>> {
             if file_type.is_symlink() {
                 continue;
             }
+            let path = entry.path();
+            if excluded.iter().any(|excluded| path.starts_with(excluded)) {
+                continue;
+            }
             if file_type.is_dir() {
-                pending.push(entry.path());
+                pending.push(path);
             } else if file_type.is_file() {
-                files.push(entry.path());
+                files.push(path);
             }
         }
     }

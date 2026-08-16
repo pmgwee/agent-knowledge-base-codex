@@ -50,9 +50,9 @@ pub use access::{
     MemoryAccess, MemoryRetention, RETENTION_HALF_LIFE_DAYS, STALE_RETENTION, retention_score,
 };
 pub use backup::{
-    BACKUP_FORMAT_VERSION, BackupInventory, BackupManager, BackupReport, InventoryFile,
-    InventoryKind, RecoveryDrillReport, RestoreReport, RetentionPolicy, RetentionReport,
-    VerificationReport,
+    ABANDONED_STAGING_AGE, BACKUP_FORMAT_VERSION, BackupInventory, BackupManager, BackupReport,
+    InventoryFile, InventoryKind, RecoveryDrillReport, RestoreReport, RetentionPolicy,
+    RetentionReport, VerificationReport,
 };
 pub use basic_memory::{
     BASIC_MEMORY_PINNED_VERSION, BasicMemoryCli, BasicMemoryIndexer, BasicMemoryReport,
