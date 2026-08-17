@@ -46,24 +46,34 @@ inventory-sum already planned under Step 5. The cheap stopgap is raising both ti
 (`SPAWN_TIMEOUT_MS` in `push-snapshot.mjs`, `SPAWN_TIMEOUT_MS` in `app/api/snapshot/route.ts`)
 — one-line edits in the dashboard repo, no deploy pipeline.
 
-Watch items:
-- The 00:54 hourly maintain is the first *scheduled* clean run (the 23:54 trigger died at
-  launch, `0x800710E0`, colliding with the manual maintain and binary swap).
-- The `.staging-01a00b11-*` orphan (1.77 GB) from the first failed attempt is under the 6 h
-  sweep threshold; the next maintain past ~05:00 should sweep it — a live validation of the
-  sweeper.
-- The retained fat snapshot is the pre-fix rollback point; delete it mid-week once a few clean
-  days have accumulated. Deleting it also cuts the dashboard push walk by ~75%.
+Watch items (checked 2026-08-17 ~11:55):
+- ✅ **Scheduled clean runs: 11/11 overnight** (00:54–10:54), every one `Last Result: 0`,
+  every snapshot 2.2–2.3 GiB with zero token-benchmarks entries. The task that died nightly
+  for a week is now boring, which was the goal. The 07:54 snapshot's file-count dip
+  (28,290 → 18,829 → 28,304) is the vault's generation cleanup churning mid-copy — ridden
+  out by the vanish tolerance, snapshot verified green.
+- ✅ **Sweeper validated live:** the `.staging-01a00b11-*` orphan (1.77 GB) is gone — swept
+  by the first maintain past the 6 h threshold. Zero staging dirs remain across all 11 runs.
+- ⏳ **Fat snapshot** still retained by design — the rollback point until ~Wednesday. Its
+  deletion will also cut the dashboard push walk by ~75%.
 
-Remaining work, ranked by when it actually matters:
-1. **Step 5's push ceilings — this week.** The walk re-crosses 45 s at roughly full retention
-   (see the fuse above). Stopgap: raise both `SPAWN_TIMEOUT_MS` values. Durable: the
-   inventory-sum, staleness badge, alarms.
+**The push fuse fired faster than estimated.** Last successful push before the fix: 08:02:53.
+The morning check caught the dashboard silently serving 08:02 data while the root grew
+(+6.5 GiB stale, +2.26 GiB/hour) — the third freeze of this exact shape. Measured walk under
+load: **87 s**, nearly double the 45 s ceiling. Stopgap applied and verified the same morning:
+both `SPAWN_TIMEOUT_MS` values raised to 240 s (dashboard repo commit `57dfa4c`); manual push
+completed in 87 s, Upstash serving 16 s-fresh data with `brain_home_bytes` exact. The durable
+inventory-sum fix remains open under Step 5.
+
+Remaining work, ranked by when it actually matters (updated 2026-08-17):
+1. **Step 5 durable halves — this week.** ✅ Stopgap done (timeouts 240 s, `57dfa4c`, verified
+   live). ⬜ Inventory-sum instead of the walk (the walk hit 87 s and keeps growing with
+   retention), staleness badge, alarms.
 2. **Step 4 (benchmark prune) — before the next benchmark run.** It is the only remaining
    growth source: ~5.6 GB today, ~0.7 GB+ per future run, on a C: drive with ~53 GB free.
-3. **Watch items above — tomorrow morning** (scheduled-run health, sweeper validation) and
-   **mid-week** (fat snapshot).
-4. **Phase C — not now.** Steady state without it is ~145 GB against 378 GB free. Revisit when
+3. **Fat snapshot — ~Wednesday**, once a few clean days have accumulated. Overnight evidence
+   is 11-for-11; two more days of that and the rollback point has done its job.
+4. **Phase C — not now.** Steady state without it is ~145 GB against 367 GB free. Revisit when
    the backup root passes ~200 GB, or when there is appetite for the sealing project on its
    own merits. Step 0b is moot and closed.
 
