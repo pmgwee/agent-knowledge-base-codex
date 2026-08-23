@@ -107,7 +107,7 @@ pub fn import_grades(
             other => anyhow::bail!("invalid critical_regression {other:?}"),
         };
         artifacts.append_grade(&GradeRecord {
-            schema_version: 1,
+            schema_version: 2,
             opaque_id: row.opaque_id,
             outcome,
             critical_regression,

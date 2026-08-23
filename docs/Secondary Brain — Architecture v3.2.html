@@ -298,6 +298,12 @@
       <strong>96.0% R@5 on the recorded 500-question LongMemEval-S run</strong><br>
       Live values are intentionally read from the dashboard; per-item work status remains in <code>docs/status.md</code>.
     </p>
+    <p class="stamp">
+      Measurement status 13 August 2026 · C0–C4 benchmark and lifecycle observability implemented ·
+      native token, coding-time and final-answer improvements remain <strong>Not measured</strong>
+      until the separately approved native matrices complete. The visible 120-case calibration
+      fixture verifies evidence resolution; it is not a native-harness A/B result.
+    </p>
   </header>
 
   <hr class="rule">
@@ -424,8 +430,8 @@
         <rect class="s-plain" x="300" y="790" width="250" height="100" rx="5" stroke-width="1.5"></rect>
         <text class="box-title" x="318" y="819">brain-mcp.exe · on-demand</text>
         <text class="box-sub" x="318" y="840">structured tools · same query core</text>
-        <text class="box-sub" x="318" y="859">Codex · live</text>
-        <text class="box-sub t-planned" x="318" y="876">Claude Desktop / VS Code · planned</text>
+        <text class="box-sub" x="318" y="859">Codex · configured · 16 tools</text>
+        <text class="box-sub" x="318" y="876">Claude · installer ready; explicit action</text>
 
         <rect class="s-plain" x="570" y="790" width="230" height="100" rx="5" stroke-width="1.5"></rect>
         <text class="box-title" x="588" y="819">brain.exe CLI · fallback</text>
@@ -542,8 +548,8 @@
         <rect class="s-plain" x="950" y="1490" width="250" height="120" rx="5" stroke-width="1.5"></rect>
         <text class="box-title" x="968" y="1520">Read-only dashboard</text>
         <text class="box-sub" x="968" y="1542">service · deployment · storage</text>
-        <text class="box-sub" x="968" y="1561">retrieval · jobs · provenance</text>
-        <text class="box-sub" x="968" y="1585">30 s cache · shells to brain.exe</text>
+        <text class="box-sub" x="968" y="1561">sessions · alerts · three-goal benchmark</text>
+        <text class="box-sub" x="968" y="1585">10 s UI target · producer-limited freshness</text>
 
         <path class="flow-vault" d="M 310 1550 L 344 1550" marker-end="url(#a-arrow)"></path>
         <path class="flow-vault" d="M 610 1550 L 644 1550" marker-end="url(#a-arrow)"></path>
@@ -801,7 +807,7 @@
             <text class="box-title" x="213" y="330">brain-mcp.exe</text>
             <text class="box-title" x="213" y="349">primary on-demand</text>
             <text class="box-sub" x="213" y="374">Codex · live</text>
-            <text class="box-sub t-planned" x="213" y="393">Claude Code · planned</text>
+            <text class="box-sub t-planned" x="213" y="393">Claude Code · installer ready; explicit install</text>
             <text class="box-sub" x="213" y="412">structured tools</text>
 
             <path class="flow-warm" d="M 395 363 L 414 363" marker-end="url(#c-yellow)"></path>
@@ -934,7 +940,7 @@
           <tr><td><code>SessionStart</code></td><td><span class="pill live">Automatic</span></td><td><span class="pill live">Automatic</span></td><td>Recent ledger events supply a surrogate query to <code>search()</code> with <code>memories_only()</code>. The single active Memory BM25 list enters RRF, so fusion is an identity ordering; the bounded <strong>New-session orientation</strong> then combines evidence, ranked memories and live state.</td></tr>
           <tr><td><code>UserPromptSubmit</code></td><td><span class="pill live">Automatic</span></td><td><span class="pill live">Automatic</span></td><td>Memory BM25 and Vector similarity produce two lists for RRF and delivery gates; the result may be a <strong>Current-session prompt push</strong> or healthy silence. Graph expansion contributes nothing under the memories-only filter.</td></tr>
           <tr><td><code>SessionEnd</code></td><td><span class="pill live">Automatic</span></td><td><span class="pill live">Automatic</span></td><td>Appends the <strong>SessionEnd boundary event</strong>. It performs no retrieval and normally returns no context.</td></tr>
-          <tr><td>Explicit brain retrieval</td><td><code>brain.exe</code> CLI available; <span class="pill part">MCP planned</span></td><td><code>brain-mcp.exe</code> live; CLI fallback available</td><td>MCP is the preferred adapter and CLI is the fallback over the same query service. Claude MCP wiring and automatic fallback remain planned. The four-channel <strong>On-demand historical pull</strong> itself runs independently of hooks.</td></tr>
+          <tr><td>Explicit brain retrieval</td><td><code>brain.exe</code> CLI available; supported MCP installer implemented, explicit install pending</td><td><code>brain-mcp.exe</code> configured; CLI fallback available</td><td>MCP is the preferred adapter and CLI is the fallback over the same query service. Claude MCP installation remains an explicit operator action; automatic fallback is not implemented. The four-channel <strong>On-demand historical pull</strong> itself runs independently of hooks.</td></tr>
           <tr><td>CodeGraph</td><td>Own integration</td><td>Own integration</td><td>Mechanical current-code index; deliberately separate from historical memory.</td></tr>
           <tr><td>Current-truth verification</td><td>CodeGraph · files · Git · tests</td><td>CodeGraph · files · Git · tests</td><td>Both agents verify memory-derived claims against the live working tree before changing code.</td></tr>
         </tbody>
@@ -952,9 +958,10 @@
         hook path. SessionEnd appends a boundary, and explicit MCP/CLI searches can run at any point.
       </p>
       <p>
-        All three hooks are harness-invoked in both agents. Codex MCP is live. Claude Code Desktop and
-        VS Code can share user-scoped MCP configuration, but that brain server wiring is still planned in
-        this project. Manual CLI fallback is available to both; automatic fallback after MCP failure is not.
+        All three hooks are harness-invoked in both agents. Codex MCP is configured. The supported
+        Claude user-scoped MCP installer and verifier are implemented, but installation remains an
+        explicit operator action and was not performed by this architecture update. Manual CLI fallback
+        is available to both; automatic fallback after MCP failure is not.
       </p>
     </div>
   </section>
@@ -1120,7 +1127,7 @@
           <tr>
             <td>Use</td>
             <td><span class="pill live">Complete</span></td>
-            <td>Both harnesses receive startup and useful prompt-time pushes. Startup derives a surrogate query from recent evidence and ranks memories with Memory BM25; prompt push fuses Memory BM25 and Vector lists; on-demand history can use all four channels. Codex MCP is live, Claude MCP wiring is planned, and manual CLI fallback is available while automatic fallback remains planned.</td>
+            <td>Both harnesses receive startup and useful prompt-time pushes. Startup derives a surrogate query from recent evidence and ranks memories with Memory BM25; prompt push fuses Memory BM25 and Vector lists; on-demand history can use all four channels. Codex MCP is configured, the Claude MCP installer is implemented but requires explicit installation, and manual CLI fallback is available while automatic fallback remains unimplemented.</td>
           </tr>
           <tr>
             <td>Govern</td>

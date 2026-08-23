@@ -518,6 +518,69 @@ impl EventLedger {
         Ok(events)
     }
 
+    /// Return the newest evidence visible at a historical cutoff.
+    ///
+    /// This is intentionally a ledger read rather than "load current, then filter": newer rows can
+    /// otherwise fill the limit and hide the older evidence the caller is trying to reproduce.
+    pub fn recent_events_as_of(
+        &self,
+        project_id: ProjectId,
+        as_of: time::OffsetDateTime,
+        limit: usize,
+    ) -> Result<Vec<StoredEvent>> {
+        if project_id != self.project_scope {
+            bail!(
+                "project {} cannot query ledger scoped to {}",
+                project_id.0,
+                self.project_scope.0
+            );
+        }
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let bounded_limit = i64::try_from(limit.min(500))?;
+        let cutoff = timestamp_ns(as_of)?;
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT event_id, worktree_id, task_id, harness, native_session_id, event_type,
+                   occurred_at_ns, observed_at_ns, source_locator, source_offset,
+                   git_head, git_branch, payload_json, raw_json
+            FROM events
+            WHERE project_id = ?1 AND occurred_at_ns <= ?2
+            ORDER BY occurred_at_ns DESC, observed_at_ns DESC, source_offset DESC
+            LIMIT ?3
+            "#,
+        )?;
+        let rows = statement.query_map(
+            params![project_id.0.to_string(), cutoff, bounded_limit],
+            |row| {
+                Ok(RawStoredEvent {
+                    event_id: row.get(0)?,
+                    worktree_id: row.get(1)?,
+                    task_id: row.get(2)?,
+                    harness: row.get(3)?,
+                    native_session_id: row.get(4)?,
+                    event_type: row.get(5)?,
+                    occurred_at_ns: row.get(6)?,
+                    observed_at_ns: row.get(7)?,
+                    source_locator: row.get(8)?,
+                    source_offset: row.get(9)?,
+                    git_head: row.get(10)?,
+                    git_branch: row.get(11)?,
+                    payload_json: row.get(12)?,
+                    raw_json: row.get(13)?,
+                })
+            },
+        )?;
+        let mut events = Vec::new();
+        for row in rows {
+            if let Some(event) = row?.parse(project_id) {
+                events.push(event);
+            }
+        }
+        Ok(events)
+    }
+
     pub fn event(&self, event_id: uuid::Uuid) -> Result<Option<StoredEvent>> {
         let raw = self
             .connection
@@ -964,6 +1027,43 @@ impl EventLedger {
                 id,
                 u64::try_from(count).unwrap_or(0),
                 time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(at))?,
+            ))
+        })
+        .collect()
+    }
+
+    pub fn captured_session_activity(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<(String, String, time::OffsetDateTime, time::OffsetDateTime)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT harness, native_session_id, MIN(occurred_at_ns), MAX(observed_at_ns)
+             FROM events WHERE project_id = ?1
+             GROUP BY harness, native_session_id
+             ORDER BY MAX(observed_at_ns) DESC
+             LIMIT ?2",
+        )?;
+        let rows = statement.query_map(
+            params![
+                self.project_scope.0.to_string(),
+                i64::try_from(limit).unwrap_or(i64::MAX)
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )?;
+        rows.map(|row| {
+            let (harness, native_session_id, first_at, last_at) = row?;
+            Ok((
+                harness,
+                native_session_id,
+                time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(first_at))?,
+                time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(last_at))?,
             ))
         })
         .collect()

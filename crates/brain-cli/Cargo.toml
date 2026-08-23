@@ -35,6 +35,10 @@ tokio.workspace = true
 name = "brain"
 path = "src/main.rs"
 
+[[bin]]
+name = "brain-benchmark-launcher"
+path = "src/bin/brain-benchmark-launcher.rs"
+
 [[test]]
 name = "claude_walking_skeleton"
 path = "../../tests/e2e/claude_walking_skeleton.rs"

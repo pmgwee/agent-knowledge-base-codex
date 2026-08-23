@@ -33,7 +33,8 @@ pub use health::{
     OperationalHealth, ProjectHealth, ServiceHealth, SourceHealth, source_health_key,
 };
 pub use hook_handler::{
-    ClaudeHookHandler, HookOutcome, HookProjectBinding, PendingDelivery, ProjectHookHandler,
+    ClaudeHookHandler, HookOutcome, HookProjectBinding, PendingDelivery, PendingLifecycleReceipt,
+    ProjectHookHandler,
 };
 // Shared with `query_api` so the MCP `brain_checkpoint` path can prepend the same coordination
 // view (leases / path claims) the SessionStart hook injects for Claude Code.
@@ -51,10 +52,11 @@ pub use query_api::{
     BrainLeaseResponse, BrainLeasesRequest, BrainPreflightRequest, BrainPreflightResponse,
     BrainPromptContextRequest, BrainPromptContextResponse, BrainProviderState, BrainQueryService,
     BrainReleaseClaimRequest, BrainResultItem, BrainSearchRequest, BrainStatusRequest,
-    BrainStatusResponse, BrainTimelineRequest, SourceSelector, TimelineWindow,
+    BrainStatusResponse, BrainTimelineRequest, McpLifecycleStage, SourceSelector, TimelineWindow,
 };
 pub use rediscover::{
     DiscoveredSources, REDISCOVERY_INTERVAL, TranscriptRoots, apply_discovered_sources,
-    discover_new_sources, rediscover_all, rediscover_once, run_rediscovery,
+    discover_new_sources, rediscover_all, rediscover_and_activate_once, rediscover_once,
+    run_rediscovery,
 };
 pub use runtime::{build_capture_bindings, build_hook_bindings};

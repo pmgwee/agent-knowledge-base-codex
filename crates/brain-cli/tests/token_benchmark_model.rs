@@ -3,7 +3,8 @@ use std::path::PathBuf;
 
 use brain_cli::{
     BenchmarkCondition, BenchmarkHarness, BenchmarkSummary, BenchmarkTask, BenchmarkTaskStratum,
-    ExecutionTemplate, ExecutionTemplates, HarnessExecutionTemplates, SuiteManifest,
+    ExecutionTemplate, ExecutionTemplates, ExternalBenchmarkClaim, ExternalBenchmarkReference,
+    HarnessExecutionTemplates, PRIMARY_CONTRASTS, SuiteManifest,
 };
 
 #[test]
@@ -30,13 +31,15 @@ fn suite_validation_requires_unique_balanced_tasks() {
                 max_turns: 8,
                 max_tool_calls: 20,
                 timeout_seconds: 600,
+                trace_markers: None,
             });
         }
     }
     let suite = SuiteManifest {
-        schema_version: 1,
-        suite_id: "token-savings-v1".to_owned(),
+        schema_version: 2,
+        suite_id: "second-brain-five-condition-v2".to_owned(),
         pilot_task_ids: tasks.iter().take(4).map(|task| task.id.clone()).collect(),
+        external_references: Vec::new(),
         tasks,
     };
 
@@ -54,6 +57,30 @@ fn suite_validation_requires_unique_balanced_tasks() {
             .to_string()
             .contains("duplicate")
     );
+
+    let mut malformed_reference = suite;
+    malformed_reference
+        .external_references
+        .push(ExternalBenchmarkReference {
+            system: "competitor".to_owned(),
+            source_url: "https://example.test/scorecard".to_owned(),
+            source_revision: "pinned".to_owned(),
+            source_sha256: "too-short".to_owned(),
+            claims: vec![ExternalBenchmarkClaim {
+                benchmark: "fixture".to_owned(),
+                metric: "R@5".to_owned(),
+                value: "95.0%".to_owned(),
+                evidence_class: "external".to_owned(),
+                comparability: "independent harness".to_owned(),
+            }],
+        });
+    assert!(
+        malformed_reference
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("SHA-256")
+    );
 }
 
 #[test]
@@ -66,14 +93,28 @@ fn harness_and_condition_names_are_stable() {
         serde_json::to_string(&BenchmarkHarness::Codex).unwrap(),
         "\"codex\""
     );
+    assert_eq!(BenchmarkCondition::ALL.len(), 5);
     assert_eq!(
-        serde_json::to_string(&BenchmarkCondition::BrainOff).unwrap(),
-        "\"brain_off\""
+        BenchmarkCondition::ALL
+            .into_iter()
+            .map(|condition| serde_json::to_string(&condition).unwrap())
+            .collect::<Vec<_>>(),
+        ["\"c0\"", "\"c1\"", "\"c2\"", "\"c3\"", "\"c4\""]
     );
     assert_eq!(
-        serde_json::to_string(&BenchmarkCondition::BrainOn).unwrap(),
-        "\"brain_on\""
+        serde_json::from_str::<BenchmarkCondition>("\"brain_off\"").unwrap(),
+        BenchmarkCondition::C0
     );
+    assert_eq!(
+        serde_json::from_str::<BenchmarkCondition>("\"brain_on\"").unwrap(),
+        BenchmarkCondition::C4
+    );
+    assert_eq!(PRIMARY_CONTRASTS.len(), 6);
+    assert!(PRIMARY_CONTRASTS.iter().any(|contrast| {
+        contrast.id == "c4_vs_c0"
+            && contrast.baseline == BenchmarkCondition::C0
+            && contrast.treatment == BenchmarkCondition::C4
+    }));
 }
 
 #[test]
@@ -84,35 +125,60 @@ fn execution_profiles_select_the_exact_harness_and_condition() {
         environment: BTreeMap::new(),
         timeout_seconds: 600,
     };
-    let mut treatment = common.clone();
-    treatment
-        .environment
-        .insert("BRAIN_HOME".to_owned(), "{{sample_brain_home}}".to_owned());
-    treatment
-        .environment
-        .insert("BRAIN_PIPE_NAME".to_owned(), "{{pipe_name}}".to_owned());
+    let condition_templates = BenchmarkCondition::ALL
+        .into_iter()
+        .map(|condition| {
+            let mut template = common.clone();
+            template.environment.insert(
+                "BENCHMARK_CONDITION".to_owned(),
+                condition.as_str().to_owned(),
+            );
+            (condition, template)
+        })
+        .collect::<BTreeMap<_, _>>();
     let templates = ExecutionTemplates {
-        schema_version: 1,
+        schema_version: 2,
         max_attempts: 2,
         brain_service_program: PathBuf::from("brain-service.exe"),
+        launcher_environment: BTreeMap::new(),
         claude_code: HarnessExecutionTemplates {
-            brain_off: common.clone(),
-            brain_on: treatment.clone(),
+            conditions: condition_templates.clone(),
         },
         codex: HarnessExecutionTemplates {
-            brain_off: common,
-            brain_on: treatment.clone(),
+            conditions: condition_templates.clone(),
         },
     };
+    templates.validate().expect("complete five-condition maps");
     assert_eq!(
-        templates.template(BenchmarkHarness::Codex, BenchmarkCondition::BrainOn),
-        &treatment
+        templates
+            .template(BenchmarkHarness::Codex, BenchmarkCondition::C4)
+            .environment["BENCHMARK_CONDITION"],
+        "c4"
     );
     assert_eq!(
         serde_json::from_str::<ExecutionTemplates>(&serde_json::to_string(&templates).unwrap())
             .unwrap(),
         templates
     );
+
+    let missing = ExecutionTemplates {
+        codex: HarnessExecutionTemplates {
+            conditions: BTreeMap::from([(BenchmarkCondition::C0, common.clone())]),
+        },
+        ..templates.clone()
+    };
+    assert!(missing.validate().unwrap_err().to_string().contains("c1"));
+
+    let legacy: ExecutionTemplates = serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "max_attempts": 2,
+        "brain_service_program": "brain-service.exe",
+        "claude_code": {"brain_off": common, "brain_on": condition_templates[&BenchmarkCondition::C4]},
+        "codex": {"brain_off": condition_templates[&BenchmarkCondition::C0], "brain_on": condition_templates[&BenchmarkCondition::C4]}
+    }))
+    .expect("v1 execution profile remains readable");
+    assert_eq!(legacy.claude_code.conditions.len(), 2);
+    legacy.validate().expect("legacy c0/c4 maps remain valid");
 }
 
 #[test]

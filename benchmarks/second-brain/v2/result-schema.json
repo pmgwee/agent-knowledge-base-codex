@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentbrain.local/schemas/second-brain-benchmark-result-v2.json",
+  "title": "Second Brain five-condition benchmark result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "suite_id",
+    "run_id",
+    "benchmark_label",
+    "execution_mode",
+    "fixture_commit",
+    "configuration_hash",
+    "goal_1_tokens",
+    "goal_2_speed",
+    "goal_3_quality",
+    "contrasts",
+    "validity",
+    "raw_artifacts"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "suite_id": {"const": "second-brain-five-condition-v2"},
+    "run_id": {"type": "string", "format": "uuid"},
+    "benchmark_label": {"enum": ["current_state", "candidate"]},
+    "execution_mode": {"enum": ["preflight", "smoke", "pilot", "claimable"]},
+    "fixture_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "configuration_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "goal_1_tokens": {"$ref": "#/$defs/goal_result"},
+    "goal_2_speed": {"$ref": "#/$defs/goal_result"},
+    "goal_3_quality": {"$ref": "#/$defs/goal_result"},
+    "contrasts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/contrast_result"}
+    },
+    "validity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valid", "invalid_samples", "reasons"],
+      "properties": {
+        "valid": {"type": "boolean"},
+        "invalid_samples": {"type": "integer", "minimum": 0},
+        "reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "raw_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "goal_status": {
+      "enum": ["proven", "inconclusive", "regressed", "invalid", "not_run"]
+    },
+    "goal_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "metric", "gate", "reason"],
+      "properties": {
+        "status": {"$ref": "#/$defs/goal_status"},
+        "metric": {"type": "string", "minLength": 1},
+        "estimate_percent": {"type": ["number", "null"]},
+        "adjusted_confidence_low_percent": {"type": ["number", "null"]},
+        "adjusted_confidence_high_percent": {"type": ["number", "null"]},
+        "sample_count": {"type": "integer", "minimum": 0},
+        "gate": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "contrast_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contrast_id", "baseline", "treatment", "sample_count", "metrics"],
+      "properties": {
+        "contrast_id": {"enum": ["c1_vs_c0", "c2_vs_c1", "c3_vs_c2", "c4_vs_c3", "c4_vs_c0", "c4_vs_c1"]},
+        "baseline": {"enum": ["c0", "c1", "c2", "c3", "c4"]},
+        "treatment": {"enum": ["c0", "c1", "c2", "c3", "c4"]},
+        "sample_count": {"type": "integer", "minimum": 0},
+        "metrics": {"type": "object"}
+      }
+    }
+  }
+}

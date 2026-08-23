@@ -76,6 +76,78 @@ pub(crate) fn migrate(connection: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_context_deliveries_project_time
             ON context_deliveries(project_id, delivered_at_ns DESC);
 
+        -- Immutable lifecycle receipts distinguish a hook that never arrived from a hook that
+        -- arrived and correctly returned healthy silence. The event UUID makes retries
+        -- idempotent; triggers make the evidence append-only even for direct SQL callers.
+        CREATE TABLE IF NOT EXISTS lifecycle_events (
+            event_id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            harness TEXT NOT NULL,
+            session_attribution TEXT NOT NULL,
+            native_session_id TEXT,
+            correlation_id TEXT,
+            channel TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            occurred_at_ns INTEGER NOT NULL,
+            detail_json TEXT NOT NULL,
+            CHECK (
+                (session_attribution = 'attributed' AND native_session_id IS NOT NULL)
+                OR (session_attribution = 'unattributed' AND native_session_id IS NULL)
+            )
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_lifecycle_events_project_session_time
+            ON lifecycle_events(project_id, native_session_id, occurred_at_ns);
+
+        CREATE TRIGGER IF NOT EXISTS lifecycle_events_no_update
+        BEFORE UPDATE ON lifecycle_events BEGIN
+            SELECT RAISE(ABORT, 'lifecycle_events is append-only');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS lifecycle_events_no_delete
+        BEFORE DELETE ON lifecycle_events BEGIN
+            SELECT RAISE(ABORT, 'lifecycle_events is append-only');
+        END;
+
+        -- One row for every retrieval decision, including an explicit no-op. This is separate
+        -- from context_deliveries because no delivery can be the correct and important outcome.
+        CREATE TABLE IF NOT EXISTS retrieval_decisions (
+            decision_id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            harness TEXT NOT NULL,
+            session_attribution TEXT NOT NULL,
+            native_session_id TEXT,
+            correlation_id TEXT,
+            channel TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            reason_code TEXT NOT NULL,
+            candidate_count INTEGER NOT NULL CHECK(candidate_count >= 0),
+            selected_count INTEGER NOT NULL CHECK(selected_count >= 0),
+            dropped_count INTEGER NOT NULL CHECK(dropped_count >= 0),
+            token_count INTEGER NOT NULL CHECK(token_count >= 0),
+            latency_ms INTEGER NOT NULL CHECK(latency_ms >= 0),
+            query_sha256 TEXT NOT NULL CHECK(length(query_sha256) = 64),
+            selected_evidence_json TEXT NOT NULL,
+            occurred_at_ns INTEGER NOT NULL,
+            CHECK (
+                (session_attribution = 'attributed' AND native_session_id IS NOT NULL)
+                OR (session_attribution = 'unattributed' AND native_session_id IS NULL)
+            )
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_retrieval_decisions_project_session_time
+            ON retrieval_decisions(project_id, native_session_id, occurred_at_ns);
+
+        CREATE TRIGGER IF NOT EXISTS retrieval_decisions_no_update
+        BEFORE UPDATE ON retrieval_decisions BEGIN
+            SELECT RAISE(ABORT, 'retrieval_decisions is append-only');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS retrieval_decisions_no_delete
+        BEFORE DELETE ON retrieval_decisions BEGIN
+            SELECT RAISE(ABORT, 'retrieval_decisions is append-only');
+        END;
+
         CREATE TABLE IF NOT EXISTS source_cursors (
             source_id TEXT PRIMARY KEY NOT NULL,
             cursor_json TEXT NOT NULL,

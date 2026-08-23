@@ -7,7 +7,10 @@ use atomicwrites::{AllowOverwrite, AtomicFile};
 use brain_domain::ProjectId;
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
+use time::format_description::well_known::Rfc3339;
 use uuid::Uuid;
+
+use crate::retrieval_benchmark::{RetrievalBenchmarkReport, RetrievalSplit};
 
 use super::{BenchmarkSummary, GradeRecord, RunManifest, SampleRecord, TokenBenchmarkReport};
 
@@ -16,6 +19,14 @@ pub struct RawArtifact {
     pub relative_path: PathBuf,
     pub sha256: String,
     pub bytes: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct BenchmarkCommandRecord {
+    pub record_id: Uuid,
+    pub recorded_at: String,
+    pub stage: String,
+    pub argv: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -49,6 +60,18 @@ impl BenchmarkArtifacts {
     pub fn create_run(&self, manifest: &RunManifest) -> Result<()> {
         fs::create_dir_all(self.run_dir.join("raw"))
             .with_context(|| format!("create benchmark run {}", self.run_dir.display()))?;
+        for name in [
+            "samples.jsonl",
+            "lifecycle.jsonl",
+            "retrieval-cases.jsonl",
+            "grades.jsonl",
+            "commands.jsonl",
+        ] {
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(self.run_dir.join(name))?;
+        }
         write_immutable_json(&self.manifest_path(), manifest)
     }
 
@@ -79,6 +102,77 @@ impl BenchmarkArtifacts {
             grade,
             |record: &GradeRecord| record.opaque_id.clone(),
         )
+    }
+
+    pub fn append_command(&self, stage: &str, argv: Vec<String>) -> Result<BenchmarkCommandRecord> {
+        ensure!(!stage.trim().is_empty(), "benchmark command stage is empty");
+        ensure!(!argv.is_empty(), "benchmark command has no arguments");
+        let record = BenchmarkCommandRecord {
+            record_id: Uuid::now_v7(),
+            recorded_at: time::OffsetDateTime::now_utc().format(&Rfc3339)?,
+            stage: stage.to_owned(),
+            argv,
+        };
+        append_immutable_jsonl(
+            &self.run_dir.join("commands.jsonl"),
+            &record.record_id.to_string(),
+            &record,
+            |record: &BenchmarkCommandRecord| record.record_id.to_string(),
+        )?;
+        self.write_checksums()?;
+        Ok(record)
+    }
+
+    pub fn commands(&self) -> Result<Vec<BenchmarkCommandRecord>> {
+        read_jsonl(&self.run_dir.join("commands.jsonl"))
+    }
+
+    pub fn append_lifecycle_record(
+        &self,
+        record_id: &str,
+        kind: &str,
+        value: &impl Serialize,
+    ) -> Result<()> {
+        let record = serde_json::json!({
+            "record_id": record_id,
+            "kind": kind,
+            "value": value
+        });
+        append_immutable_jsonl(
+            &self.run_dir.join("lifecycle.jsonl"),
+            record_id,
+            &record,
+            |record: &serde_json::Value| {
+                record
+                    .get("record_id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned()
+            },
+        )
+    }
+
+    pub fn attach_retrieval_report(&self, report: &RetrievalBenchmarkReport) -> Result<()> {
+        for result in &report.cases {
+            append_immutable_jsonl(
+                &self.run_dir.join("retrieval-cases.jsonl"),
+                &result.id,
+                result,
+                |record| record.id.clone(),
+            )?;
+        }
+        let split = report
+            .cases
+            .first()
+            .map(|case| case.split)
+            .context("retrieval report has no cases")?;
+        let name = match split {
+            RetrievalSplit::Calibration => "retrieval-calibration",
+            RetrievalSplit::LockedTest => "retrieval-locked-test",
+        };
+        self.write_named_json(name, report)?;
+        self.write_checksums()?;
+        Ok(())
     }
 
     pub fn grades(&self) -> Result<Vec<GradeRecord>> {
@@ -131,6 +225,28 @@ impl BenchmarkArtifacts {
 
     pub fn write_summary(&self, summary: &BenchmarkSummary) -> Result<()> {
         write_json_replace(&self.run_dir.join("summary.json"), summary)
+    }
+
+    pub fn write_benchmark_markdown(&self, markdown: &str) -> Result<()> {
+        let path = self.run_dir.join("BENCHMARK.md");
+        AtomicFile::new(&path, AllowOverwrite).write(|file| file.write_all(markdown.as_bytes()))?;
+        Ok(())
+    }
+
+    pub fn write_checksums(&self) -> Result<usize> {
+        let mut files = Vec::new();
+        collect_files(&self.run_dir, &self.run_dir, &mut files)?;
+        files.sort_by(|left, right| left.0.cmp(&right.0));
+        let mut output = String::new();
+        for (relative, path) in &files {
+            output.push_str(&sha256(&fs::read(path)?));
+            output.push_str("  ");
+            output.push_str(&relative.replace('\\', "/"));
+            output.push('\n');
+        }
+        AtomicFile::new(self.run_dir.join("checksums.sha256"), AllowOverwrite)
+            .write(|file| file.write_all(output.as_bytes()))?;
+        Ok(files.len())
     }
 
     pub fn write_named_json<T: Serialize>(&self, name: &str, value: &T) -> Result<PathBuf> {
@@ -197,6 +313,24 @@ impl BenchmarkArtifacts {
     pub fn is_retired(&self) -> bool {
         self.run_dir.join("retired.json").is_file()
     }
+}
+
+fn collect_files(root: &Path, current: &Path, output: &mut Vec<(String, PathBuf)>) -> Result<()> {
+    for entry in fs::read_dir(current)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            collect_files(root, &entry.path(), output)?;
+        } else if entry.file_type()?.is_file() && entry.file_name() != "checksums.sha256" {
+            let relative = entry
+                .path()
+                .strip_prefix(root)
+                .context("checksum path escaped run root")?
+                .to_string_lossy()
+                .to_string();
+            output.push((relative, entry.path()));
+        }
+    }
+    Ok(())
 }
 
 pub fn latest_summary(

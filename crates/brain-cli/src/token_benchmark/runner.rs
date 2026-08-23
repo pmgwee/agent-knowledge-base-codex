@@ -22,6 +22,7 @@ pub struct ProcessOutput {
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
     pub timed_out: bool,
+    pub elapsed_ms: Option<u64>,
 }
 
 pub trait ProcessRunner {
@@ -34,6 +35,7 @@ pub struct SystemProcessRunner;
 impl ProcessRunner for SystemProcessRunner {
     fn run(&self, plan: &CommandPlan) -> Result<ProcessOutput> {
         ensure!(plan.timeout_seconds > 0, "process timeout must be positive");
+        let started = Instant::now();
         let mut command = Command::new(&plan.program);
         command
             .args(&plan.args)
@@ -45,7 +47,7 @@ impl ProcessRunner for SystemProcessRunner {
         let mut child = command
             .spawn()
             .with_context(|| format!("launch {}", plan.program.display()))?;
-        let deadline = Instant::now() + Duration::from_secs(plan.timeout_seconds);
+        let deadline = started + Duration::from_secs(plan.timeout_seconds);
         let mut timed_out = false;
         loop {
             if child.try_wait()?.is_some() {
@@ -59,11 +61,13 @@ impl ProcessRunner for SystemProcessRunner {
             thread::sleep(Duration::from_millis(25));
         }
         let output = child.wait_with_output()?;
+        let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         Ok(ProcessOutput {
             exit_code: output.status.code(),
             stdout: output.stdout,
             stderr: output.stderr,
             timed_out,
+            elapsed_ms: Some(elapsed_ms),
         })
     }
 }

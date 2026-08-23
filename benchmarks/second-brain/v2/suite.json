@@ -1,0 +1,361 @@
+{
+  "schema_version": 2,
+  "suite_id": "second-brain-five-condition-v2",
+  "benchmark_labels": {
+    "required": ["current_state", "candidate"],
+    "current_state": "Pinned behavior before any retrieval or orientation calibration",
+    "candidate": "Behavior after an explicitly accepted Priority 2 or Priority 4 change"
+  },
+  "external_references": [
+    {
+      "system": "AgentMemory hybrid",
+      "source_url": "https://github.com/rohitg00/agentmemory/blob/2973e4ec4c40d323a08daa34220118010e73a2c3/benchmark/LONGMEMEVAL.md",
+      "source_revision": "2973e4ec4c40d323a08daa34220118010e73a2c3",
+      "source_sha256": "72a5f411a969691bb893d6cc3613ae4737fa27d1e9e0de64c5e209322244c267",
+      "claims": [
+        {"benchmark": "LongMemEval-S, 500 questions", "metric": "R@5", "value": "95.2%", "evidence_class": "vendor-run retrieval-only", "comparability": "Same public corpus and metric; independent harness, not end-to-end QA"},
+        {"benchmark": "LongMemEval-S, 500 questions", "metric": "R@10", "value": "98.6%", "evidence_class": "vendor-run retrieval-only", "comparability": "Same public corpus and metric; independent harness, not end-to-end QA"},
+        {"benchmark": "LongMemEval-S, 500 questions", "metric": "MRR", "value": "88.2%", "evidence_class": "vendor-run retrieval-only", "comparability": "Same public corpus and metric; independent harness, not end-to-end QA"}
+      ]
+    },
+    {
+      "system": "AgentMemory hybrid",
+      "source_url": "https://github.com/rohitg00/agentmemory/blob/2973e4ec4c40d323a08daa34220118010e73a2c3/docs/benchmarks/2026-05-20-coding-agent-life-v1.md",
+      "source_revision": "2973e4ec4c40d323a08daa34220118010e73a2c3",
+      "source_sha256": "d3b3d1519775c794f91093338983055bd7ff87c7beb05646453c4303dea5ca1f",
+      "claims": [
+        {"benchmark": "coding-agent-life-v1, 15 fictional sessions and 15 queries", "metric": "P@5", "value": "0.240", "evidence_class": "vendor in-house synthetic retrieval", "comparability": "At this corpus's mathematical ceiling; not yet run through Secondary Brain"},
+        {"benchmark": "coding-agent-life-v1, 15 fictional sessions and 15 queries", "metric": "R@5", "value": "1.000", "evidence_class": "vendor in-house synthetic retrieval", "comparability": "Grep baseline is 0.967; one temporal gold session separates them"},
+        {"benchmark": "coding-agent-life-v1, 15 fictional sessions and 15 queries", "metric": "top-5 hit rate", "value": "15/15", "evidence_class": "vendor in-house synthetic retrieval", "comparability": "Grep also hits 15/15 queries; aggregate hit rate does not differentiate"},
+        {"benchmark": "coding-agent-life-v1, shared-state query", "metric": "p50 latency", "value": "14 ms", "evidence_class": "vendor in-house synthetic retrieval", "comparability": "Query-only latency on Apple Silicon; not comparable to coding execution time"}
+      ]
+    },
+    {
+      "system": "AgentMemory annual token model",
+      "source_url": "https://github.com/rohitg00/agentmemory/blob/2973e4ec4c40d323a08daa34220118010e73a2c3/benchmark/COMPARISON.md",
+      "source_revision": "2973e4ec4c40d323a08daa34220118010e73a2c3",
+      "source_sha256": "fa989e41dc0b9a581e365a7993cf9d666169e6bfc2690b754ba5f5d6eb5e10dd",
+      "claims": [
+        {"benchmark": "Published annual scenario", "metric": "paste-full-history tokens/year", "value": "19.5M+", "evidence_class": "vendor-modeled estimate", "comparability": "No native harness trace, matched work units, interval, or derivation is published"},
+        {"benchmark": "Published annual scenario", "metric": "LLM-summarized tokens/year", "value": "~650K", "evidence_class": "vendor-modeled estimate", "comparability": "No native harness trace, matched work units, interval, or derivation is published"},
+        {"benchmark": "Published annual scenario", "metric": "AgentMemory tokens/year", "value": "~170K", "evidence_class": "vendor-modeled estimate", "comparability": "Context estimate only; cannot populate Secondary Brain Goal 1"}
+      ]
+    },
+    {
+      "system": "AgentMemory reporting template",
+      "source_url": "https://github.com/rohitg00/agentmemory/blob/2973e4ec4c40d323a08daa34220118010e73a2c3/docs/benchmarks/TEMPLATE.md",
+      "source_revision": "2973e4ec4c40d323a08daa34220118010e73a2c3",
+      "source_sha256": "7aa9f0d585aa2eec31bdbe94ca84089a241a9c9780b1c6d3d835d5258a4614e5",
+      "claims": [
+        {"benchmark": "Scorecard presentation", "metric": "required reporting fields", "value": "commit, N/K, hardware, models, adapters, methodology, reproduce", "evidence_class": "external reporting template", "comparability": "Presentation reference only; contains no benchmark outcome"}
+      ]
+    },
+    {
+      "system": "AgentMemory quality fixture",
+      "source_url": "https://github.com/rohitg00/agentmemory/blob/2973e4ec4c40d323a08daa34220118010e73a2c3/benchmark/QUALITY.md",
+      "source_revision": "2973e4ec4c40d323a08daa34220118010e73a2c3",
+      "source_sha256": "dd73283a2f3059d836c455affbc0dad24fe6f6ce2c6297cd4b8651d65642587a",
+      "claims": [
+        {"benchmark": "240 synthetic observations, 20 concept-matched queries", "metric": "reported context reduction", "value": "86%", "evidence_class": "vendor synthetic context-payload comparison", "comparability": "3,142 retrieved-context tokens versus 22,610 load-all tokens; not net model usage or answer quality"}
+      ]
+    },
+    {
+      "system": "AgentMemory scale fixture",
+      "source_url": "https://github.com/rohitg00/agentmemory/blob/2973e4ec4c40d323a08daa34220118010e73a2c3/benchmark/SCALE.md",
+      "source_revision": "2973e4ec4c40d323a08daa34220118010e73a2c3",
+      "source_sha256": "d410e6b14aafc71715d25ba92a1287b98917d9cc3ddbbc94689102d27fb2a192",
+      "claims": [
+        {"benchmark": "240 to 50,000 synthetic observations", "metric": "reported context reduction", "value": "82% to 100% (rounded)", "evidence_class": "vendor synthetic scale model", "comparability": "Compares load-all context with top-10 payload; not native Claude/Codex usage"}
+      ]
+    },
+    {
+      "system": "AgentMemory CLI calculator",
+      "source_url": "https://github.com/rohitg00/agentmemory/blob/2973e4ec4c40d323a08daa34220118010e73a2c3/src/cli.ts",
+      "source_revision": "2973e4ec4c40d323a08daa34220118010e73a2c3",
+      "source_sha256": "e0732ed683be48dad20eab361b02b9a5ed8a8523ab627f7f12ee0689e2ee53a2",
+      "claims": [
+        {"benchmark": "status command token calculator", "metric": "savings formula", "value": "observations*80 - min(observations,50)*38", "evidence_class": "implementation heuristic", "comparability": "Estimated full/injected context, not observed native session tokens"}
+      ]
+    },
+    {
+      "system": "AgentMemory viewer calculator",
+      "source_url": "https://github.com/rohitg00/agentmemory/blob/2973e4ec4c40d323a08daa34220118010e73a2c3/src/viewer/index.html",
+      "source_revision": "2973e4ec4c40d323a08daa34220118010e73a2c3",
+      "source_sha256": "3bc7a68fb020f87b7dfac12b8b7af692c1a1749212632854532aa097cea0afc6",
+      "claims": [
+        {"benchmark": "viewer token calculator", "metric": "savings formula", "value": "observations*80 - sessions*tokenBudget", "evidence_class": "implementation heuristic", "comparability": "Clamped estimate with $0.30/1K cost assumption; not observed native usage"}
+      ]
+    }
+  ],
+  "pilot_task_ids": [
+    "memory-01", "memory-02", "memory-03",
+    "navigate-01", "navigate-02", "navigate-03",
+    "diagnose-01", "diagnose-02", "diagnose-03",
+    "change-01", "change-02", "change-03"
+  ],
+  "conditions": [
+    {"id": "c0", "name": "native_default", "codegraph": false, "session_start": false, "session_end": false, "user_prompt_submit": false, "brain_mcp": false},
+    {"id": "c1", "name": "codegraph_only", "codegraph": true, "session_start": false, "session_end": false, "user_prompt_submit": false, "brain_mcp": false},
+    {"id": "c2", "name": "startup_lifecycle", "codegraph": true, "session_start": true, "session_end": true, "user_prompt_submit": false, "brain_mcp": false},
+    {"id": "c3", "name": "prompt_push", "codegraph": true, "session_start": true, "session_end": true, "user_prompt_submit": true, "brain_mcp": false},
+    {"id": "c4", "name": "full_brain", "codegraph": true, "session_start": true, "session_end": true, "user_prompt_submit": true, "brain_mcp": true}
+  ],
+  "primary_contrasts": [
+    {"id": "c1_vs_c0", "baseline": "c0", "treatment": "c1", "question": "incremental CodeGraph value"},
+    {"id": "c2_vs_c1", "baseline": "c1", "treatment": "c2", "question": "incremental startup lifecycle value"},
+    {"id": "c3_vs_c2", "baseline": "c2", "treatment": "c3", "question": "incremental prompt push value"},
+    {"id": "c4_vs_c3", "baseline": "c3", "treatment": "c4", "question": "incremental on-demand MCP value"},
+    {"id": "c4_vs_c0", "baseline": "c0", "treatment": "c4", "question": "full architecture versus native default"},
+    {"id": "c4_vs_c1", "baseline": "c1", "treatment": "c4", "question": "Second Brain value after CodeGraph is held constant"}
+  ],
+  "formulas": {
+    "net_token_savings_percent": "100 * (baseline_native_total_tokens - treatment_native_total_tokens) / baseline_native_total_tokens",
+    "speedup_percent": "100 * (baseline_end_to_end_milliseconds - treatment_end_to_end_milliseconds) / baseline_end_to_end_milliseconds",
+    "quality_delta_percentage_points": "100 * (treatment_quality_rate - baseline_quality_rate)",
+    "citation_precision_percent": "100 * supported_returned_citations / returned_citations",
+    "retrieval_recall_percent": "100 * retrieved_acceptable_evidence / acceptable_evidence"
+  },
+  "statistics": {"bootstrap_resamples": 10000, "seed": 7640891576956012809, "cluster": "task_id", "multiplicity": "holm"},
+  "release_gates": {
+    "tokens": {"minimum_savings_percent": 10.0, "adjusted_confidence_low_percent": 0.0},
+    "speed": {"minimum_speedup_percent": 10.0, "adjusted_confidence_low_percent": 0.0, "maximum_failure_rate_increase_percentage_points": 1.0},
+    "quality": {"non_inferiority_margin_percentage_points": -2.0, "historical_superiority_percentage_points": 5.0, "citation_precision_percent": 100.0, "faithfulness_percent": 98.0, "cross_project_leakage_percent": 0.0, "stale_contradiction_percent": 0.0}
+  },
+  "tasks": [
+    {
+      "id": "memory-01", "stratum": "historical_recall",
+      "prompt": "Explain why a Context delivery total cannot be quoted as a token-savings percentage, and name the missing counterfactual.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["docs/**"],
+      "rubric": "rubrics/historical-recall.md", "reference_facts": ["Delivered context measures only tokens injected by the brain.", "Official savings requires matched native brain-off and brain-on totals."],
+      "continuation_episode": {"producer_harness": "claude_code", "consumer_harness": "codex", "history_fixture": "history/memory-01.jsonl"},
+      "automated_check": null, "critical_regression": "Must not claim a savings percentage from delivery totals alone.", "combined_eligible": true, "max_turns": 8, "max_tool_calls": 20, "timeout_seconds": 600
+    },
+    {
+      "id": "memory-02", "stratum": "historical_recall",
+      "prompt": "State the authoritative rule for assigning a captured transcript to a project and explain why directory proximity is insufficient.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["AGENTS.md", "CLAUDE.md", "docs/**"],
+      "rubric": "rubrics/historical-recall.md", "reference_facts": ["A transcript's recorded cwd decides ownership.", "Cross-project isolation is absolute."],
+      "continuation_episode": {"producer_harness": "codex", "consumer_harness": "claude_code", "history_fixture": "history/memory-02.jsonl"},
+      "automated_check": null, "critical_regression": "Must not recommend proximity-based ownership.", "combined_eligible": true, "max_turns": 8, "max_tool_calls": 20, "timeout_seconds": 600
+    },
+    {
+      "id": "memory-03", "stratum": "historical_recall",
+      "prompt": "Describe how to determine whether a hook fired when no context was delivered, including the first Codex trust check.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["AGENTS.md", "CLAUDE.md", "crates/brain-service/src/pipe.rs"],
+      "rubric": "rubrics/historical-recall.md", "reference_facts": ["Count the service log entry 'hook received', not context_deliveries.", "Check Codex hooks.state trust before spool/delivery conclusions."],
+      "continuation_episode": {"producer_harness": "claude_code", "consumer_harness": "codex", "history_fixture": "history/memory-03.jsonl"},
+      "automated_check": null, "critical_regression": "Must not equate a missing delivery row with a missing invocation.", "combined_eligible": true, "max_turns": 8, "max_tool_calls": 20, "timeout_seconds": 600
+    },
+    {
+      "id": "memory-04", "stratum": "historical_recall",
+      "prompt": "Explain the deployment contract after changing Rust code and how to verify the binaries actually running were updated.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["AGENTS.md", "CLAUDE.md", "scripts/deploy.ps1"],
+      "rubric": "rubrics/historical-recall.md", "reference_facts": ["Committing crates or Cargo changes triggers the detached post-commit deployment.", "brain dashboard deployment state verifies the installed source commit."],
+      "continuation_episode": {"producer_harness": "codex", "consumer_harness": "claude_code", "history_fixture": "history/memory-04.jsonl"},
+      "automated_check": null, "critical_regression": "Must not say cargo build alone ships installed binaries.", "combined_eligible": true, "max_turns": 8, "max_tool_calls": 20, "timeout_seconds": 600
+    },
+    {
+      "id": "memory-05", "stratum": "historical_recall",
+      "prompt": "Summarize the context budget contract and the current normal and hard maximum token bounds.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["AGENTS.md", "CLAUDE.md", "crates/brain-context/src/token_budget.rs"],
+      "rubric": "rubrics/historical-recall.md", "reference_facts": ["Normal orientation is 1,000-1,500 tokens.", "The hard maximum is 3,000 tokens."],
+      "continuation_episode": {"producer_harness": "claude_code", "consumer_harness": "codex", "history_fixture": "history/memory-05.jsonl"},
+      "automated_check": null, "critical_regression": "Must not weaken the hard context budget.", "combined_eligible": true, "max_turns": 8, "max_tool_calls": 20, "timeout_seconds": 600
+    },
+    {
+      "id": "memory-06", "stratum": "historical_recall",
+      "prompt": "Explain why brain_checkpoint is not a required Codex session-start step and when MCP retrieval is still appropriate.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["AGENTS.md", "CLAUDE.md"],
+      "rubric": "rubrics/historical-recall.md", "reference_facts": ["SessionStart already pushes orientation to Codex.", "MCP remains appropriate for depth on demand, such as search/timeline/evidence."],
+      "continuation_episode": {"producer_harness": "codex", "consumer_harness": "claude_code", "history_fixture": "history/memory-06.jsonl"},
+      "automated_check": null, "critical_regression": "Must not require redundant checkpoint retrieval at every start.", "combined_eligible": true, "max_turns": 8, "max_tool_calls": 20, "timeout_seconds": 600
+    },
+    {
+      "id": "memory-07", "stratum": "historical_recall",
+      "prompt": "Describe the append-only evidence rule and the permitted way to correct an earlier claim.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["AGENTS.md", "CLAUDE.md", "crates/brain-store/src/**"],
+      "rubric": "rubrics/historical-recall.md", "reference_facts": ["Evidence is never deleted or rewritten.", "Corrections supersede earlier records while retaining provenance."],
+      "continuation_episode": {"producer_harness": "claude_code", "consumer_harness": "codex", "history_fixture": "history/memory-07.jsonl"},
+      "automated_check": null, "critical_regression": "Must not recommend deleting or rewriting captured evidence.", "combined_eligible": true, "max_turns": 8, "max_tool_calls": 20, "timeout_seconds": 600
+    },
+    {
+      "id": "memory-08", "stratum": "historical_recall",
+      "prompt": "Give the complete project registration command contract and the operational step that must follow registration.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["AGENTS.md", "CLAUDE.md", "docs/registering-a-project.md"],
+      "rubric": "rubrics/historical-recall.md", "reference_facts": ["brain register takes only the local directory.", "Restart the service because capture bindings are built at startup."],
+      "continuation_episode": {"producer_harness": "codex", "consumer_harness": "claude_code", "history_fixture": "history/memory-08.jsonl"},
+      "automated_check": null, "critical_regression": "Must not invent per-harness registration or omit service restart.", "combined_eligible": true, "max_turns": 8, "max_tool_calls": 20, "timeout_seconds": 600
+    },
+
+    {
+      "id": "navigate-01", "stratum": "codebase_navigation",
+      "prompt": "Trace SessionStart from brain-hook input through the service to orientation compilation. Name the primary files and boundaries.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-hook/src/**", "crates/brain-service/src/**", "crates/brain-context/src/**"],
+      "rubric": "rubrics/codebase-navigation.md", "reference_facts": ["brain-hook sends a hook envelope to the named pipe.", "ProjectHookHandler invokes ContextCompiler for SessionStart."],
+      "automated_check": null, "critical_regression": "Must not describe capture as hook-dependent.", "combined_eligible": true, "max_turns": 10, "max_tool_calls": 30, "timeout_seconds": 720
+    },
+    {
+      "id": "navigate-02", "stratum": "codebase_navigation",
+      "prompt": "Locate and explain the SessionStart memory ranking path, including whether search and RRF are involved and whether vector retrieval is enabled.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-context/src/compiler.rs", "crates/brain-store/src/search.rs", "CLAUDE.md"],
+      "rubric": "rubrics/codebase-navigation.md", "reference_facts": ["rank_memories_against_recent_work calls memories_only search.", "The shared fusion path still runs as one-list identity ordering; SessionStart does not enable vector search."],
+      "automated_check": null, "critical_regression": "Must not repeat the false 'SessionStart never touches search/RRF' claim.", "combined_eligible": true, "max_turns": 10, "max_tool_calls": 30, "timeout_seconds": 720
+    },
+    {
+      "id": "navigate-03", "stratum": "codebase_navigation",
+      "prompt": "Trace how a source cursor is stored and advanced during append, and explain why source ordering is an invariant.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-store/src/cursor.rs", "crates/brain-store/src/ledger.rs", "crates/brain-domain/src/**"],
+      "rubric": "rubrics/codebase-navigation.md", "reference_facts": ["Cursors are keyed by source.", "Reordering or replacing a source list can orphan cursor continuity."],
+      "automated_check": null, "critical_regression": "Must not recommend replacing the source list wholesale.", "combined_eligible": true, "max_turns": 10, "max_tool_calls": 30, "timeout_seconds": 720
+    },
+    {
+      "id": "navigate-04", "stratum": "codebase_navigation",
+      "prompt": "Explain how all-source retrieval channels are fused and where graph expansion receives its evidence relationships.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-store/src/search.rs", "crates/brain-store/src/memory.rs", "crates/brain-context/src/retrieval.rs"],
+      "rubric": "rubrics/codebase-navigation.md", "reference_facts": ["RRF ranks lists rather than adding raw scores.", "Graph expansion follows memory-evidence relationships."],
+      "automated_check": null, "critical_regression": "Must not claim consolidation itself triggers retrieval.", "combined_eligible": true, "max_turns": 10, "max_tool_calls": 30, "timeout_seconds": 720
+    },
+    {
+      "id": "navigate-05", "stratum": "codebase_navigation",
+      "prompt": "Trace how the dashboard snapshot calculates context delivery summaries and identify why those values are not native model usage.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-cli/src/dashboard.rs", "crates/brain-store/src/context_metrics.rs"],
+      "rubric": "rubrics/codebase-navigation.md", "reference_facts": ["Dashboard delivery summaries come from context_deliveries.", "They record pushed context tokens, not provider total session tokens."],
+      "automated_check": null, "critical_regression": "Must not treat the heuristic delivery counter as native total usage.", "combined_eligible": true, "max_turns": 10, "max_tool_calls": 30, "timeout_seconds": 720
+    },
+    {
+      "id": "navigate-06", "stratum": "codebase_navigation",
+      "prompt": "Locate the deployment trigger and explain exactly which paths cause automatic deployment and which require a manual deploy.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": [".githooks/post-commit", "scripts/deploy.ps1", "AGENTS.md"],
+      "rubric": "rubrics/codebase-navigation.md", "reference_facts": ["crates/ and Cargo.* commits trigger deployment.", ".cargo-only changes require manual scripts/deploy.ps1."],
+      "automated_check": null, "critical_regression": "Must not remove or ignore static CRT deployment requirements.", "combined_eligible": true, "max_turns": 10, "max_tool_calls": 30, "timeout_seconds": 720
+    },
+    {
+      "id": "navigate-07", "stratum": "codebase_navigation",
+      "prompt": "Explain how review-gated memories remain invisible until approval and identify the source predicate or state transition that enforces it.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-service/src/config.rs", "crates/brain-store/src/memory.rs", "crates/brain-cli/src/review.rs"],
+      "rubric": "rubrics/codebase-navigation.md", "reference_facts": ["Proposed memories fail the current-claim visibility predicate.", "Approval changes state; rejection preserves the record."],
+      "automated_check": null, "critical_regression": "Must not describe rejection as deletion.", "combined_eligible": true, "max_turns": 10, "max_tool_calls": 30, "timeout_seconds": 720
+    },
+    {
+      "id": "navigate-08", "stratum": "codebase_navigation",
+      "prompt": "Trace project registration into service capture bindings and explain why a service restart is required after configuration changes.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-cli/src/register.rs", "crates/brain-service/src/main.rs", "crates/brain-service/src/capture.rs"],
+      "rubric": "rubrics/codebase-navigation.md", "reference_facts": ["Registration writes service project configuration.", "build_capture_bindings runs at service startup."],
+      "automated_check": null, "critical_regression": "Must not imply registration hot-reloads capture bindings today.", "combined_eligible": true, "max_turns": 10, "max_tool_calls": 30, "timeout_seconds": 720
+    },
+
+    {
+      "id": "diagnose-01", "stratum": "diagnosis_planning",
+      "prompt": "A dashboard shows 160,000 delivered tokens and labels them savings. Diagnose the validity error and give an implementation plan for a claimable metric.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-cli/src/dashboard.rs", "docs/**", "scripts/token-ab.ps1"],
+      "rubric": "rubrics/diagnosis-planning.md", "reference_facts": ["There is no brain-off counterfactual in delivery totals.", "A claimable plan needs matched native usage and quality gating."],
+      "automated_check": null, "critical_regression": "Must not manufacture a percentage from delivered tokens.", "combined_eligible": true, "max_turns": 12, "max_tool_calls": 35, "timeout_seconds": 900
+    },
+    {
+      "id": "diagnose-02", "stratum": "diagnosis_planning",
+      "prompt": "A hook diagnostic finds zero context_deliveries and zero spool files. List the evidence checks in the correct order before concluding the hook is broken.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["AGENTS.md", "CLAUDE.md", "crates/brain-service/src/pipe.rs"],
+      "rubric": "rubrics/diagnosis-planning.md", "reference_facts": ["First inspect Codex hooks.state trust.", "Then inspect hook received logs; delivery and spool silence can be healthy or never dispatched."],
+      "automated_check": null, "critical_regression": "Must not blame upstream before checking trust and invocation logs.", "combined_eligible": true, "max_turns": 12, "max_tool_calls": 35, "timeout_seconds": 900
+    },
+    {
+      "id": "diagnose-03", "stratum": "diagnosis_planning",
+      "prompt": "Design a safe A/B execution order that removes fixed-condition drift while retaining adjacent matched pairs and reproducibility.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["scripts/token-ab.ps1", "docs/**"],
+      "rubric": "rubrics/diagnosis-planning.md", "reference_facts": ["Pair first, shuffle pairs with a recorded seed, and randomize condition-first order.", "Keep each pair adjacent and run sessions sequentially."],
+      "automated_check": null, "critical_regression": "Must not use fixed bare-code-warm blocks as the official design.", "combined_eligible": true, "max_turns": 12, "max_tool_calls": 35, "timeout_seconds": 900
+    },
+    {
+      "id": "diagnose-04", "stratum": "diagnosis_planning",
+      "prompt": "Propose a hard-kill-safe condition isolation strategy for both harnesses without rewriting live settings, and specify the audit proof.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-cli/src/install_hooks.rs", "crates/brain-service/src/config.rs", "docs/**"],
+      "rubric": "rubrics/diagnosis-planning.md", "reference_facts": ["Use generated benchmark-scoped configuration and endpoint selection.", "Hash live settings before/after; only allow Agent Brain differences between conditions."],
+      "automated_check": null, "critical_regression": "Must not rewrite ~/.claude/settings.json or ~/.codex configuration.", "combined_eligible": true, "max_turns": 12, "max_tool_calls": 35, "timeout_seconds": 900
+    },
+    {
+      "id": "diagnose-05", "stratum": "diagnosis_planning",
+      "prompt": "A Codex JSONL run emits four cumulative token_count events. Explain how to normalize it and which validation failures invalidate the sample.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["docs/**"],
+      "rubric": "rubrics/diagnosis-planning.md", "reference_facts": ["Use the final monotonic total_token_usage.total_tokens.", "Do not sum cumulative events or add cached/reasoning breakdowns twice; missing/decreasing/malformed records are invalid."],
+      "automated_check": null, "critical_regression": "Must not double-count cached or reasoning fields.", "combined_eligible": true, "max_turns": 12, "max_tool_calls": 35, "timeout_seconds": 900
+    },
+    {
+      "id": "diagnose-06", "stratum": "diagnosis_planning",
+      "prompt": "Define the quality non-inferiority decision needed before a token reduction can be called savings, including the margin and critical-regression rule.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["docs/**"],
+      "rubric": "rubrics/diagnosis-planning.md", "reference_facts": ["The one-sided 95% lower bound for treatment-control success difference must be at least -0.02 overall and per harness.", "There must be zero treatment-only critical regressions."],
+      "automated_check": null, "critical_regression": "Must not equate fewer tokens with success when quality fails.", "combined_eligible": true, "max_turns": 12, "max_tool_calls": 35, "timeout_seconds": 900
+    },
+    {
+      "id": "diagnose-07", "stratum": "diagnosis_planning",
+      "prompt": "Plan how to keep a frozen Second Brain benchmark from adding events, jobs, or memories to production while preserving realistic retrieval.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-service/src/config.rs", "crates/brain-service/src/capture.rs", "docs/**"],
+      "rubric": "rubrics/diagnosis-planning.md", "reference_facts": ["Use a copied project-scoped brain home and unique endpoint.", "Benchmark checkout must be outside registered roots and benchmark service capture sources must be empty."],
+      "automated_check": null, "critical_regression": "Must not point benchmark sessions at the production endpoint.", "combined_eligible": true, "max_turns": 12, "max_tool_calls": 35, "timeout_seconds": 900
+    },
+    {
+      "id": "diagnose-08", "stratum": "diagnosis_planning",
+      "prompt": "Explain why averaging per-pair savings percentages can be misleading and specify the correct aggregate and confidence method.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["docs/**"],
+      "rubric": "rubrics/diagnosis-planning.md", "reference_facts": ["Use 1 - sum(treatment)/sum(control), not a mean of percentages.", "Use a task-clustered bootstrap so repeats are not independent pseudo-replicates."],
+      "automated_check": null, "critical_regression": "Must not exclude failed-quality pairs from token totals.", "combined_eligible": true, "max_turns": 12, "max_tool_calls": 35, "timeout_seconds": 900
+    },
+
+    {
+      "id": "change-01", "stratum": "bounded_change",
+      "prompt": "Add a focused unit test that proves a missing Claude cache-read counter is rejected rather than treated as zero. Do not change production behavior unless the test exposes a bug.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-cli/tests/**", "crates/brain-cli/src/**"],
+      "rubric": "rubrics/bounded-change.md", "reference_facts": ["All four Claude usage components are required for the official benchmark."],
+      "automated_check": "cargo test -p brain-cli token_benchmark", "critical_regression": "Must not estimate a missing native counter.", "combined_eligible": true, "max_turns": 15, "max_tool_calls": 45, "timeout_seconds": 1200
+    },
+    {
+      "id": "change-02", "stratum": "bounded_change",
+      "prompt": "Add a deterministic test showing two cumulative Codex token_count events produce the final total, not their sum.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-cli/tests/**", "crates/brain-cli/src/**"],
+      "rubric": "rubrics/bounded-change.md", "reference_facts": ["Codex token_count records are cumulative snapshots."],
+      "automated_check": "cargo test -p brain-cli token_benchmark", "critical_regression": "Must not sum cumulative records.", "combined_eligible": true, "max_turns": 15, "max_tool_calls": 45, "timeout_seconds": 1200
+    },
+    {
+      "id": "change-03", "stratum": "bounded_change",
+      "prompt": "Add a regression test that a context delivery with no pushed memories is still distinguishable from a hook invocation record. Keep the change limited to tests unless needed.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-service/src/**", "crates/brain-service/tests/**"],
+      "rubric": "rubrics/bounded-change.md", "reference_facts": ["Hook invocation logging occurs before the delivery decision."],
+      "automated_check": "cargo test -p brain-service", "critical_regression": "Must not make healthy silence indistinguishable from no invocation.", "combined_eligible": true, "max_turns": 15, "max_tool_calls": 45, "timeout_seconds": 1200
+    },
+    {
+      "id": "change-04", "stratum": "bounded_change",
+      "prompt": "Add a test that duplicate source-cursor replay is idempotent and does not create duplicate event rows.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-store/src/**", "crates/brain-store/tests/**"],
+      "rubric": "rubrics/bounded-change.md", "reference_facts": ["Evidence append and cursor movement must be replay-safe."],
+      "automated_check": "cargo test -p brain-store", "critical_regression": "Must not rewrite or delete existing evidence.", "combined_eligible": true, "max_turns": 15, "max_tool_calls": 45, "timeout_seconds": 1200
+    },
+    {
+      "id": "change-05", "stratum": "bounded_change",
+      "prompt": "Add a test that a project-scoped query never returns another project's events, using two in-memory ledgers or the existing isolation fixture.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-store/src/**", "crates/brain-store/tests/**", "tests/e2e/multi_project_isolation.rs"],
+      "rubric": "rubrics/bounded-change.md", "reference_facts": ["Cross-project isolation is absolute."],
+      "automated_check": "cargo test -p brain-cli --test multi_project_isolation", "critical_regression": "Any cross-project result is critical.", "combined_eligible": true, "max_turns": 15, "max_tool_calls": 45, "timeout_seconds": 1200
+    },
+    {
+      "id": "change-06", "stratum": "bounded_change",
+      "prompt": "Add a boundary test proving an orientation never exceeds the hard maximum token budget when input contains oversized memories.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-context/src/**", "crates/brain-context/tests/**"],
+      "rubric": "rubrics/bounded-change.md", "reference_facts": ["The context hard maximum is a contract, not a target."],
+      "automated_check": "cargo test -p brain-context", "critical_regression": "Must not raise or bypass the hard maximum.", "combined_eligible": true, "max_turns": 15, "max_tool_calls": 45, "timeout_seconds": 1200
+    },
+    {
+      "id": "change-07", "stratum": "bounded_change",
+      "prompt": "Add a test that rejecting a proposed memory retains the record while keeping it out of current retrieval.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-store/src/**", "crates/brain-cli/src/review.rs", "crates/brain-cli/tests/**"],
+      "rubric": "rubrics/bounded-change.md", "reference_facts": ["Review rejection is append-only state, not deletion."],
+      "automated_check": "cargo test -p brain-cli review", "critical_regression": "Must not delete rejected memory evidence.", "combined_eligible": true, "max_turns": 15, "max_tool_calls": 45, "timeout_seconds": 1200
+    },
+    {
+      "id": "change-08", "stratum": "bounded_change",
+      "prompt": "Add a test that the benchmark run command remains dry by default and reports zero paid sessions launched.",
+      "fixture_commit": "737b362aba76f3dfd557e5e38c804f60d28d3be5", "allowed_files": ["crates/brain-cli/src/**", "crates/brain-cli/tests/**"],
+      "rubric": "rubrics/bounded-change.md", "reference_facts": ["Only an explicit --execute flag may cross the paid-session boundary."],
+      "automated_check": "cargo test -p brain-cli token_benchmark", "critical_regression": "Must not launch a harness from the default command.", "combined_eligible": true, "max_turns": 15, "max_tool_calls": 45, "timeout_seconds": 1200
+    }
+  ]
+}

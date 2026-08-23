@@ -6,6 +6,10 @@ use brain_domain::{ProjectId, WorktreeId};
 use brain_service::ServiceLaunchConfig;
 use brain_store::EventLedger;
 
+use crate::session_status::{
+    SessionFilter, SessionLifecycleState, SessionStatusOptions, read_session_status,
+};
+
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct BrainStatus {
     pub brain_home: PathBuf,
@@ -22,7 +26,17 @@ pub struct BrainStatus {
     pub quarantined_records: u64,
     pub unresolved_capture_gaps: u64,
     pub active_schema_drifts: u64,
+    pub session_lifecycle: SessionLifecycleCounts,
     pub healthy: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+pub struct SessionLifecycleCounts {
+    pub active: u64,
+    pub stale_open: u64,
+    pub closed: u64,
+    pub historical_uninstrumented: u64,
+    pub truncated: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -68,6 +82,31 @@ pub fn read_status(
         unresolved_capture_gaps += ledger.unresolved_capture_gap_count(&source.source_id)?;
     }
     let active_schema_drifts = ledger.active_schema_drift_count()?;
+    let session_page = read_session_status(
+        &ledger,
+        project_config.project_id,
+        SessionStatusOptions {
+            filter: SessionFilter::All,
+            limit: 200,
+            cursor: None,
+            now: time::OffsetDateTime::now_utc(),
+            stale_after: time::Duration::minutes(30),
+        },
+    )?;
+    let mut session_lifecycle = SessionLifecycleCounts {
+        truncated: session_page.truncated,
+        ..SessionLifecycleCounts::default()
+    };
+    for session in session_page.sessions {
+        match session.state {
+            SessionLifecycleState::Active => session_lifecycle.active += 1,
+            SessionLifecycleState::StaleOpen => session_lifecycle.stale_open += 1,
+            SessionLifecycleState::Closed => session_lifecycle.closed += 1,
+            SessionLifecycleState::HistoricalUninstrumented => {
+                session_lifecycle.historical_uninstrumented += 1
+            }
+        }
+    }
 
     Ok(BrainStatus {
         brain_home: brain_home.to_path_buf(),
@@ -86,6 +125,7 @@ pub fn read_status(
         quarantined_records,
         unresolved_capture_gaps,
         active_schema_drifts,
+        session_lifecycle,
         healthy: unresolved_capture_gaps == 0 && active_schema_drifts == 0,
     })
 }

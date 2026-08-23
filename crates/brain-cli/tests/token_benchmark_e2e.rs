@@ -71,6 +71,23 @@ fn synthetic_run_reproduces_quality_blocked_report_without_dropping_failed_answe
         "schema_version": 1,
         "suite_id": "synthetic-v1",
         "pilot_task_ids": [],
+        "external_references": [
+            {
+                "system": "agentmemory",
+                "source_url": "https://github.com/rohitg00/agentmemory/blob/2973e4ec4c40d323a08daa34220118010e73a2c3/benchmark/COMPARISON.md",
+                "source_revision": "2973e4ec4c40d323a08daa34220118010e73a2c3",
+                "source_sha256": "fa989e41dc0b9a581e365a7993cf9d666169e6bfc2690b754ba5f5d6eb5e10dd",
+                "claims": [
+                    {
+                        "benchmark": "Annual token model",
+                        "metric": "tokens/year",
+                        "value": "~170K",
+                        "evidence_class": "vendor-modeled estimate",
+                        "comparability": "Not native Claude/Codex usage; context-only reference"
+                    }
+                ]
+            }
+        ],
         "tasks": [
             synthetic_task("memory", "historical_recall"),
             synthetic_task("navigate", "codebase_navigation")
@@ -83,10 +100,8 @@ fn synthetic_run_reproduces_quality_blocked_report_without_dropping_failed_answe
         )
         .expect("suite");
     for (path, model) in [
-        ("configs/claude-control.json", "claude-fixture"),
-        ("configs/claude-treatment.json", "claude-fixture"),
-        ("configs/codex-control.json", "codex-fixture"),
-        ("configs/codex-treatment.json", "codex-fixture"),
+        ("configs/claude-c0-native-default.json", "claude-fixture"),
+        ("configs/codex-c0-native-default.json", "codex-fixture"),
     ] {
         artifacts
             .write_immutable_file(
@@ -118,8 +133,10 @@ fn synthetic_run_reproduces_quality_blocked_report_without_dropping_failed_answe
                 executable_pins: BTreeMap::new(),
                 claude_condition_diff: condition.clone(),
                 codex_condition_diff: condition,
+                condition_profiles: None,
                 production_config_hashes: ProductionConfigHashes {
                     claude_settings: None,
+                    claude_mcp: None,
                     codex_hooks: None,
                     codex_config: None,
                 },
@@ -185,6 +202,12 @@ fn synthetic_run_reproduces_quality_blocked_report_without_dropping_failed_answe
     let dashboard_json = serde_json::to_string(&summary).expect("dashboard JSON");
     assert!(!dashboard_json.contains("wrong but cheaper treatment"));
     assert!(!dashboard_json.contains("correct control"));
+
+    let benchmark = std::fs::read_to_string(artifacts.run_dir().join("BENCHMARK.md"))
+        .expect("benchmark markdown");
+    assert!(benchmark.contains("External published context (not a C0-C4 result)"));
+    assert!(benchmark.contains("| agentmemory | Annual token model | tokens/year | ~170K |"));
+    assert!(benchmark.contains("never populate Goal 1, Goal 2, or Goal 3"));
 }
 
 fn planned(
@@ -225,6 +248,8 @@ fn sample_record(sample: &PlannedSample, total_tokens: u64, answer: &str) -> Sam
             total_tokens,
             native_records: 1,
         }),
+        elapsed_ms: Some(100),
+        native_trace: None,
         answer: answer.to_owned(),
         automated_test_passed: None,
         stdout_sha256: "1".repeat(64),

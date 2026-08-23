@@ -31,6 +31,7 @@ mod embedding;
 mod evict;
 mod jobs;
 mod ledger;
+mod lifecycle;
 mod markdown;
 mod memory;
 mod migrations;
@@ -71,6 +72,11 @@ pub use jobs::{
     MAX_JOB_PAYLOAD_BYTES, RedactionManifestEntry,
 };
 pub use ledger::{AppendResult, EventLedger, NativeUsageEvent, StoredEvent};
+pub use lifecycle::{
+    LifecycleChannel, LifecycleEvent, LifecycleFold, LifecycleStage, RetrievalDecision,
+    RetrievalDecisionFold, RetrievalOutcome, RetrievalReasonCode, SessionAttribution,
+    TelemetryQuery, fold_lifecycle, fold_retrieval_decisions,
+};
 pub use markdown::{
     MarkdownProjector, ProjectionReport, ProjectionVerification, project_vault_root,
 };

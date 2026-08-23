@@ -59,6 +59,9 @@ pub struct McpWiring {
     pub server_name: String,
     pub command: PathBuf,
     pub command_present: bool,
+    pub configured: bool,
+    pub approved_or_connected: Option<bool>,
+    pub status: String,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -98,11 +101,29 @@ pub fn read_config_panel(
     let claude_settings = home.join(".claude").join("settings.json");
     let codex_hooks = home.join(".codex").join("hooks.json");
     let codex_config = home.join(".codex").join("config.toml");
+    let claude_mcp = crate::install_mcp::inspect_claude_mcp(Path::new("claude"))
+        .ok()
+        .flatten()
+        .map(|(command, connected, raw)| McpWiring {
+            config_path: home.join(".claude.json"),
+            server_name: "brain".to_owned(),
+            command_present: command.is_file(),
+            command,
+            configured: true,
+            approved_or_connected: Some(connected),
+            status: if connected {
+                "connected".to_owned()
+            } else if raw.to_lowercase().contains("pending approval") {
+                "pending_approval".to_owned()
+            } else {
+                "configured_not_connected".to_owned()
+            },
+        });
 
     let mut harnesses = vec![harness_wiring(
         "claude-code",
         &claude_settings,
-        None,
+        claude_mcp,
         "Push. The harness invokes the hook and injects the reply as developer context — nothing \
          is visible in the UI, which is why a silent failure here went unnoticed for days.",
     )?];
@@ -272,6 +293,9 @@ fn codex_mcp_wiring(config_path: &Path) -> Result<Option<McpWiring>> {
                 server_name: "brain".to_owned(),
                 command_present: path.is_file(),
                 command: path,
+                configured: true,
+                approved_or_connected: None,
+                status: "configured_connection_not_observable".to_owned(),
             }));
         }
     }

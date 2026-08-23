@@ -12,6 +12,36 @@ research it rests on, and the comparisons that shaped it. This file answers one 
 
 ## Summary
 
+### 13 August 2026 — three-goal component benchmark and lifecycle observability
+
+The five-condition C0–C4 benchmark is implemented for both native harnesses: C0 native only, C1
+CodeGraph, C2 startup/end hooks, C3 prompt pushes, and C4 Brain MCP depth. It now has a real isolated
+launcher rather than placeholder executables, native JSON/JSONL token and tool tracing, fresh homes
+and checkouts, neutral instructions, production-setting drift checks, lifecycle receipts, blind
+grading, clustered percentage intervals, three independent goal verdicts, and recursive artifact
+checksums. Claude Brain MCP wiring is implemented through the supported `claude mcp` interface but
+remains an explicit operator install; this work did not silently edit user configuration.
+
+The visible deterministic retrieval calibration completed locally: **120/120 valid cases**, 100.0%
+precision/recall/F1/MRR/nDCG@5/fact accuracy/citation precision/citation coverage/faithfulness/
+freshness/abstention, **0.0% harmful push**, and **100.0% healthy silence**. This is an isolated
+one-case-per-ledger component fixture. It proves exact evidence resolution and scoring, not better
+coding-agent answers or production-corpus retrieval. The locked 120-case split has not been opened.
+
+The matched release-mode LongMemEval-S rerun completed over all 500 questions: **96.0% R@5,
+98.2% R@10, 0.922 MRR**, 23,867 sessions, 246,750 turns, and 243,657 vectors in 13,214.1
+seconds. That is **0.0 percentage-point / 0.0% relative change** from the frozen hybrid baseline and
+passes the preregistered at-least-95.0% / at-most-1-point-regression gate. A separate BM25-only
+diagnostic measured 93.2% R@5, 96.6% R@10, and 0.892 MRR; it is a different configuration, not a
+regression result.
+
+A real 20-session smoke preflight launched **0 paid sessions**. All capability-profile, cumulative
+condition-diff, and capture-isolation checks passed. Its only failed gate is intentionally
+`brain_source_clean`: the implementation worktree is uncommitted, so the diagnostic run is invalid
+for a release claim. Therefore Goal 1 token savings, Goal 2 coding time, and Goal 3 final-answer
+quality remain **Not measured**. The 20-session smoke, 240-session pilot, and 1,600-session claimable
+matrix still require their separate explicit `--execute` approvals.
+
 ### 11 August 2026 — token-savings benchmark implementation
 
 The former Claude-only `scripts/token-ab.ps1` experiment is retired. The benchmark core is now a
@@ -26,6 +56,12 @@ the token denominator and blocks the claim. **No live benchmark has been execute
 percentage exists yet.** A percentage becomes official only when an explicit operator-run matrix is
 complete, blind-graded, and reaches `Proven`; every other state generates wording that refuses the
 claim. Production token history is shown separately and labelled observational.
+
+The compact current outcome and AgentMemory comparison now lives in
+`benchmarks/second-brain/v2/FINAL-OUTCOMES.md`. AgentMemory's published `~170K` tokens/year, 86%
+quality-fixture reduction, and 82%-100% scale reductions are retained as external modeled
+context-payload comparisons. They are not native Claude/Codex usage and cannot fill this project's
+token-savings result.
 
 **All 500 LongMemEval-S instances are measured: 96.0% R@5, 98.2% R@10, 0.922 MRR.** For the first
 time this is a pooled number over the whole dataset rather than one category, so it can be set

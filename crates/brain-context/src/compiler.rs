@@ -85,12 +85,42 @@ impl ContextCompiler {
         project_id: ProjectId,
         limit: usize,
     ) -> Result<Self> {
+        Self::from_ledger_at(
+            ledger,
+            project_id,
+            limit,
+            time::OffsetDateTime::now_utc(),
+            true,
+        )
+    }
+
+    /// Load the same SessionStart material as [`Self::from_ledger`], frozen at a benchmark cutoff.
+    ///
+    /// This is not a second retrieval implementation: production and evaluation delegate to one
+    /// private loader. The evaluator keeps access accounting read-only, so rerunning it cannot
+    /// strengthen or de-stale the memories it is measuring.
+    pub fn from_ledger_as_of(
+        ledger: &brain_store::EventLedger,
+        project_id: ProjectId,
+        limit: usize,
+        as_of: time::OffsetDateTime,
+    ) -> Result<Self> {
+        Self::from_ledger_at(ledger, project_id, limit, as_of, false)
+    }
+
+    fn from_ledger_at(
+        ledger: &brain_store::EventLedger,
+        project_id: ProjectId,
+        limit: usize,
+        as_of: time::OffsetDateTime,
+        record_access: bool,
+    ) -> Result<Self> {
         // Timed per step. `from_ledger` was 14.3 s on one project and 0.3 s on another with more
         // memories, so which *step* costs the time was never deducible from the totals — and a
         // wrong guess here already cost one rewrite aimed at the wrong query.
         let started = std::time::Instant::now();
         let events = ledger
-            .recent_events(project_id, limit)?
+            .recent_events_as_of(project_id, as_of, limit)?
             .into_iter()
             .map(|event| ContextEvidence {
                 event_id: event.event_id,
@@ -110,17 +140,15 @@ impl ContextCompiler {
             })
             .collect::<Vec<_>>();
         let events_ms = started.elapsed().as_millis();
-        let ranking = rank_memories_against_recent_work(ledger, project_id, &events);
+        let ranking =
+            rank_memories_against_recent_work(ledger, project_id, &events, as_of, record_access);
         let ranking_ms = started.elapsed().as_millis() - events_ms;
         // Demoted, never dropped. A stale memory is one nothing has asked for in ninety days, which
         // is a weak signal on its own — plenty of correct claims are simply never queried. It is
         // strong enough to break a tie for the last slot in an orientation and not strong enough
         // to justify hiding anything.
         let stale = ledger
-            .stale_memory_ids(
-                time::OffsetDateTime::now_utc(),
-                time::Duration::days(STALE_AFTER_DAYS),
-            )
+            .stale_memory_ids(as_of, time::Duration::days(STALE_AFTER_DAYS))
             .unwrap_or_default();
         let stale_ms = started.elapsed().as_millis() - events_ms - ranking_ms;
         let memories = ledger.current_project_memories()?;
@@ -397,6 +425,8 @@ fn rank_memories_against_recent_work(
     ledger: &brain_store::EventLedger,
     project_id: ProjectId,
     events: &[ContextEvidence],
+    as_of: time::OffsetDateTime,
+    record_access: bool,
 ) -> Vec<uuid::Uuid> {
     let mut query = String::new();
     for event in events.iter().take(RECENT_TURNS_AS_QUERY) {
@@ -412,9 +442,13 @@ fn rank_memories_against_recent_work(
     if query.trim().is_empty() {
         return Vec::new();
     }
-    let search = brain_store::SearchQuery::text(project_id, query)
+    let mut search = brain_store::SearchQuery::text(project_id, query)
+        .as_of(as_of)
         .memories_only()
         .with_limit(64);
+    if !record_access {
+        search = search.without_access_recording();
+    }
     match ledger.search(&search) {
         Ok(hits) => hits.into_iter().filter_map(|hit| hit.memory_id).collect(),
         Err(_) => Vec::new(),

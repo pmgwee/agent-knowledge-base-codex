@@ -3,15 +3,18 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use brain_cli::{
     AgentSourceOptions, BenchmarkArtifacts, BenchmarkPreflightOptions, BenchmarkProfile,
-    RegisterOptions, ServiceInstallOptions, TaskCommands, benchmark_corpus,
+    RegisterOptions, RetrievalBenchmarkOptions, RetrievalSplit, ServiceInstallOptions,
+    SessionFilter, SessionStatusOptions, TaskCommands, benchmark_corpus,
     build_report_from_artifacts, configure_codegraph, configure_llm_wiki, disable_provider,
-    execute_benchmark_run, export_grading_bundle, import_grades, index_codegraph,
-    install_claude_hooks, install_codex_hooks, install_windows_service, latest_summary,
+    evaluate_retrieval_cases, evaluate_retrieval_fixture_cases, execute_benchmark_run,
+    export_grading_bundle, import_grades, index_codegraph, install_claude_hooks,
+    install_claude_mcp, install_codex_hooks, install_windows_service, latest_summary,
     preflight_benchmark, preview_benchmark_run, provider_status, read_dashboard, read_diagnostics,
-    read_hermes_status, read_status, rebuild_basic_memory, rebuild_markdown,
-    register_project_with_sources, remove_provider, source_fingerprint, start_windows_service,
-    stop_windows_service, uninstall_claude_hooks, uninstall_codex_hooks, uninstall_windows_service,
-    verify_projections, windows_service_status,
+    read_gold_cases, read_hermes_status, read_session_status, read_status, rebuild_basic_memory,
+    rebuild_markdown, register_project_with_sources, remove_provider, run_retrieval_benchmark,
+    run_retrieval_fixture_benchmark, sha256_file, source_fingerprint, start_windows_service,
+    stop_windows_service, uninstall_claude_hooks, uninstall_claude_mcp, uninstall_codex_hooks,
+    uninstall_windows_service, verify_projections, windows_service_status,
 };
 use brain_coordination::{ClaimKind, PathClaimInput, SessionIdentity};
 use brain_domain::{BrainConfig, Harness, ProjectId, ProjectRegistry};
@@ -62,6 +65,10 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    Sessions {
+        #[command(subcommand)]
+        action: SessionsCommand,
+    },
     InstallHooks {
         harness: HookHarness,
         #[arg(long)]
@@ -69,12 +76,24 @@ enum Command {
         #[arg(long)]
         hook_executable: Option<PathBuf>,
     },
+    InstallMcp {
+        #[arg(long, value_enum)]
+        harness: McpHarness,
+        #[arg(long)]
+        claude_executable: Option<PathBuf>,
+    },
     UninstallHooks {
         harness: HookHarness,
         #[arg(long)]
         settings: Option<PathBuf>,
         #[arg(long)]
         hook_executable: Option<PathBuf>,
+    },
+    UninstallMcp {
+        #[arg(long, value_enum)]
+        harness: McpHarness,
+        #[arg(long)]
+        claude_executable: Option<PathBuf>,
     },
     Query {
         #[arg(long)]
@@ -411,6 +430,11 @@ enum BenchmarkCommand {
     },
     /// Validate and freeze one zero-cost benchmark run.
     Preflight(Box<BenchmarkPreflightCommand>),
+    /// Run the deterministic local retrieval gold-set evaluator.
+    Retrieval {
+        #[command(subcommand)]
+        action: BenchmarkRetrievalCommand,
+    },
     /// Preview by default. `--execute` is the only paid-session boundary.
     Run {
         #[arg(long)]
@@ -451,6 +475,48 @@ enum BenchmarkCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum SessionsCommand {
+    Status {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        active: bool,
+        #[arg(long)]
+        closed: bool,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+        #[arg(long)]
+        cursor: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum BenchmarkRetrievalCommand {
+    /// Visible split used only for threshold calibration.
+    Calibration(BenchmarkRetrievalArgs),
+    /// Locked split used once after configuration is frozen.
+    LockedTest(BenchmarkRetrievalArgs),
+}
+
+#[derive(Args)]
+struct BenchmarkRetrievalArgs {
+    #[arg(long)]
+    project: String,
+    #[arg(long)]
+    gold: PathBuf,
+    #[arg(long, required_unless_present = "run", conflicts_with = "run")]
+    output: Option<PathBuf>,
+    /// Attach the immutable retrieval cases and summary to an existing benchmark run.
+    #[arg(long, conflicts_with = "output")]
+    run: Option<uuid::Uuid>,
+    /// Build one isolated deterministic ledger per gold case instead of reading production data.
+    #[arg(long)]
+    fixture: bool,
+}
+
 #[derive(Args)]
 struct BenchmarkPreflightCommand {
     #[arg(long)]
@@ -467,16 +533,14 @@ struct BenchmarkPreflightCommand {
     seed: u64,
     #[arg(long, default_value_t = 5)]
     repeats: u32,
+    /// Prepare the exact 20-session (two tasks x two harnesses x five conditions) schema smoke.
+    #[arg(long, conflicts_with = "pilot")]
+    smoke: bool,
     #[arg(long)]
     pilot: bool,
+    /// Directory containing the ten audited C0-C4 condition profiles.
     #[arg(long)]
-    claude_control_config: PathBuf,
-    #[arg(long)]
-    claude_treatment_config: PathBuf,
-    #[arg(long)]
-    codex_control_config: PathBuf,
-    #[arg(long)]
-    codex_treatment_config: PathBuf,
+    condition_profiles: PathBuf,
     /// Immutable native launcher profiles used by both conditions.
     #[arg(long)]
     execution_templates: PathBuf,
@@ -796,6 +860,11 @@ enum HookHarness {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum McpHarness {
+    Claude,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 enum StatusHarness {
     Hermes,
 }
@@ -913,6 +982,57 @@ fn run() -> Result<()> {
                 }
             }
         }
+        Command::Sessions {
+            action:
+                SessionsCommand::Status {
+                    project,
+                    active,
+                    closed,
+                    limit,
+                    cursor,
+                    json,
+                },
+        } => {
+            let project_id = ProjectRegistry::open(&brain_home)?.resolve(&project)?;
+            let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(&brain_home))?;
+            let project = config
+                .projects
+                .iter()
+                .find(|project| project.project_id == project_id)
+                .context("project is not registered")?;
+            let ledger = EventLedger::open(&project.ledger_path, project_id)?;
+            let page = read_session_status(
+                &ledger,
+                project_id,
+                SessionStatusOptions {
+                    filter: selected_session_filter(active, closed),
+                    limit,
+                    cursor,
+                    now: time::OffsetDateTime::now_utc(),
+                    stale_after: time::Duration::minutes(30),
+                },
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&page)?);
+            } else {
+                for session in page.sessions {
+                    println!(
+                        "{} {} {:?} startup={:?} prompt={:?} mcp={:?} end={:?} capture={:?}",
+                        session.harness.as_str(),
+                        session.native_session_id,
+                        session.state,
+                        session.startup.state,
+                        session.prompt_push.state,
+                        session.mcp_pull.state,
+                        session.session_end.state,
+                        session.capture.state
+                    );
+                }
+                if let Some(cursor) = page.next_cursor {
+                    println!("next_cursor: {cursor}");
+                }
+            }
+        }
         Command::Status {
             project,
             harness: None,
@@ -955,6 +1075,14 @@ fn run() -> Result<()> {
             )?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
+        Command::InstallMcp {
+            harness: McpHarness::Claude,
+            claude_executable,
+        } => {
+            let executable = claude_executable.unwrap_or_else(|| PathBuf::from("claude"));
+            let result = install_claude_mcp(&brain_home, &executable)?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
         Command::UninstallHooks {
             harness: HookHarness::Claude,
             settings,
@@ -964,6 +1092,14 @@ fn run() -> Result<()> {
                 settings.unwrap_or(default_claude_settings()?),
                 hook_executable.unwrap_or(default_hook_executable()?),
             )?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::UninstallMcp {
+            harness: McpHarness::Claude,
+            claude_executable,
+        } => {
+            let executable = claude_executable.unwrap_or_else(|| PathBuf::from("claude"));
+            let result = uninstall_claude_mcp(&brain_home, &executable)?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
         Command::UninstallHooks {
@@ -1972,33 +2108,103 @@ retired {retired} memories as tombstones"
                     run_id,
                     seed,
                     repeats,
+                    smoke,
                     pilot,
-                    claude_control_config,
-                    claude_treatment_config,
-                    codex_control_config,
-                    codex_treatment_config,
+                    condition_profiles,
                     execution_templates,
                 } = *arguments;
+                let project_id = parse_project_id(&project)?;
                 let report = preflight_benchmark(BenchmarkPreflightOptions {
                     brain_home: brain_home.clone(),
-                    project_id: parse_project_id(&project)?,
+                    project_id,
                     suite_path: suite,
                     repository,
                     snapshot_source,
                     run_id,
                     seed,
                     repeats,
+                    smoke,
                     pilot,
-                    claude_control_config,
-                    claude_treatment_config,
-                    codex_control_config,
-                    codex_treatment_config,
+                    condition_profiles,
                     execution_templates,
                 })?;
+                BenchmarkArtifacts::new(&brain_home, project_id, report.run_id)?
+                    .append_command("preflight", current_cli_argv())?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
                 if !report.valid {
                     anyhow::bail!("benchmark preflight failed");
                 }
+            }
+            BenchmarkCommand::Retrieval { action } => {
+                let (arguments, split) = match action {
+                    BenchmarkRetrievalCommand::Calibration(arguments) => {
+                        (arguments, RetrievalSplit::Calibration)
+                    }
+                    BenchmarkRetrievalCommand::LockedTest(arguments) => {
+                        (arguments, RetrievalSplit::LockedTest)
+                    }
+                };
+                let project_id = ProjectRegistry::open(&brain_home)?.resolve(&arguments.project)?;
+                let config_path = ServiceLaunchConfig::default_path(&brain_home);
+                let config = ServiceLaunchConfig::load(&config_path)?;
+                let executable = std::env::current_exe()?;
+                let executable_sha256 = sha256_file(&executable)?;
+                let config_sha256 = sha256_file(&config_path)?;
+                let report = if let Some(run) = arguments.run {
+                    let cases = read_gold_cases(&arguments.gold, split)?;
+                    let report = if arguments.fixture {
+                        evaluate_retrieval_fixture_cases(
+                            project_id,
+                            &cases,
+                            &executable_sha256,
+                            &config_sha256,
+                        )?
+                    } else {
+                        let project = config
+                            .projects
+                            .iter()
+                            .find(|project| project.project_id == project_id)
+                            .context("project is not registered")?;
+                        let ledger = EventLedger::open(&project.ledger_path, project_id)?;
+                        evaluate_retrieval_cases(
+                            &ledger,
+                            project_id,
+                            &cases,
+                            &executable_sha256,
+                            &config_sha256,
+                        )?
+                    };
+                    let artifacts = BenchmarkArtifacts::new(&brain_home, project_id, run)?;
+                    artifacts.append_command(
+                        match split {
+                            RetrievalSplit::Calibration => "retrieval_calibration",
+                            RetrievalSplit::LockedTest => "retrieval_locked_test",
+                        },
+                        current_cli_argv(),
+                    )?;
+                    artifacts.attach_retrieval_report(&report)?;
+                    report
+                } else {
+                    let options = RetrievalBenchmarkOptions {
+                        gold_path: arguments.gold,
+                        output_dir: arguments.output.context("output is required")?,
+                        split,
+                        executable_sha256,
+                        config_sha256,
+                    };
+                    if arguments.fixture {
+                        run_retrieval_fixture_benchmark(project_id, &options)?
+                    } else {
+                        let project = config
+                            .projects
+                            .iter()
+                            .find(|project| project.project_id == project_id)
+                            .context("project is not registered")?;
+                        let ledger = EventLedger::open(&project.ledger_path, project_id)?;
+                        run_retrieval_benchmark(&ledger, project_id, &options)?
+                    }
+                };
+                println!("{}", serde_json::to_string_pretty(&report)?);
             }
             BenchmarkCommand::Run {
                 project,
@@ -2006,6 +2212,14 @@ retired {retired} memories as tombstones"
                 execute,
             } => {
                 let project = parse_project_id(&project)?;
+                BenchmarkArtifacts::new(&brain_home, project, run)?.append_command(
+                    if execute {
+                        "run_execute"
+                    } else {
+                        "run_preview"
+                    },
+                    current_cli_argv(),
+                )?;
                 let preview = if execute {
                     execute_benchmark_run(&brain_home, project, run)?
                 } else {
@@ -2017,6 +2231,7 @@ retired {retired} memories as tombstones"
                 BenchmarkGradeCommand::Export { project, run } => {
                     let artifacts =
                         BenchmarkArtifacts::new(&brain_home, parse_project_id(&project)?, run)?;
+                    artifacts.append_command("grade_export", current_cli_argv())?;
                     let manifest = artifacts.manifest()?;
                     let task_text = artifacts.read_named_json("grading-tasks")?;
                     let exported = export_grading_bundle(&artifacts, &task_text, manifest.seed)?;
@@ -2038,6 +2253,7 @@ retired {retired} memories as tombstones"
                 } => {
                     let artifacts =
                         BenchmarkArtifacts::new(&brain_home, parse_project_id(&project)?, run)?;
+                    artifacts.append_command("grade_import", current_cli_argv())?;
                     let graded_at = time::OffsetDateTime::now_utc()
                         .format(&time::format_description::well_known::Rfc3339)?;
                     let imported =
@@ -2046,8 +2262,10 @@ retired {retired} memories as tombstones"
                 }
             },
             BenchmarkCommand::Report { project, run } => {
-                let report =
-                    build_report_from_artifacts(&brain_home, parse_project_id(&project)?, run)?;
+                let project_id = parse_project_id(&project)?;
+                BenchmarkArtifacts::new(&brain_home, project_id, run)?
+                    .append_command("report", current_cli_argv())?;
+                let report = build_report_from_artifacts(&brain_home, project_id, run)?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
             }
             BenchmarkCommand::Show { project, run } => {
@@ -2269,10 +2487,28 @@ fn owner(harness: CliHarness, native_session_id: String) -> SessionIdentity {
     }
 }
 
+fn selected_session_filter(active: bool, closed: bool) -> SessionFilter {
+    if active && closed {
+        SessionFilter::All
+    } else if active {
+        SessionFilter::Active
+    } else if closed {
+        SessionFilter::Closed
+    } else {
+        SessionFilter::All
+    }
+}
+
 fn parse_project_id(value: &str) -> Result<ProjectId> {
     Ok(ProjectId(
         uuid::Uuid::parse_str(value).with_context(|| format!("invalid project ID {value}"))?,
     ))
+}
+
+fn current_cli_argv() -> Vec<String> {
+    std::env::args_os()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect()
 }
 
 fn default_claude_projects_root() -> Option<PathBuf> {
@@ -2323,4 +2559,41 @@ fn default_hook_executable() -> Result<PathBuf> {
         "brain-hook"
     };
     Ok(current.with_file_name(name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sessions_status_accepts_active_and_closed_together() {
+        let cli = Cli::try_parse_from([
+            "brain",
+            "sessions",
+            "status",
+            "--project",
+            "019fcd85-f41b-77b2-a4c0-618c28fe1d6b",
+            "--active",
+            "--closed",
+            "--json",
+        ])
+        .expect("active and closed are cumulative status selections");
+
+        assert!(matches!(
+            cli.command,
+            Command::Sessions {
+                action: SessionsCommand::Status {
+                    active: true,
+                    closed: true,
+                    json: true,
+                    ..
+                }
+            }
+        ));
+    }
+
+    #[test]
+    fn active_and_closed_select_the_combined_session_view() {
+        assert_eq!(selected_session_filter(true, true), SessionFilter::All);
+    }
 }

@@ -287,27 +287,58 @@ impl BrainTools {
     }
 
     pub fn call(&self, name: &str, arguments: Value) -> Result<Value> {
-        match name {
-            "brain_search" => serialize(self.service.search(parse(arguments)?)),
-            "brain_timeline" => serialize(self.service.timeline(parse(arguments)?)),
-            "brain_checkpoint" => serialize(self.service.checkpoint(parse(arguments)?)),
-            "brain_evidence" => serialize(self.service.evidence(parse(arguments)?)),
-            "brain_correct" => serialize(self.service.correct(parse(arguments)?)),
-            "brain_status" => serialize(self.service.status(parse(arguments)?)),
-            "brain_claim" => serialize(self.service.claim(parse(arguments)?)),
-            "brain_claims" => serialize(self.service.claims(parse(arguments)?)),
-            "brain_release_claim" => serialize(self.service.release_claim(parse(arguments)?)),
-            "brain_lease_acquire" => serialize(self.service.acquire_lease(parse(arguments)?)),
-            "brain_lease_renew" => serialize(self.service.renew_lease(parse(arguments)?)),
-            "brain_lease_release" => serialize(self.service.release_lease(parse(arguments)?)),
-            "brain_lease_handoff" => serialize(self.service.handoff_lease(parse(arguments)?)),
-            "brain_leases" => serialize(self.service.leases(parse(arguments)?)),
-            "brain_merge_preflight" => serialize(self.service.preflight(parse(arguments)?)),
-            "brain_context_for_prompt" => {
-                serialize(self.service.context_for_prompt(parse(arguments)?))
+        let _ = self.service.record_mcp_lifecycle(
+            name,
+            &arguments,
+            brain_service::McpLifecycleStage::Request,
+            None,
+        );
+        let result = (|| -> Result<Value> {
+            match name {
+                "brain_search" => serialize(self.service.search(parse(arguments.clone())?)),
+                "brain_timeline" => serialize(self.service.timeline(parse(arguments.clone())?)),
+                "brain_checkpoint" => serialize(self.service.checkpoint(parse(arguments.clone())?)),
+                "brain_evidence" => serialize(self.service.evidence(parse(arguments.clone())?)),
+                "brain_correct" => serialize(self.service.correct(parse(arguments.clone())?)),
+                "brain_status" => serialize(self.service.status(parse(arguments.clone())?)),
+                "brain_claim" => serialize(self.service.claim(parse(arguments.clone())?)),
+                "brain_claims" => serialize(self.service.claims(parse(arguments.clone())?)),
+                "brain_release_claim" => {
+                    serialize(self.service.release_claim(parse(arguments.clone())?))
+                }
+                "brain_lease_acquire" => {
+                    serialize(self.service.acquire_lease(parse(arguments.clone())?))
+                }
+                "brain_lease_renew" => {
+                    serialize(self.service.renew_lease(parse(arguments.clone())?))
+                }
+                "brain_lease_release" => {
+                    serialize(self.service.release_lease(parse(arguments.clone())?))
+                }
+                "brain_lease_handoff" => {
+                    serialize(self.service.handoff_lease(parse(arguments.clone())?))
+                }
+                "brain_leases" => serialize(self.service.leases(parse(arguments.clone())?)),
+                "brain_merge_preflight" => {
+                    serialize(self.service.preflight(parse(arguments.clone())?))
+                }
+                "brain_context_for_prompt" => {
+                    serialize(self.service.context_for_prompt(parse(arguments.clone())?))
+                }
+                _ => bail!("unknown tool {name}"),
             }
-            _ => bail!("unknown tool {name}"),
-        }
+        })();
+        let (stage, error) = match &result {
+            Ok(_) => (brain_service::McpLifecycleStage::Succeeded, None),
+            Err(error) => (
+                brain_service::McpLifecycleStage::Failed,
+                Some(error.to_string()),
+            ),
+        };
+        let _ = self
+            .service
+            .record_mcp_lifecycle(name, &arguments, stage, error.as_deref());
+        result
     }
 }
 

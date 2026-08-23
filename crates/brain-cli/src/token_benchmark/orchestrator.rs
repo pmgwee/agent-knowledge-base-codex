@@ -7,16 +7,19 @@ use std::time::Duration;
 use anyhow::{Context, Result, ensure};
 use brain_domain::{HOOK_PROTOCOL_VERSION, Harness, HookEnvelope, ProjectId};
 use brain_service::ServiceLaunchConfig;
-use brain_store::EventLedger;
+use brain_store::{
+    EventLedger, LifecycleChannel, LifecycleEvent, LifecycleStage, RetrievalDecision,
+    TelemetryQuery,
+};
 use sha2::{Digest, Sha256};
 use time::format_description::well_known::Rfc3339;
 use uuid::Uuid;
 
 use super::{
-    BenchmarkArtifacts, BenchmarkCondition, BenchmarkHarness, BenchmarkPreflightReport,
-    BenchmarkRunPreview, CommandPlan, ExecutablePin, ExecutionTemplate, ExecutionTemplates,
-    PlannedSample, ProcessOutput, ProcessRunner, SampleRecord, SampleStatus, SuiteManifest,
-    SystemProcessRunner, execute_command_plan, parse_claude_usage, parse_codex_usage,
+    BenchmarkArtifacts, BenchmarkHarness, BenchmarkPreflightReport, BenchmarkRunPreview,
+    CommandPlan, ExecutablePin, ExecutionTemplate, ExecutionTemplates, PlannedSample,
+    ProcessOutput, ProcessRunner, SampleRecord, SampleStatus, SuiteManifest, SystemProcessRunner,
+    TraceMarkers, execute_command_plan, parse_claude_usage, parse_codex_usage, parse_native_trace,
 };
 
 /// Execute the immutable matrix. The public entry point always uses the real process runner; the
@@ -95,9 +98,11 @@ pub fn execute_benchmark_run_with(
                 &sample_root.join("checkout"),
                 &manifest.repository_commit,
             )?;
+            sanitize_sample_checkout(&checkout, &artifacts.run_dir().join("instructions"))?;
             ensure_checkout_is_unregistered(brain_home, &checkout)?;
-            let (sample_brain_home, pipe_name, _service) = if planned.condition
-                == BenchmarkCondition::BrainOn
+            let (sample_brain_home, pipe_name, _service) = if planned
+                .condition
+                .requires_brain_service()
             {
                 let prepared =
                     prepare_sample_brain(&preflight, &sample_root, &checkout, planned, attempt)?;
@@ -117,8 +122,13 @@ pub fn execute_benchmark_run_with(
                 )
             };
             let condition_config = condition_config_path(&artifacts, planned);
+            let sample_harness_home = sample_root.join("harness-home");
+            let sample_codegraph_home = sample_root.join("codegraph-home");
+            fs::create_dir_all(&sample_harness_home)?;
+            fs::create_dir_all(&sample_codegraph_home)?;
             let plan = command_plan(PlanContext {
                 template: templates.template(planned.harness, planned.condition),
+                launcher_environment: &templates.launcher_environment,
                 sample: planned,
                 prompt: &task.prompt,
                 max_turns: task.max_turns,
@@ -126,6 +136,8 @@ pub fn execute_benchmark_run_with(
                 checkout: &checkout,
                 sample_root: &sample_root,
                 sample_brain_home: &sample_brain_home,
+                sample_harness_home: &sample_harness_home,
+                sample_codegraph_home: &sample_codegraph_home,
                 pipe_name: &pipe_name,
                 condition_config: &condition_config,
             })?;
@@ -139,26 +151,37 @@ pub fn execute_benchmark_run_with(
                     stdout: Vec::new(),
                     stderr: error.to_string().into_bytes(),
                     timed_out: false,
+                    elapsed_ms: None,
                 },
             };
-            let treatment_delivery_observed = if planned.condition == BenchmarkCondition::BrainOn {
-                treatment_delivery_observed(
+            scrub_sample_credentials(&sample_harness_home)?;
+            let condition_exposure = if planned.condition.requires_brain_service() {
+                condition_lifecycle_observed(
+                    &artifacts,
                     &sample_brain_home,
                     project_id,
                     planned.harness,
+                    planned.condition,
                     launched_at,
                 )?
             } else {
-                true
+                ConditionExposure {
+                    valid: true,
+                    detail: "condition has no Brain endpoint by design".to_owned(),
+                }
             };
             drop(_service);
-            let mut record = normalize_process_output(&artifacts, planned, attempt, output)?;
-            if !treatment_delivery_observed {
+            let mut record = normalize_process_output(
+                &artifacts,
+                planned,
+                attempt,
+                output,
+                task.trace_markers.as_ref(),
+            )?;
+            enforce_sample_limits(&mut record, task.max_turns, task.max_tool_calls);
+            if !condition_exposure.valid {
                 record.status = SampleStatus::HarnessFailure;
-                record.error = Some(
-                    "brain-on harness produced no SessionStart delivery in the isolated ledger"
-                        .to_owned(),
-                );
+                record.error = Some(condition_exposure.detail);
             }
             artifacts.append_sample(&record)?;
             samples.push(record.clone());
@@ -169,14 +192,26 @@ pub fn execute_benchmark_run_with(
             );
             verify_frozen_snapshot(project_id, &preflight)?;
             if record.status == SampleStatus::Completed {
+                if planned.condition.requires_brain_service() {
+                    remove_completed_sample_brain_home(&sample_root, &sample_brain_home)?;
+                }
                 completed.insert(planned.sample_id.clone());
                 break;
             }
         }
+        ensure!(
+            !repeated_zero_usage_infrastructure_failure(
+                &samples,
+                &planned.sample_id,
+                templates.max_attempts
+            ),
+            "benchmark infrastructure stop: sample {} exhausted retries with zero native usage and zero turns",
+            planned.sample_id
+        );
     }
 
     Ok(BenchmarkRunPreview {
-        schema_version: 1,
+        schema_version: 2,
         run_id,
         execute: true,
         planned_samples: manifest.matrix.len(),
@@ -189,6 +224,7 @@ pub fn execute_benchmark_run_with(
 
 struct PlanContext<'a> {
     template: &'a ExecutionTemplate,
+    launcher_environment: &'a BTreeMap<String, String>,
     sample: &'a PlannedSample,
     prompt: &'a str,
     max_turns: u32,
@@ -196,6 +232,8 @@ struct PlanContext<'a> {
     checkout: &'a Path,
     sample_root: &'a Path,
     sample_brain_home: &'a Path,
+    sample_harness_home: &'a Path,
+    sample_codegraph_home: &'a Path,
     pipe_name: &'a str,
     condition_config: &'a Path,
 }
@@ -214,6 +252,14 @@ fn command_plan(context: PlanContext<'_>) -> Result<CommandPlan> {
         (
             "{{sample_brain_home}}",
             context.sample_brain_home.to_string_lossy().to_string(),
+        ),
+        (
+            "{{sample_harness_home}}",
+            context.sample_harness_home.to_string_lossy().to_string(),
+        ),
+        (
+            "{{sample_codegraph_home}}",
+            context.sample_codegraph_home.to_string_lossy().to_string(),
         ),
         ("{{pipe_name}}", context.pipe_name.to_owned()),
         (
@@ -242,9 +288,9 @@ fn command_plan(context: PlanContext<'_>) -> Result<CommandPlan> {
         .map(|argument| expand(argument))
         .collect::<Result<Vec<_>>>()?;
     let environment = context
-        .template
-        .environment
+        .launcher_environment
         .iter()
+        .chain(context.template.environment.iter())
         .map(|(key, value)| Ok((key.clone(), expand(value)?)))
         .collect::<Result<BTreeMap<_, _>>>()?;
     Ok(CommandPlan {
@@ -262,6 +308,7 @@ fn normalize_process_output(
     sample: &PlannedSample,
     attempt: u32,
     output: ProcessOutput,
+    trace_markers: Option<&TraceMarkers>,
 ) -> Result<SampleRecord> {
     let stdout = artifacts.write_raw(
         &sample.sample_id,
@@ -274,6 +321,7 @@ fn normalize_process_output(
         &output.stderr,
     )?;
     let raw = String::from_utf8_lossy(&output.stdout);
+    let native_trace = parse_native_trace(sample.harness, &raw, trace_markers).ok();
     let process_error = if output.timed_out {
         Some("harness timed out".to_owned())
     } else if output.exit_code != Some(0) {
@@ -292,11 +340,13 @@ fn normalize_process_output(
         .unwrap_or_else(|error| (SampleStatus::InvalidUsage, None, Some(error.to_string())))
     };
     Ok(SampleRecord {
-        schema_version: 1,
+        schema_version: 2,
         sample: sample.clone(),
         status,
         attempt,
         native_usage: usage,
+        elapsed_ms: output.elapsed_ms,
+        native_trace,
         answer: extract_answer(sample.harness, &raw),
         automated_test_passed: None,
         stdout_sha256: stdout.sha256,
@@ -308,10 +358,21 @@ fn normalize_process_output(
 
 fn extract_answer(harness: BenchmarkHarness, raw: &str) -> String {
     match harness {
-        BenchmarkHarness::ClaudeCode => serde_json::from_str::<serde_json::Value>(raw)
-            .ok()
-            .and_then(|value| value.get("result")?.as_str().map(str::to_owned))
-            .unwrap_or_default(),
+        BenchmarkHarness::ClaudeCode => {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) {
+                return value
+                    .get("result")
+                    .and_then(|result| result.as_str())
+                    .map(str::to_owned)
+                    .unwrap_or_default();
+            }
+            raw.lines()
+                .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                .filter(|value| value.get("type").and_then(|kind| kind.as_str()) == Some("result"))
+                .filter_map(|value| value.get("result")?.as_str().map(str::to_owned))
+                .next_back()
+                .unwrap_or_default()
+        }
         BenchmarkHarness::Codex => raw
             .lines()
             .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
@@ -342,18 +403,13 @@ fn extract_answer(harness: BenchmarkHarness, raw: &str) -> String {
 }
 
 fn condition_config_path(artifacts: &BenchmarkArtifacts, sample: &PlannedSample) -> PathBuf {
-    let harness = match sample.harness {
-        BenchmarkHarness::ClaudeCode => "claude",
-        BenchmarkHarness::Codex => "codex",
-    };
-    let condition = match sample.condition {
-        BenchmarkCondition::BrainOff => "control",
-        BenchmarkCondition::BrainOn => "treatment",
-    };
     artifacts
         .run_dir()
         .join("configs")
-        .join(format!("{harness}-{condition}.json"))
+        .join(super::preflight::condition_profile_name(
+            sample.harness,
+            sample.condition,
+        ))
 }
 
 fn materialize_sample_checkout(source: &Path, target: &Path, commit: &str) -> Result<PathBuf> {
@@ -372,6 +428,104 @@ fn materialize_sample_checkout(source: &Path, target: &Path, commit: &str) -> Re
         .status()?;
     ensure!(checked_out.success(), "sample git checkout failed");
     target.canonicalize().context("resolve sample checkout")
+}
+
+fn sanitize_sample_checkout(checkout: &Path, instructions: &Path) -> Result<()> {
+    ensure!(checkout.is_dir(), "sample checkout is missing");
+    for relative in [
+        ".mcp.json",
+        ".claude.json",
+        ".claude/settings.json",
+        ".claude/settings.local.json",
+        ".claude/hooks.json",
+        ".codex/config.toml",
+        ".codex/hooks.json",
+    ] {
+        let target = checkout.join(relative);
+        if target.is_file() {
+            fs::remove_file(&target)
+                .with_context(|| format!("remove inherited integration {}", target.display()))?;
+        }
+    }
+    let inherited_codegraph = checkout.join(".codegraph");
+    if inherited_codegraph.is_dir() {
+        fs::remove_dir_all(&inherited_codegraph).with_context(|| {
+            format!(
+                "remove inherited CodeGraph state {}",
+                inherited_codegraph.display()
+            )
+        })?;
+    }
+    for name in ["AGENTS.md", "CLAUDE.md"] {
+        let source = instructions.join(name);
+        ensure!(
+            source.is_file(),
+            "archived benchmark instruction is missing"
+        );
+        fs::copy(&source, checkout.join(name))
+            .with_context(|| format!("overlay neutral {name}"))?;
+    }
+    Ok(())
+}
+
+fn scrub_sample_credentials(harness_home: &Path) -> Result<()> {
+    for name in [".credentials.json", ".claude.json", "auth.json"] {
+        let path = harness_home.join(name);
+        if path.is_file() {
+            fs::remove_file(&path)
+                .with_context(|| format!("scrub sample credential {}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn enforce_sample_limits(record: &mut SampleRecord, max_turns: u32, max_tool_calls: u32) {
+    if record.status != SampleStatus::Completed {
+        return;
+    }
+    let Some(trace) = &record.native_trace else {
+        record.status = SampleStatus::HarnessFailure;
+        record.error =
+            Some("native trace was unavailable; sample limits cannot be audited".to_owned());
+        return;
+    };
+    let mut violations = Vec::new();
+    if trace.turns > max_turns {
+        violations.push(format!("{} turns exceeded limit {max_turns}", trace.turns));
+    }
+    if trace.total_tool_calls > max_tool_calls {
+        violations.push(format!(
+            "{} tool calls exceeded limit {max_tool_calls}",
+            trace.total_tool_calls
+        ));
+    }
+    if !violations.is_empty() {
+        record.status = SampleStatus::HarnessFailure;
+        record.error = Some(format!(
+            "benchmark bound violation: {}",
+            violations.join("; ")
+        ));
+    }
+}
+
+fn repeated_zero_usage_infrastructure_failure(
+    records: &[SampleRecord],
+    sample_id: &str,
+    max_attempts: u32,
+) -> bool {
+    let attempts = records
+        .iter()
+        .filter(|record| record.sample.sample_id == sample_id)
+        .collect::<Vec<_>>();
+    attempts.len() >= max_attempts as usize
+        && attempts.iter().all(|record| {
+            record.status != SampleStatus::Completed
+                && record.native_usage.is_none()
+                && record
+                    .native_trace
+                    .as_ref()
+                    .is_none_or(|trace| trace.turns == 0)
+        })
 }
 
 fn prepare_sample_brain(
@@ -395,7 +549,9 @@ fn prepare_sample_brain(
             .ledger_path
             .strip_prefix(&preflight.frozen_brain_home)
             .context("frozen ledger escaped frozen brain home")?;
-        project.ledger_path = target.join(relative);
+        let target_ledger = target.join(relative);
+        repair_missing_sample_ledger(&project.ledger_path, &target_ledger)?;
+        project.ledger_path = sqlite_compatible_path(&target_ledger)?;
         project.project_root = checkout.to_path_buf();
         project.claude_sources.clear();
         project.codex_sources.clear();
@@ -404,6 +560,52 @@ fn prepare_sample_brain(
     fs::create_dir_all(config_path.parent().context("service config parent")?)?;
     fs::write(config_path, serde_json::to_vec_pretty(&config)?)?;
     Ok((target, pipe_name))
+}
+
+fn repair_missing_sample_ledger(source: &Path, target: &Path) -> Result<()> {
+    ensure!(source.is_file(), "frozen sample ledger is missing");
+    fs::create_dir_all(target.parent().context("sample ledger parent")?)?;
+    for suffix in ["", "-wal", "-shm"] {
+        let source_file = path_with_suffix(source, suffix);
+        let target_file = path_with_suffix(target, suffix);
+        if source_file.is_file() && !target_file.is_file() {
+            fs::copy(&source_file, &target_file).with_context(|| {
+                format!(
+                    "repair missing sample ledger file {}",
+                    target_file.display()
+                )
+            })?;
+        }
+        if target_file.is_file() {
+            make_file_writable(&target_file)?;
+        }
+    }
+    ensure!(target.is_file(), "sample ledger copy is missing");
+    Ok(())
+}
+
+fn path_with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    PathBuf::from(value)
+}
+
+fn sqlite_compatible_path(path: &Path) -> Result<PathBuf> {
+    let parent = path.parent().context("sample ledger parent")?;
+    let file_name = path.file_name().context("sample ledger filename")?;
+    Ok(parent.canonicalize()?.join(file_name))
+}
+
+fn remove_completed_sample_brain_home(sample_root: &Path, brain_home: &Path) -> Result<()> {
+    ensure!(
+        brain_home.parent() == Some(sample_root)
+            && brain_home.file_name() == Some(std::ffi::OsStr::new("brain-home")),
+        "refusing to remove a benchmark brain home outside its exact sample root"
+    );
+    if brain_home.is_dir() {
+        fs::remove_dir_all(brain_home)?;
+    }
+    Ok(())
 }
 
 struct ServiceGuard(Child);
@@ -454,23 +656,127 @@ fn start_sample_service(
     Ok(guard)
 }
 
-fn treatment_delivery_observed(
+struct ConditionExposure {
+    valid: bool,
+    detail: String,
+}
+
+fn condition_lifecycle_observed(
+    artifacts: &BenchmarkArtifacts,
     brain_home: &Path,
     project_id: ProjectId,
     harness: BenchmarkHarness,
+    condition: super::BenchmarkCondition,
     since: time::OffsetDateTime,
-) -> Result<bool> {
+) -> Result<ConditionExposure> {
     let config = ServiceLaunchConfig::load(ServiceLaunchConfig::default_path(brain_home))?;
     let project = config.project(Some(project_id))?;
-    let rows = EventLedger::open(&project.ledger_path, project_id)?
-        .context_deliveries_by_harness(since)?;
-    let expected = match harness {
-        BenchmarkHarness::ClaudeCode => "claude-code",
-        BenchmarkHarness::Codex => "codex",
+    let ledger = EventLedger::open(&project.ledger_path, project_id)?;
+    let query = TelemetryQuery {
+        project_id,
+        session: None,
+        start: since,
+        end: time::OffsetDateTime::now_utc() + time::Duration::seconds(1),
+        limit: 10_000,
     };
-    Ok(rows.iter().any(|row| {
-        row.harness == expected && row.event_name == "SessionStart" && row.deliveries > 0
-    }))
+    let events = ledger.lifecycle_events(&query)?;
+    let decisions = ledger.retrieval_decisions(&query)?;
+    for event in &events {
+        artifacts.append_lifecycle_record(
+            &format!("lifecycle:{}", event.event_id),
+            "lifecycle_event",
+            event,
+        )?;
+    }
+    for decision in &decisions {
+        artifacts.append_lifecycle_record(
+            &format!("retrieval:{}", decision.decision_id),
+            "retrieval_decision",
+            decision,
+        )?;
+    }
+    let expected = match harness {
+        BenchmarkHarness::ClaudeCode => Harness::ClaudeCode,
+        BenchmarkHarness::Codex => Harness::Codex,
+    };
+    Ok(validate_condition_exposure(
+        condition, &expected, &events, &decisions,
+    ))
+}
+
+fn validate_condition_exposure(
+    condition: super::BenchmarkCondition,
+    harness: &Harness,
+    events: &[LifecycleEvent],
+    decisions: &[RetrievalDecision],
+) -> ConditionExposure {
+    let event = |channel, stage| {
+        events.iter().any(|event| {
+            &event.harness == harness && event.channel == channel && event.stage == stage
+        })
+    };
+    let decision = |channel| {
+        decisions
+            .iter()
+            .any(|decision| &decision.harness == harness && decision.channel == channel)
+    };
+    let startup = event(LifecycleChannel::SessionStart, LifecycleStage::HookReceived)
+        && event(LifecycleChannel::SessionStart, LifecycleStage::ReplyFlushed)
+        && decision(LifecycleChannel::SessionStart);
+    let ended = event(
+        LifecycleChannel::SessionEnd,
+        LifecycleStage::SessionEndPersisted,
+    );
+    let prompt = event(
+        LifecycleChannel::UserPromptSubmit,
+        LifecycleStage::HookReceived,
+    ) && decision(LifecycleChannel::UserPromptSubmit);
+    let unexpected_prompt = condition == super::BenchmarkCondition::C2
+        && events.iter().any(|event| {
+            &event.harness == harness && event.channel == LifecycleChannel::UserPromptSubmit
+        });
+    let unexpected_mcp = condition != super::BenchmarkCondition::C4
+        && events
+            .iter()
+            .any(|event| &event.harness == harness && event.channel == LifecycleChannel::BrainMcp);
+    let mcp_terminal_complete = events
+        .iter()
+        .filter(|event| {
+            &event.harness == harness
+                && event.channel == LifecycleChannel::BrainMcp
+                && event.stage == LifecycleStage::McpRequest
+        })
+        .all(|request| {
+            events.iter().any(|terminal| {
+                &terminal.harness == harness
+                    && terminal.channel == LifecycleChannel::BrainMcp
+                    && matches!(
+                        &terminal.stage,
+                        LifecycleStage::McpSucceeded | LifecycleStage::McpFailed
+                    )
+                    && terminal.correlation_id == request.correlation_id
+            })
+        });
+    let prompt_expected = matches!(
+        condition,
+        super::BenchmarkCondition::C3 | super::BenchmarkCondition::C4
+    );
+    let valid = startup
+        && ended
+        && (!prompt_expected || prompt)
+        && !unexpected_prompt
+        && !unexpected_mcp
+        && mcp_terminal_complete;
+    ConditionExposure {
+        valid,
+        detail: if valid {
+            "condition-specific lifecycle receipts observed".to_owned()
+        } else {
+            format!(
+                "condition exposure mismatch: startup={startup}, session_end={ended}, prompt={prompt}, unexpected_prompt={unexpected_prompt}, unexpected_mcp={unexpected_mcp}, mcp_terminal_complete={mcp_terminal_complete}"
+            )
+        },
+    }
 }
 
 fn copy_tree_writable(source: &Path, target: &Path) -> Result<()> {
@@ -602,6 +908,7 @@ fn production_config_hashes() -> Result<super::ProductionConfigHashes> {
         .context("USERPROFILE is unavailable")?;
     Ok(super::ProductionConfigHashes {
         claude_settings: super::hash_optional_file(&profile.join(".claude/settings.json"))?,
+        claude_mcp: super::hash_optional_file(&profile.join(".claude.json"))?,
         codex_hooks: super::hash_optional_file(&profile.join(".codex/hooks.json"))?,
         codex_config: super::hash_optional_file(&profile.join(".codex/config.toml"))?,
     })
@@ -613,12 +920,21 @@ fn sha256(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use brain_domain::ProjectId;
+    use brain_domain::{Harness, ProjectId};
+    use brain_store::{
+        LifecycleChannel, LifecycleEvent, LifecycleStage, RetrievalDecision, RetrievalOutcome,
+        RetrievalReasonCode, SessionAttribution,
+    };
     use std::collections::BTreeMap;
 
+    use crate::token_benchmark::BenchmarkCondition;
+
     use super::{
-        BenchmarkArtifacts, BenchmarkCondition, BenchmarkHarness, ExecutionTemplate, PlanContext,
-        PlannedSample, ProcessOutput, SampleStatus, command_plan, normalize_process_output,
+        BenchmarkArtifacts, BenchmarkHarness, ExecutionTemplate, PlanContext, PlannedSample,
+        ProcessOutput, SampleStatus, command_plan, copy_tree_writable, enforce_sample_limits,
+        normalize_process_output, remove_completed_sample_brain_home, repair_missing_sample_ledger,
+        repeated_zero_usage_infrastructure_failure, sanitize_sample_checkout,
+        sqlite_compatible_path, validate_condition_exposure,
     };
 
     fn sample(harness: BenchmarkHarness) -> PlannedSample {
@@ -631,6 +947,53 @@ mod tests {
             condition: BenchmarkCondition::BrainOff,
             order: 0,
         }
+    }
+
+    #[test]
+    fn copies_nested_ledger_into_a_long_attempt_path() {
+        let temp = tempfile::tempdir().expect("temp");
+        let source = temp.path().join("frozen-brain");
+        let ledger_relative = std::path::Path::new("projects")
+            .join("019fcd85-f41b-77b2-a4c0-618c28fe1d6b")
+            .join("evidence/hot/events.sqlite");
+        let source_ledger = source.join(&ledger_relative);
+        std::fs::create_dir_all(source_ledger.parent().unwrap()).expect("source dirs");
+        let project_id = ProjectId(uuid::Uuid::now_v7());
+        drop(brain_store::EventLedger::open(&source_ledger, project_id).expect("source ledger"));
+        let target = temp
+            .path()
+            .join("attempts")
+            .join("memory-01-claude_code-r01-c3")
+            .join(format!("1-{}", "a".repeat(160)))
+            .join("brain-home");
+
+        copy_tree_writable(&source, &target).expect("copy frozen brain");
+
+        // The paid smoke's 285-character target existed, but SQLite could not open the ordinary
+        // Windows path. Keep the missing-file repair and then use the canonical verbatim path.
+        let target_ledger = target.join(&ledger_relative);
+        std::fs::remove_file(&target_ledger).expect("simulate skipped ledger");
+        repair_missing_sample_ledger(&source_ledger, &target_ledger).expect("repair ledger");
+        let sqlite_path = sqlite_compatible_path(&target_ledger).expect("sqlite path");
+
+        drop(brain_store::EventLedger::open(&sqlite_path, project_id).expect("open copied ledger"));
+        #[cfg(windows)]
+        assert!(sqlite_path.to_string_lossy().starts_with(r"\\?\"));
+    }
+
+    #[test]
+    fn completed_sample_cleanup_removes_only_the_isolated_brain_home() {
+        let temp = tempfile::tempdir().expect("temp");
+        let sample_root = temp.path().join("sample");
+        let brain_home = sample_root.join("brain-home");
+        let retained = sample_root.join("raw-output.json");
+        std::fs::create_dir_all(brain_home.join("projects")).expect("brain dirs");
+        std::fs::write(&retained, b"keep").expect("raw output");
+
+        remove_completed_sample_brain_home(&sample_root, &brain_home).expect("cleanup");
+
+        assert!(!brain_home.exists());
+        assert_eq!(std::fs::read(retained).expect("retained output"), b"keep");
     }
 
     #[test]
@@ -651,9 +1014,12 @@ mod tests {
         let checkout = temp.path().to_path_buf();
         let planned = sample(BenchmarkHarness::ClaudeCode);
         let sample_brain_home = temp.path().join("brain");
+        let sample_harness_home = temp.path().join("harness");
+        let sample_codegraph_home = temp.path().join("codegraph");
         let condition_config = temp.path().join("control.json");
         let plan = command_plan(PlanContext {
             template: &template,
+            launcher_environment: &BTreeMap::new(),
             sample: &planned,
             prompt: "bounded prompt",
             max_turns: 8,
@@ -661,6 +1027,8 @@ mod tests {
             checkout: &checkout,
             sample_root: temp.path(),
             sample_brain_home: &sample_brain_home,
+            sample_harness_home: &sample_harness_home,
+            sample_codegraph_home: &sample_codegraph_home,
             pipe_name: r"\\.\pipe\fixture",
             condition_config: &condition_config,
         })
@@ -687,11 +1055,15 @@ mod tests {
                 stdout: br#"{"result":"answer","usage":{"input_tokens":100,"cache_creation_input_tokens":20,"cache_read_input_tokens":300,"output_tokens":40}}"#.to_vec(),
                 stderr: Vec::new(),
                 timed_out: false,
+                elapsed_ms: Some(125),
             },
+            None,
         )
         .expect("Claude record");
         assert_eq!(claude.status, SampleStatus::Completed);
         assert_eq!(claude.answer, "answer");
+        assert_eq!(claude.elapsed_ms, Some(125));
+        assert!(claude.native_trace.is_some());
         assert_eq!(claude.native_usage.expect("usage").total_tokens, 460);
 
         let codex = normalize_process_output(
@@ -708,11 +1080,15 @@ mod tests {
                 .to_vec(),
                 stderr: Vec::new(),
                 timed_out: false,
+                elapsed_ms: Some(225),
             },
+            None,
         )
         .expect("Codex record");
         assert_eq!(codex.status, SampleStatus::Completed);
         assert_eq!(codex.answer, "codex answer");
+        assert_eq!(codex.elapsed_ms, Some(225));
+        assert!(codex.native_trace.is_some());
         assert_eq!(codex.native_usage.expect("usage").total_tokens, 900);
         assert!(artifacts.run_dir().join("raw").is_dir());
     }
@@ -735,11 +1111,199 @@ mod tests {
                 stdout: br#"{"result":"short but unmetered"}"#.to_vec(),
                 stderr: Vec::new(),
                 timed_out: false,
+                elapsed_ms: Some(50),
             },
+            None,
         )
         .expect("record");
         assert_eq!(record.status, SampleStatus::InvalidUsage);
         assert_eq!(record.attempt, 2);
         assert!(record.error.expect("error").contains("usage"));
+    }
+
+    #[test]
+    fn repeated_zero_turn_failures_trigger_the_infrastructure_stop_rule() {
+        let temp = tempfile::tempdir().expect("temp");
+        let artifacts = BenchmarkArtifacts::new(
+            temp.path(),
+            ProjectId(uuid::Uuid::now_v7()),
+            uuid::Uuid::now_v7(),
+        )
+        .expect("artifacts");
+        let planned = sample(BenchmarkHarness::ClaudeCode);
+        let records = [1, 2]
+            .map(|attempt| {
+                normalize_process_output(
+                    &artifacts,
+                    &planned,
+                    attempt,
+                    ProcessOutput {
+                        exit_code: Some(1),
+                        stdout: Vec::new(),
+                        stderr: b"billing or launcher failure".to_vec(),
+                        timed_out: false,
+                        elapsed_ms: Some(100),
+                    },
+                    None,
+                )
+                .expect("record")
+            })
+            .to_vec();
+
+        assert!(repeated_zero_usage_infrastructure_failure(
+            &records,
+            &planned.sample_id,
+            2
+        ));
+    }
+
+    #[test]
+    fn neutral_instructions_replace_inherited_agent_integrations() {
+        let temp = tempfile::tempdir().expect("temp");
+        let checkout = temp.path().join("checkout");
+        let instructions = temp.path().join("instructions");
+        std::fs::create_dir_all(checkout.join(".claude")).expect("claude dir");
+        std::fs::create_dir_all(checkout.join(".codex")).expect("codex dir");
+        std::fs::create_dir_all(checkout.join(".codegraph")).expect("codegraph dir");
+        std::fs::create_dir_all(&instructions).expect("instructions");
+        std::fs::write(checkout.join(".mcp.json"), "inherited").expect("mcp");
+        std::fs::write(checkout.join(".claude/settings.json"), "inherited").expect("claude");
+        std::fs::write(checkout.join(".codex/config.toml"), "inherited").expect("codex");
+        std::fs::write(instructions.join("AGENTS.md"), "neutral").expect("agents");
+        std::fs::write(instructions.join("CLAUDE.md"), "neutral").expect("claude instructions");
+
+        sanitize_sample_checkout(&checkout, &instructions).expect("sanitize");
+
+        assert!(!checkout.join(".mcp.json").exists());
+        assert!(!checkout.join(".claude/settings.json").exists());
+        assert!(!checkout.join(".codex/config.toml").exists());
+        assert!(!checkout.join(".codegraph").exists());
+        assert_eq!(
+            std::fs::read_to_string(checkout.join("AGENTS.md")).unwrap(),
+            "neutral"
+        );
+        assert_eq!(
+            std::fs::read_to_string(checkout.join("CLAUDE.md")).unwrap(),
+            "neutral"
+        );
+    }
+
+    #[test]
+    fn samples_over_the_native_tool_bound_are_invalidated() {
+        let temp = tempfile::tempdir().expect("temp");
+        let artifacts = BenchmarkArtifacts::new(
+            temp.path(),
+            ProjectId(uuid::Uuid::now_v7()),
+            uuid::Uuid::now_v7(),
+        )
+        .expect("artifacts");
+        let mut record = normalize_process_output(
+            &artifacts,
+            &sample(BenchmarkHarness::ClaudeCode),
+            1,
+            ProcessOutput {
+                exit_code: Some(0),
+                stdout: concat!(
+                    "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{\"path\":\"a\"}}]}}\n",
+                    "{\"type\":\"result\",\"result\":\"answer\",\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":1,\"cache_read_input_tokens\":1,\"output_tokens\":1}}\n"
+                )
+                .as_bytes()
+                .to_vec(),
+                stderr: Vec::new(),
+                timed_out: false,
+                elapsed_ms: Some(1),
+            },
+            None,
+        )
+        .expect("record");
+        enforce_sample_limits(&mut record, 1, 0);
+        assert_eq!(record.status, SampleStatus::HarnessFailure);
+        assert!(record.error.unwrap().contains("tool calls"));
+    }
+
+    #[test]
+    fn healthy_silence_is_valid_condition_exposure_but_a_missing_prompt_receipt_is_not() {
+        let project_id = ProjectId(uuid::Uuid::now_v7());
+        let harness = Harness::Codex;
+        let mut events = vec![
+            lifecycle(
+                project_id,
+                LifecycleChannel::SessionStart,
+                LifecycleStage::HookReceived,
+            ),
+            lifecycle(
+                project_id,
+                LifecycleChannel::SessionStart,
+                LifecycleStage::ReplyFlushed,
+            ),
+            lifecycle(
+                project_id,
+                LifecycleChannel::SessionEnd,
+                LifecycleStage::SessionEndPersisted,
+            ),
+        ];
+        let mut decisions = vec![decision(project_id, LifecycleChannel::SessionStart)];
+        assert!(
+            validate_condition_exposure(BenchmarkCondition::C2, &harness, &events, &decisions,)
+                .valid
+        );
+        assert!(
+            !validate_condition_exposure(BenchmarkCondition::C3, &harness, &events, &decisions,)
+                .valid
+        );
+        events.push(lifecycle(
+            project_id,
+            LifecycleChannel::UserPromptSubmit,
+            LifecycleStage::HookReceived,
+        ));
+        decisions.push(decision(project_id, LifecycleChannel::UserPromptSubmit));
+        assert!(
+            validate_condition_exposure(BenchmarkCondition::C3, &harness, &events, &decisions,)
+                .valid
+        );
+        assert!(
+            validate_condition_exposure(BenchmarkCondition::C4, &harness, &events, &decisions,)
+                .valid,
+            "MCP not requested is neutral in C4"
+        );
+    }
+
+    fn lifecycle(
+        project_id: ProjectId,
+        channel: LifecycleChannel,
+        stage: LifecycleStage,
+    ) -> LifecycleEvent {
+        LifecycleEvent {
+            event_id: uuid::Uuid::now_v7(),
+            project_id,
+            harness: Harness::Codex,
+            session: SessionAttribution::Attributed("session".to_owned()),
+            correlation_id: Some("correlation".to_owned()),
+            channel,
+            stage,
+            occurred_at: time::OffsetDateTime::now_utc(),
+            detail: serde_json::json!({}),
+        }
+    }
+
+    fn decision(project_id: ProjectId, channel: LifecycleChannel) -> RetrievalDecision {
+        RetrievalDecision {
+            decision_id: uuid::Uuid::now_v7(),
+            project_id,
+            harness: Harness::Codex,
+            session: SessionAttribution::Attributed("session".to_owned()),
+            correlation_id: Some("correlation".to_owned()),
+            channel,
+            outcome: RetrievalOutcome::HealthySilence,
+            reason_code: RetrievalReasonCode::NoRelevantCandidate,
+            candidate_count: 0,
+            selected_count: 0,
+            dropped_count: 0,
+            token_count: 0,
+            latency_ms: 1,
+            query_sha256: "a".repeat(64),
+            selected_evidence_ids: Vec::new(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        }
     }
 }

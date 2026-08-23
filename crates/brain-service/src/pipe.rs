@@ -204,6 +204,14 @@ where
             }
         }
     }
+    if let Some(receipt) = outcome.flush_receipt {
+        let recorded = tokio::task::spawn_blocking(move || receipt.record()).await;
+        match recorded {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::warn!(%error, "could not record reply flush receipt"),
+            Err(join_error) => tracing::warn!(%join_error, "reply flush recording task failed"),
+        }
+    }
     Ok(())
 }
 

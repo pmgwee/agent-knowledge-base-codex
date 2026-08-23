@@ -23,6 +23,40 @@ fn codex_maps_session_turn_tool_and_compaction_events() {
 }
 
 #[test]
+fn rollout_filename_is_normalized_to_the_native_session_uuid() {
+    let temp = tempfile::tempdir().expect("create Codex session-id fixture");
+    let path = temp
+        .path()
+        .join("rollout-2026-08-13T01-29-31-019ff705-aad7-7373-94b3-932a9b15a323.jsonl");
+    std::fs::copy(fixture("rollout.jsonl"), &path).expect("copy Codex rollout fixture");
+    let adapter = CodexAdapter::new(vec![temp.path().to_path_buf()]);
+    let source = SourceDescriptor::file(path);
+    let batch = match adapter
+        .read_increment(&source, &SourceCursor::start())
+        .expect("read Codex session-id fixture")
+    {
+        ReadOutcome::Batch(batch) => batch,
+        other => panic!("expected batch, got {other:?}"),
+    };
+    let events = batch
+        .records
+        .iter()
+        .flat_map(|record| {
+            adapter
+                .normalize(record, &normalize_context())
+                .expect("normalize Codex session-id fixture")
+        })
+        .collect::<Vec<_>>();
+
+    assert!(!events.is_empty());
+    assert!(
+        events
+            .iter()
+            .all(|event| event.native_session_id == "019ff705-aad7-7373-94b3-932a9b15a323")
+    );
+}
+
+#[test]
 fn encrypted_reasoning_is_retained_but_never_projected_as_reasoning_text() {
     let events = normalize_fixture("encrypted-reasoning.jsonl");
 
