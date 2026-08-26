@@ -336,7 +336,7 @@ pub struct ReviewSheet {
 ///
 /// This is the gap the comment on [`merge_candidates`] named: approval was per-*run*, so reading
 /// thirteen proposals and agreeing with eleven meant either writing all thirteen or none. That is
-/// not a checkpoint, it is a coin toss with extra steps — and on 10 August a real GLM run produced
+/// not a checkpoint, it is a coin toss with extra steps — and on 10 August a real provider run produced
 /// merges that passed every mechanical rule and asserted a falsehood, because the claims they
 /// merged asserted it. No validator catches that; the rules are about form and this is about truth.
 pub fn review_sheet(

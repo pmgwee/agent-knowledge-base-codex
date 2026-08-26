@@ -303,18 +303,16 @@ fn codex_mcp_wiring(config_path: &Path) -> Result<Option<McpWiring>> {
 }
 
 fn credential_bindings(config: &ServiceLaunchConfig) -> Vec<CredentialBinding> {
-    let Some(brain_service::ConsolidationProviderConfig::Glm {
-        model, api_key_env, ..
-    }) = &config.consolidation
-    else {
+    let Some(provider) = &config.consolidation else {
         return Vec::new();
     };
+    let api_key_env = provider.api_key_env();
     // `is_ok`, never the value. The panel's job is to say whether a name resolves, not to move a
     // secret one step closer to a rendered page.
     let present = std::env::var(api_key_env).is_ok();
     vec![CredentialBinding {
-        provider: format!("glm · {model}"),
-        variable: api_key_env.clone(),
+        provider: format!("llm · {}", provider.resolved_model()),
+        variable: api_key_env.to_owned(),
         present_in_this_session: present,
         detail: if present {
             "Readable here. The service runs in its own session and may still differ — a deferral \

@@ -6,7 +6,7 @@ use brain_service::{
     ConsolidationCrashPoint, ConsolidationLlm, ConsolidationWorker, EvidencePacket, ProposedMemory,
     ProposedMemoryBatch, WorkerOutcome,
 };
-use brain_store::{ConsolidationReason, EventLedger};
+use brain_store::{ConsolidationReason, EventLedger, JobStatus};
 
 struct FixtureProposer;
 
@@ -29,12 +29,12 @@ impl ConsolidationLlm for FixtureProposer {
     }
 }
 
-struct UnavailableProposer;
+struct UnavailableProposer(&'static str);
 
 #[async_trait::async_trait]
 impl ConsolidationLlm for UnavailableProposer {
     async fn propose(&self, _packet: &EvidencePacket) -> anyhow::Result<ProposedMemoryBatch> {
-        anyhow::bail!("fixture provider is unavailable")
+        anyhow::bail!(self.0)
     }
 }
 
@@ -81,24 +81,42 @@ async fn crash_after_memory_write_before_job_ack_does_not_duplicate_memory() {
 
 #[tokio::test]
 async fn unavailable_provider_leaves_the_job_retryable() {
-    let project = ProjectId(uuid::Uuid::now_v7());
-    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
-    let event = append_secret_event(&mut ledger, project, [2; 32]);
-    let job = ledger
-        .enqueue_consolidation_job(event, event, ConsolidationReason::Inactivity)
-        .expect("enqueue consolidation");
-    let outcome = ConsolidationWorker::new("worker", time::Duration::seconds(5))
-        .run_once(
-            &mut ledger,
-            &UnavailableProposer,
-            job.available_at,
-            ConsolidationCrashPoint::None,
-        )
-        .await
-        .expect("provider outage is contained");
-    assert_eq!(outcome, WorkerOutcome::RetryScheduled(job.id));
-    assert_eq!(ledger.memory_count().expect("count memory"), 0);
-    assert_eq!(ledger.event_count().expect("raw evidence remains"), 1);
+    for (offset, failure) in [
+        (
+            2,
+            "LLM request failed with HTTP status 500 Internal Server Error",
+        ),
+        (3, "LLM request failed with HTTP status 401 Unauthorized"),
+        (
+            4,
+            "LLM API key environment variable LLM_API_KEY is unavailable",
+        ),
+    ] {
+        let project = ProjectId(uuid::Uuid::now_v7());
+        let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+        let event = append_secret_event(&mut ledger, project, [offset; 32]);
+        let job = ledger
+            .enqueue_consolidation_job(event, event, ConsolidationReason::Inactivity)
+            .expect("enqueue consolidation");
+        let outcome = ConsolidationWorker::new("worker", time::Duration::seconds(5))
+            .run_once(
+                &mut ledger,
+                &UnavailableProposer(failure),
+                job.available_at,
+                ConsolidationCrashPoint::None,
+            )
+            .await
+            .expect("provider outage is contained");
+        assert_eq!(outcome, WorkerOutcome::ProviderUnavailable(job.id));
+        let deferred = ledger
+            .consolidation_job(job.id)
+            .expect("read job")
+            .expect("job exists");
+        assert_eq!(deferred.status, JobStatus::Pending);
+        assert_eq!(deferred.attempt, 0, "failure must not age job: {failure}");
+        assert_eq!(ledger.memory_count().expect("count memory"), 0);
+        assert_eq!(ledger.event_count().expect("raw evidence remains"), 1);
+    }
 }
 
 fn append_secret_event(

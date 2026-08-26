@@ -1506,25 +1506,12 @@ fn run() -> Result<()> {
             let project_config = config.project(Some(project_id))?;
             let ledger = EventLedger::open(&project_config.ledger_path, project_id)?;
             let report = if generate {
-                let Some(brain_service::ConsolidationProviderConfig::Glm {
-                    endpoint,
-                    model,
-                    api_key_env,
-                    timeout_ms,
-                    max_retries,
-                }) = config.consolidation.clone()
-                else {
+                let Some(provider) = config.consolidation.clone() else {
                     anyhow::bail!(
                         "no consolidation provider is configured, so there is nothing to draft                          the prose with. `brain synthesize` without --generate still reports                          which subjects need it"
                     );
                 };
-                let provider = brain_context::GlmClient::new(brain_context::GlmConfig {
-                    endpoint,
-                    model,
-                    api_key_env,
-                    timeout: std::time::Duration::from_millis(timeout_ms),
-                    max_retries,
-                })?;
+                let provider = provider.client()?;
                 // As in `revise`: a current-thread runtime for the one command that needs one,
                 // rather than a reactor under every command that does not.
                 tokio::runtime::Builder::new_current_thread()
@@ -1779,25 +1766,12 @@ fn run() -> Result<()> {
                 return Ok(());
             }
 
-            let Some(brain_service::ConsolidationProviderConfig::Glm {
-                endpoint,
-                model,
-                api_key_env,
-                timeout_ms,
-                max_retries,
-            }) = config.consolidation.clone()
-            else {
+            let Some(provider) = config.consolidation.clone() else {
                 anyhow::bail!(
                     "no consolidation provider is configured, so there is nothing to draft the                      merge with. `brain revise` without --propose still lists the candidates"
                 );
             };
-            let provider = brain_context::GlmClient::new(brain_context::GlmConfig {
-                endpoint,
-                model,
-                api_key_env,
-                timeout: std::time::Duration::from_millis(timeout_ms),
-                max_retries,
-            })?;
+            let provider = provider.client()?;
             // `main` is synchronous — the CLI is otherwise entirely blocking, and making it async
             // to serve one command would put a reactor under every other one. A current-thread
             // runtime here is the smaller change.

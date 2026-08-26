@@ -95,9 +95,8 @@ pub struct ValidatedBatch {
 /// Validate a proposed batch, keeping the memories that hold up.
 ///
 /// Rejection is **per memory**, not per batch. A provider that returns six sound memories and
-/// one citing an invented event id previously lost all seven, and because the request is made
-/// at `temperature: 0` the retry produced the identical output — so the job burned its five
-/// attempts and dead-lettered, discarding work that was never in question.
+/// one citing an invented event id previously lost all seven. Retrying the whole batch burned the
+/// job's attempts and dead-lettered, discarding work that was never in question.
 ///
 /// The integrity rules are unchanged and still absolute: a memory citing evidence outside its
 /// packet, or proposing a global preference, never becomes a record. It is only the blast

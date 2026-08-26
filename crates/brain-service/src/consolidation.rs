@@ -2,12 +2,15 @@ use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use anyhow::Result;
-use brain_context::{ConsolidationLlm, EvidencePacket, RedactedEvidence, validate_proposed_batch};
+use brain_context::{
+    ConsolidationLlm, EvidencePacket, LlmAvailabilityError, RedactedEvidence,
+    validate_proposed_batch,
+};
 use brain_store::{ConsolidationJob, EventLedger, JobStatus, RedactionManifestEntry, StoredEvent};
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
-use crate::{ConsolidationProviderConfig, ServiceLaunchConfig};
+use crate::ServiceLaunchConfig;
 
 /// How many provider calls may be in flight across all projects at once.
 ///
@@ -45,8 +48,7 @@ pub enum WorkerOutcome {
     SimulatedCrash(uuid::Uuid),
     /// The provider was unavailable — rate limited, timed out, unreachable.
     ///
-    /// Deliberately not a failure. The job is untouched: its lease is left to expire so it
-    /// returns to the queue without consuming an attempt.
+    /// Deliberately not a failure. The job is returned to pending without consuming an attempt.
     ProviderUnavailable(uuid::Uuid),
 }
 
@@ -57,13 +59,26 @@ pub enum WorkerOutcome {
 /// a job dead-letters permanently. A rate limit lasting hours would therefore destroy every
 /// job attempted during it, none of which was ever the problem.
 ///
-/// Matching on message text is unlovely, but the alternative is threading a typed error through
-/// a trait that any provider may implement, and a provider that words its outage differently
-/// simply falls back to the old behaviour rather than misclassifying a real defect as transient.
 fn provider_unavailable(error: &anyhow::Error) -> bool {
+    if error
+        .chain()
+        .any(|cause| cause.downcast_ref::<LlmAvailabilityError>().is_some())
+    {
+        return true;
+    }
+    // Provider implementations outside `LlmClient` cannot return its concrete error, so retain a
+    // conservative compatibility fallback. These are transport, quota and credential failures;
+    // none describe the evidence packet.
     let text = format!("{error:#}").to_lowercase();
     [
         "429",
+        "http status 5",
+        "http status 408",
+        "http status 425",
+        "http status 401",
+        "http status 403",
+        "api key environment variable",
+        "api key is empty",
         "rate limit",
         "too many requests",
         "quota",
@@ -126,9 +141,14 @@ impl ConsolidationWorker {
                 Err(error) => return self.fail(ledger, &job, &format!("{error:#}"), now),
             },
             Err(error) if provider_unavailable(&error) => {
-                // Leave the job exactly as it was. Its lease expires on its own, returning it
-                // to the queue with its attempt count intact, so an outage costs time rather
-                // than evidence.
+                // Leasing increments the attempt. Explicit deferral reverses that increment and
+                // retains the error for diagnosis, so an outage costs time rather than evidence.
+                ledger.defer_consolidation_job(
+                    job.id,
+                    &self.worker_id,
+                    &format!("{error:#}"),
+                    now + self.lease_duration,
+                )?;
                 tracing::warn!(
                     job = %job.id,
                     attempt = job.attempt,
@@ -140,8 +160,8 @@ impl ConsolidationWorker {
             Err(error) => return self.fail(ledger, &job, &format!("{error:#}"), now),
         };
         if !validated.rejected.is_empty() {
-            // Surfaced, not retried. The request is made at `temperature: 0`, so a retry
-            // reproduces the same rejected proposal and spends another call to fail identically.
+            // Surfaced, not retried. Retrying a structurally valid batch because one proposal is
+            // rejected spends another call and risks discarding the valid proposals with it.
             // What is worth knowing is which memories were dropped and why.
             tracing::warn!(
                 job = %job.id,
@@ -228,21 +248,7 @@ pub async fn run_configured_consolidation_with_pressure(
         }
         return Ok(());
     };
-    let llm: std::sync::Arc<dyn ConsolidationLlm> = match provider {
-        ConsolidationProviderConfig::Glm {
-            endpoint,
-            model,
-            api_key_env,
-            timeout_ms,
-            max_retries,
-        } => std::sync::Arc::new(brain_context::GlmClient::new(brain_context::GlmConfig {
-            endpoint,
-            model,
-            api_key_env,
-            timeout: std::time::Duration::from_millis(timeout_ms),
-            max_retries,
-        })?),
-    };
+    let llm: std::sync::Arc<dyn ConsolidationLlm> = std::sync::Arc::new(provider.client()?);
     let worker = std::sync::Arc::new(
         ConsolidationWorker::new(
             format!("service-{}", std::process::id()),
@@ -659,7 +665,29 @@ mod concurrency_tests {
 
 #[cfg(test)]
 mod outage_tests {
+    use brain_context::LlmAvailabilityError;
+
     use super::provider_unavailable;
+
+    #[test]
+    fn typed_llm_availability_errors_survive_context_wrapping() {
+        let errors = [
+            anyhow::Error::new(LlmAvailabilityError::CredentialUnavailable {
+                variable: "LLM_API_KEY".to_owned(),
+            })
+            .context("build consolidation proposal"),
+            anyhow::Error::new(LlmAvailabilityError::Transport {
+                message: "response body failed".to_owned(),
+            })
+            .context("build consolidation proposal"),
+        ];
+        for error in errors {
+            assert!(
+                provider_unavailable(&error),
+                "typed availability error should defer the job: {error:#}"
+            );
+        }
+    }
 
     #[test]
     fn a_rate_limit_is_an_outage_not_a_bad_job() {
@@ -667,10 +695,13 @@ mod outage_tests {
         // limit lasting hours would dead-letter every job it touched, none of which was ever
         // the problem.
         for text in [
-            "GLM request failed with HTTP status 429 Too Many Requests",
-            "GLM request failed: operation timed out",
+            "LLM request failed with HTTP status 429 Too Many Requests",
+            "LLM request failed: operation timed out",
             "error sending request: tcp connect error",
-            "GLM request failed with HTTP status 503 Service Unavailable",
+            "LLM request failed with HTTP status 503 Service Unavailable",
+            "LLM request failed with HTTP status 500 Internal Server Error",
+            "LLM request failed with HTTP status 401 Unauthorized",
+            "LLM API key environment variable LLM_API_KEY is unavailable",
             "quota exceeded for this window",
         ] {
             assert!(
@@ -685,10 +716,9 @@ mod outage_tests {
         // The opposite mistake would be worse: a job that can never succeed would retry
         // forever, holding a slot and spending a provider call every time.
         for text in [
-            "GLM message content does not match the proposed-memory schema",
+            "LLM message content does not match the proposed-memory schema",
             "unknown evidence ID 019fcd91 in provider output",
             "provider proposed more than 32 memories",
-            "GLM API key is empty",
         ] {
             assert!(
                 !provider_unavailable(&anyhow::anyhow!("{text}")),
