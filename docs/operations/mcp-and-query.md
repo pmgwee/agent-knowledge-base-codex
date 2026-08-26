@@ -70,8 +70,8 @@ are RFC3339 values such as `2026-08-02T12:00:00Z`.
 
 ## Failure behavior
 
-Canonical retrieval is SQLite FTS5 and does not depend on GLM, Basic Memory,
-Obsidian, CodeGraph, or LLM Wiki. If any optional process is unavailable, MCP
+Canonical retrieval is SQLite FTS5 and does not depend on the consolidation
+provider, Basic Memory, Obsidian, CodeGraph, or LLM Wiki. If any optional process is unavailable, MCP
 search, timeline, checkpoint, evidence, correction, and status continue from the
 per-project ledger. `optional_provider_state: canonical_fts_only` is explicit in
 retrieval results.

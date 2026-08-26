@@ -10,3 +10,8 @@
 
 # Cygwin/MSYS crash dumps — an artefact of the shell, never source
 *.stackdump
+
+# Real environment files — secrets. `.env.example` is the tracked placeholder.
+.env
+.env.*
+!.env.example

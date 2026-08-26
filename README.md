@@ -64,6 +64,29 @@ Building is not shipping.
 The `deployment` section of that output answers whether what is installed matches the source.
 Full detail in [CLAUDE.md](CLAUDE.md).
 
+## Configuration and secrets
+
+Everything the brain does by itself — capture, SQLite evidence, retrieval, the startup
+orientation — needs no credentials and no network. Only **consolidation**, which proposes
+curated memory from redacted evidence, calls a provider.
+
+That provider is **GPT‑5.6 Luna through OpenCode Go**, reached over the OpenAI Responses API by
+a single adapter, `crates/brain-context/src/llm_client.rs`. Nothing above that file names a
+vendor, so changing provider is a configuration edit.
+
+| Variable | Value | Notes |
+|---|---|---|
+| `LLM_API_KEY` | *the key* | Set it in the environment of whatever runs `brain-service.exe`. Never committed, never logged, never printed. |
+| `LLM_BASE_URL` | `https://opencode.ai/zen/go/v1` | Prefer the API **root**. A complete `/responses` endpoint is also accepted exactly once. |
+| `LLM_MODEL` | `gpt-5.6-luna` | |
+
+`.env.example` holds these as placeholders; real `.env*` files are git-ignored. `LLM_BASE_URL`
+and `LLM_MODEL` also have defaults in code, so a deployment on the standard endpoint needs only
+the key.
+
+Full reference, including the `service.json` block and what happens when the key is missing:
+[llm-configuration.md](docs/operations/llm-configuration.md).
+
 ## Where things live on disk
 
 | Path | Contents |
@@ -115,7 +138,7 @@ How to run, verify and recover the system.
 | [mcp-and-query.md](docs/operations/mcp-and-query.md) | MCP tools and shared query operations |
 | [codex-integration.md](docs/operations/codex-integration.md) | Codex lifecycle-hook integration |
 | [claude-walking-skeleton.md](docs/operations/claude-walking-skeleton.md) | Claude operator verification walkthrough |
-| [glm-configuration.md](docs/operations/glm-configuration.md) | Configuring the consolidation provider |
+| [llm-configuration.md](docs/operations/llm-configuration.md) | Configuring the consolidation provider (GPT‑5.6 Luna via OpenCode Go) |
 | [codegraph-provider.md](docs/operations/codegraph-provider.md) | The CodeGraph provider — note it now ships as its own MCP instead |
 | [llm-wiki-provider.md](docs/operations/llm-wiki-provider.md) | The LLM Wiki provider — deliberately not enabled; see roadmap Part 5 |
 | [obsidian-basic-memory.md](docs/operations/obsidian-basic-memory.md) | Obsidian and Basic Memory operations |

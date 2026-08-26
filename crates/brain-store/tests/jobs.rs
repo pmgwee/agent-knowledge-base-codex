@@ -47,6 +47,38 @@ fn jobs_are_idempotent_leased_and_dead_lettered_after_five_failures() {
 }
 
 #[test]
+fn deferring_a_provider_outage_does_not_consume_an_attempt() {
+    let project = ProjectId(uuid::Uuid::now_v7());
+    let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");
+    let event = append_event(&mut ledger, project, 1);
+    let job = ledger
+        .enqueue_consolidation_job(event, event, ConsolidationReason::Inactivity)
+        .expect("enqueue job");
+    let now = job.available_at;
+    let leased = ledger
+        .lease_consolidation_job("worker", now, time::Duration::seconds(10))
+        .expect("lease job")
+        .expect("job available");
+    assert_eq!(leased.attempt, 1);
+
+    ledger
+        .defer_consolidation_job(
+            job.id,
+            "worker",
+            "provider unavailable",
+            now + time::Duration::seconds(10),
+        )
+        .expect("defer outage");
+    let deferred = ledger
+        .consolidation_job(job.id)
+        .expect("read job")
+        .expect("job exists");
+    assert_eq!(deferred.status, JobStatus::Pending);
+    assert_eq!(deferred.attempt, 0, "the outage must not age the job");
+    assert_eq!(deferred.last_error.as_deref(), Some("provider unavailable"));
+}
+
+#[test]
 fn threshold_and_inactivity_triggers_cover_only_unqueued_ranges() {
     let project = ProjectId(uuid::Uuid::now_v7());
     let mut ledger = EventLedger::open_in_memory(project).expect("open ledger");

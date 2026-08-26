@@ -476,6 +476,37 @@ impl EventLedger {
         Ok(())
     }
 
+    /// Return a leased job to the queue after a provider/configuration outage without charging
+    /// the evidence packet for an attempt it could never make successfully.
+    pub fn defer_consolidation_job(
+        &mut self,
+        job_id: uuid::Uuid,
+        worker: &str,
+        error: &str,
+        available_at: time::OffsetDateTime,
+    ) -> Result<()> {
+        let updated = self.connection.execute(
+            r#"
+            UPDATE consolidation_jobs SET
+                status = 'pending', attempt = MAX(attempt - 1, 0),
+                available_at_ns = ?3, lease_owner = NULL, lease_until_ns = NULL,
+                last_error = ?4
+            WHERE job_id = ?1 AND lease_owner = ?2 AND status = 'leased'
+            "#,
+            params![
+                job_id.to_string(),
+                worker,
+                timestamp_ns(available_at)?,
+                bounded_error(error),
+            ],
+        )?;
+        ensure!(
+            updated == 1,
+            "consolidation job lease is not owned by {worker}"
+        );
+        Ok(())
+    }
+
     /// Return dead-lettered jobs to the queue, clearing their attempt count.
     ///
     /// **Deliberately manual, and deliberately not automatic.** A job dead-letters after five

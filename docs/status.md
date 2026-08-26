@@ -126,8 +126,9 @@ which did not exist: the digest had reported the count for weeks and nothing cou
 Both figures moved once the drain completed. The subject pages became **150** to regenerate, because
 `subject_synthesis` returns `None` the moment a memory set changes and this project went from 632 to
 7,799 current memories — which is what holding them back was for. And the dead-letter count is **7**,
-none of them retryable: five are GLM emitting malformed UUIDs, which `temperature: 0` reproduces
-exactly, and two are `version_id` collisions on retry, which is ours.
+none of them retryable: five are the retired GLM provider emitting malformed UUIDs, which its
+`temperature: 0` requests reproduced exactly, and two are `version_id` collisions on retry, which
+is ours.
 
 **A8b also produced the finding that matters more than the feature.** The merges were well-formed,
 well-cited, correctly shortened — and *confidently false*, because the claims they merged were.

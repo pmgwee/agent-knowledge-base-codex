@@ -4,9 +4,9 @@ mod authority;
 mod citations;
 mod codegraph;
 mod compiler;
-mod glm;
 mod live_state;
 mod llm;
+mod llm_client;
 mod llm_wiki;
 mod merge;
 mod providers;
@@ -24,11 +24,13 @@ pub use codegraph::{
     codegraph_activation_decision,
 };
 pub use compiler::{CompiledContext, ContextCompiler, ContextEvidence};
-pub use glm::{GlmClient, GlmConfig, parse_glm_chat_response};
 pub use live_state::LiveState;
 pub use llm::{
     ConsolidationLlm, EvidencePacket, ProposedMemory, ProposedMemoryBatch, RedactedEvidence,
     ValidatedBatch, truncate_for_error, validate_proposed_batch,
+};
+pub use llm_client::{
+    LlmAvailabilityError, LlmClient, LlmConfig, parse_llm_response, responses_url,
 };
 pub use llm_wiki::{LlmWikiProvider, LlmWikiSourceStatus, validate_llm_wiki_vault};
 pub use merge::{
